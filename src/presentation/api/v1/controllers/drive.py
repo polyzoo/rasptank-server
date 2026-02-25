@@ -19,7 +19,7 @@ async def drive_forward(
     return
 
 
-@router.post("/stop", description="Оостановка машинки")
+@router.post("/stop", description="Остановка машинки")
 async def drive_stop(
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
 ) -> None:

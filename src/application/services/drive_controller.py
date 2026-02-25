@@ -1,3 +1,4 @@
+import logging
 import time
 from typing import Optional, final
 from threading import Thread, Event
@@ -7,6 +8,9 @@ from src.application.protocols import (
     MotorControllerProtocol,
     UltrasonicSensorProtocol,
 )
+
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 @final
@@ -159,7 +163,7 @@ class DriveController(DriveControllerProtocol):
                     time.sleep(self.update_interval_sec)
                     continue
 
-                self.motor_controller.move_forward(speed=int(current_speed))
+                self.motor_controller.move_forward(speed_percent=int(current_speed))
                 self._traveled_distance_cm += self._estimate_traveled_distance(
                     speed_percent=current_speed,
                     time_interval=self.update_interval_sec,
@@ -167,8 +171,8 @@ class DriveController(DriveControllerProtocol):
 
                 time.sleep(self.update_interval_sec)
 
-        except Exception as e:
-            print(f"Ошибка в автономном движении: {e}")
+        except Exception as exc:
+            logger.exception("Ошибка в автономном движении: %s", exc)
 
         finally:
             self.motor_controller.stop()

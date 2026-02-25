@@ -11,7 +11,7 @@ class ForwardRequestSchema(BaseModel):
         ge=0,
         description="Целевое расстояние в сантиметрах, которое машинка должна пройти вперёд.",
     )
-    max_speed_percent: Optional[float] = Field(
+    max_speed_percent: Optional[int] = Field(
         default=None,
         ge=0,
         le=100,
