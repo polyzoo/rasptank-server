@@ -1,8 +1,6 @@
 from typing import final
 
-from pydantic import Field
-from pydantic_settings import BaseSettings
-
+from pydantic import BaseSettings, Field
 
 @final
 class Settings(BaseSettings):
