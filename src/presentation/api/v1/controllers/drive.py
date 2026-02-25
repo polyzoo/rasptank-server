@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends
 
 from src.application.protocols import DriveControllerProtocol
 from src.presentation.api.dependencies import get_drive_controller
@@ -9,11 +9,7 @@ from src.presentation.api.v1.schemas.drive import ForwardRequestSchema
 router: APIRouter = APIRouter()
 
 
-@router.post(
-    path="/forward",
-    status_code=status.HTTP_204_NO_CONTENT,
-    description="Запуск машинки вперёд на заданное расстояние с ограничением скорости",
-)
+@router.post("/forward", description="Запуск машинки вперёд")
 async def drive_forward(
     body: ForwardRequestSchema,
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
@@ -23,11 +19,7 @@ async def drive_forward(
     return
 
 
-@router.post(
-    path="/stop",
-    status_code=status.HTTP_204_NO_CONTENT,
-    description="Немедленная остановка машинки",
-)
+@router.post("/stop", description="Оостановка машинки")
 async def drive_stop(
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
 ) -> None:

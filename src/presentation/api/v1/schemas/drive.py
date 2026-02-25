@@ -1,13 +1,19 @@
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
 class ForwardRequestSchema(BaseModel):
-    """Схема запроса для задания движения машинке."""
+    """Схема запроса для задания движения машинки вперёд."""
 
-    distance_cm: float = Field(..., ge=0, description="Целевое расстояние в сантиметрах")
-    max_speed_percent: float | None = Field(
+    distance_cm: float = Field(
+        ...,
+        ge=0,
+        description="Целевое расстояние в сантиметрах, которое машинка должна пройти вперёд.",
+    )
+    max_speed_percent: Optional[float] = Field(
         default=None,
         ge=0,
         le=100,
-        description="Процент максимальной скорости",
+        description="Ограничение максимальной скорости в процентах (0–100).",
     )
