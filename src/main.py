@@ -4,7 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import uvicorn
 
+from src.application.services.drive_controller import DriveController
 from src.config.settings import Settings
+from src.infrastructures.motor import MotorController
+from src.infrastructures.ultrasonic import UltrasonicSensor
 from src.presentation.api.exception_handlers import setup_exception_handlers
 from src.presentation.api.v1.routers import router as v1_router
 
@@ -25,10 +28,19 @@ def create_app(settings: Settings) -> FastAPI:
         docs_url="/docs",
     )
 
-    # TODO: внедрить контроллеры, реализующие протоколы из src.application.protocols
-    app.state.health_controller = None
-    app.state.drive_controller = None
+    motor_controller: MotorController = MotorController()
+    ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
+    drive_controller: DriveController = DriveController(
+        motor_controller=motor_controller,
+        ultrasonic_sensor=ultrasonic_sensor,
+        min_obstacle_distance_cm=20.0,
+        deceleration_distance_cm=50.0,
+        base_speed_percent=60,
+        update_interval_sec=0.1,
+    )
+
     app.state.settings = settings
+    app.state.drive_controller = drive_controller
 
     setup_exception_handlers(app)
 
