@@ -1,5 +1,5 @@
 import time
-from typing import Optional
+from typing import Optional, final
 from threading import Thread, Event
 
 from src.application.protocols import (
@@ -9,6 +9,7 @@ from src.application.protocols import (
 )
 
 
+@final
 class DriveController(DriveControllerProtocol):
     """Контроллер для управления движением машинки."""
 
