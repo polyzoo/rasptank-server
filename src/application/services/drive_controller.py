@@ -1,7 +1,7 @@
 import logging
 import time
+from threading import Event, Thread
 from typing import Optional, final
-from threading import Thread, Event
 
 from src.application.protocols import (
     DriveControllerProtocol,
@@ -9,15 +9,14 @@ from src.application.protocols import (
     UltrasonicSensorProtocol,
 )
 
-
 logger: logging.Logger = logging.getLogger(__name__)
 
 
 @final
 class DriveController(DriveControllerProtocol):
-    """Контроллер для управления движением машинки."""
+    """Контроллер движения с учетом препятствий и целевой дистанции."""
 
-    # Примерная линейная скорость машинки при 100% мощности (см/с)
+    # Линейная скорость при 100% мощности (см/с), для оценки пройденного пути
     MAX_SPEED_CM_PER_SEC: float = 30.0
 
     def __init__(
@@ -31,18 +30,13 @@ class DriveController(DriveControllerProtocol):
     ) -> None:
         """Инициализация контроллера движения.
 
-        Контроллер использует `motor_controller` для низкоуровневого управления моторами
-        и `ultrasonic_sensor` для получения расстояния до препятствий.
-
-        Порог `min_obstacle_distance_cm` определяет дистанцию, при которой движение считается
-        небезопасным и скорость принудительно падает до нуля, а `deceleration_distance_cm`
-        задаёт зону, в которой скорость плавно уменьшается по мере приближения к препятствию
-        или к целевому расстоянию.
-
-        Параметр `base_speed_percent` задаёт базовую скорость (в процентах от максимальной),
-        если для команды не указано отдельное ограничение, а `update_interval_sec` определяет,
-        как часто контроллер обновляет измерения датчика, пересчитывает скорость и оценивает
-        пройденный путь.
+        Args:
+            motor_controller: Низкоуровневое управление моторами.
+            ultrasonic_sensor: Датчик расстояния до препятствий.
+            min_obstacle_distance_cm: Дистанция остановки (см). Ниже — скорость 0.
+            deceleration_distance_cm: Зона торможения по препятствию (см).
+            base_speed_percent: Базовая скорость (%), если 'max_speed' не задан.
+            update_interval_sec: Интервал опроса датчика и пересчета скорости (с).
         """
         self.motor_controller: MotorControllerProtocol = motor_controller
         self.ultrasonic_sensor: UltrasonicSensorProtocol = ultrasonic_sensor
@@ -59,13 +53,14 @@ class DriveController(DriveControllerProtocol):
         self._stop_event: Event = Event()
 
     def forward_cm(self, distance_cm: float, max_speed_percent: Optional[int] = None) -> None:
-        """Движение машинки вперёд на заданное расстояние с ограничением скорости.
+        """Запуск движения вперед на заданное расстояние.
 
-        Метод не блокирует вызывающий поток: фактическое движение выполняется в отдельном
-        daemon-потоке. При этом: если предыдущее движение ещё не завершилось, оно принудительно
-        останавливается через метод `stop`; внутреннее состояние контроллера сбрасывается и
-        подготавливается к новому запуску; целевое расстояние и максимально допустимая скорость
-        сохраняются во внутреннем состоянии.
+        Не блокирует: движение выполняется в daemon-потоке. При уже идущем движении
+        предыдущее останавливается и запускается новое.
+
+        Args:
+            distance_cm: Целевое расстояние в сантиметрах.
+            max_speed_percent: Ограничение скорости (0 – 100).
         """
         if self._is_moving:
             self.stop()
@@ -80,11 +75,9 @@ class DriveController(DriveControllerProtocol):
         self._movement_thread.start()
 
     def stop(self) -> None:
-        """Немедленная остановка машинки.
+        """Немедленная остановка движения.
 
-        Сигнализирует служебному потоку автономного движения о необходимости завершиться и
-        вызывает метод `motor_controller.stop` для немедленной остановки моторов. При
-        необходимости дожидается завершения потока с тайм-аутом.
+        Останавливает моторы и ждет завершения потока автономного движения (до 1 с).
         """
         self._is_moving: bool = False
         self._stop_event.set()
@@ -95,18 +88,20 @@ class DriveController(DriveControllerProtocol):
 
         self._movement_thread: Optional[Thread] = None
 
+    def destroy(self) -> None:
+        """Освобождение ресурсов: остановка движения, моторов и датчика."""
+        self.stop()
+        self.motor_controller.destroy()
+        self.ultrasonic_sensor.destroy()
+
     def _calculate_speed(self, obstacle_distance_cm: float, remaining_distance_cm: float) -> float:
-        """Вычисление скорости с учётом препятствий и оставшейся дистанции до цели.
+        """Скорость с учетом препятствий и оставшейся дистанции.
 
-        Сначала скорость ограничивается по расстоянию до ближайшего препятствия: если объект
-        расположен ближе или на пороге `min_obstacle_distance_cm`, функция возвращает 0, в
-        диапазоне от `min_obstacle_distance_cm` до `deceleration_distance_cm` скорость линейно
-        уменьшается от `_max_speed_percent` до нуля, а при большем расстоянии принимается равной
-        `_max_speed_percent`.
+        По препятствию: 0 при 'distance' <= 'min', линейный рост до 'max' в зоне торможения.
+        По цели: дополнительное снижение в зоне торможения (не ниже 10%).
 
-        Затем, если оставшаяся дистанция до цели `remaining_distance_cm`, внутри зоны торможения
-        по цели дополнительно снижается скорость пропорционально оставшемуся пути (но не ниже
-        10% от текущего значения), что позволяет плавно остановиться у заданной точки.
+        Returns:
+            Скорость в процентах (0–100).
         """
         if obstacle_distance_cm <= self.min_obstacle_distance_cm:
             return 0.0
@@ -124,26 +119,21 @@ class DriveController(DriveControllerProtocol):
         return max(0.0, speed)
 
     def _estimate_traveled_distance(self, speed_percent: float, time_interval: float) -> float:
-        """Оценка пройденного расстояния за заданный интервал времени.
+        """Оценка пройденного расстояния за интервал.
 
-        Использует упрощённую кинематическую модель, предполагающую, что при скорости 100%
-        машинка проходит примерно `MAX_SPEED_CM_PER_SEC` сантиметров в секунду, и на основе
-        текущего процента скорости и длительности интервала времени возвращает примерное
-        пройденное расстояние; точность оценки зависит от калибровки константы
-        `MAX_SPEED_CM_PER_SEC` и не учитывает проскальзывания, уклоны и другие внешние факторы.
+        Модель: при 100% скорость 'MAX_SPEED_CM_PER_SEC' см/с. Не учитывает
+        проскальзывание и уклон.
+
+        Returns:
+            Оценочное расстояние в сантиметрах.
         """
         return self.MAX_SPEED_CM_PER_SEC * (speed_percent / 100.0) * time_interval
 
     def _autonomous_movement(self) -> None:
-        """Цикл автономного движения вперёд с контролем препятствий и целевой дистанции.
+        """Цикл движения в daemon-потоке.
 
-        Выполняется в отдельном daemon-потоке: на каждой итерации считывает расстояние до
-        препятствия и оставшуюся до цели дистанцию, по этим данным рассчитывает безопасную
-        скорость, при нулевой скорости останавливает моторы и делает паузу, при положительной —
-        задаёт движение вперёд и обновляет оценку пройденного пути; цикл продолжается, пока
-        движение активно и не запрошена остановка, при любой ошибке или завершении работы в
-        блоке `finally` гарантированно останавливает моторы и помечает контроллер как
-        недвижущийся.
+        На каждой итерации: измерение расстояния, расчет скорости, управление моторами.
+        В finally всегда останавливает моторы.
         """
         try:
             while self._is_moving and not self._stop_event.is_set():
@@ -171,7 +161,7 @@ class DriveController(DriveControllerProtocol):
 
                 time.sleep(self.update_interval_sec)
 
-        except Exception as exc:
+        except (OSError, RuntimeError, ConnectionError, ValueError) as exc:
             logger.exception("Ошибка в автономном движении: %s", exc)
 
         finally:

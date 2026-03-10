@@ -14,14 +14,9 @@ from argparse import ArgumentParser, Action, Namespace
 from typing import Callable, Dict, Optional
 
 from src.application.services.drive_controller import DriveController
+from src.config.settings import Settings
 from src.infrastructures.motor import MotorController
 from src.infrastructures.ultrasonic import UltrasonicSensor
-
-# Константы конфигурации движения
-MIN_OBSTACLE_DISTANCE_CM: float = 20.0
-DECELERATION_DISTANCE_CM: float = 50.0
-BASE_SPEED_PERCENT: int = 60
-UPDATE_INTERVAL_SEC: float = 0.1
 
 # Константы валидации и поведения
 DISTANCE_MIN_CM: float = 0.0
@@ -69,17 +64,17 @@ def build_parser() -> ArgumentParser:
     return parser
 
 
-def create_drive_controller() -> DriveController:
+def create_drive_controller(settings: Settings) -> DriveController:
     """Создаёт и настраивает экземпляр контроллера движения."""
     motor_controller: MotorController = MotorController()
     ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
     return DriveController(
         motor_controller=motor_controller,
         ultrasonic_sensor=ultrasonic_sensor,
-        min_obstacle_distance_cm=MIN_OBSTACLE_DISTANCE_CM,
-        deceleration_distance_cm=DECELERATION_DISTANCE_CM,
-        base_speed_percent=BASE_SPEED_PERCENT,
-        update_interval_sec=UPDATE_INTERVAL_SEC,
+        min_obstacle_distance_cm=settings.min_obstacle_distance_cm,
+        deceleration_distance_cm=settings.deceleration_distance_cm,
+        base_speed_percent=settings.base_speed_percent,
+        update_interval_sec=settings.update_interval_sec,
     )
 
 
@@ -92,7 +87,7 @@ def validate_forward_args(args: Namespace) -> bool:
     speed_percent: Optional[int] = args.max_speed_percent
 
     if speed_percent is not None and not (SPEED_MIN_PERCENT <= speed_percent <= SPEED_MAX_PERCENT):
-        print(f"Ошибка: скорость должна не соответствует диапазону.", file=sys.stderr)
+        print("Ошибка: скорость должна соответствовать диапазону.", file=sys.stderr)
         return False
 
     return True
@@ -129,7 +124,8 @@ def main() -> int:
     parser: ArgumentParser = build_parser()
     args: Namespace = parser.parse_args()
 
-    drive_controller: DriveController = create_drive_controller()
+    settings: Settings = Settings()
+    drive_controller: DriveController = create_drive_controller(settings=settings)
 
     handlers: Dict[str, Handler] = {
         "forward": handle_forward,
@@ -145,8 +141,9 @@ def main() -> int:
         return handler(args, drive_controller)
     except KeyboardInterrupt:
         print("\nПрервано пользователем.", file=sys.stderr)
-        drive_controller.stop()
         return EXIT_FAILURE
+    finally:
+        drive_controller.destroy()
 
 
 if __name__ == "__main__":

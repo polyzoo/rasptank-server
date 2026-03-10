@@ -1,10 +1,10 @@
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 
 def setup_exception_handlers(app: FastAPI) -> None:
-    """Конфигурация обработчиков для исключений."""
+    """Регистрирует обработчики исключений."""
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(

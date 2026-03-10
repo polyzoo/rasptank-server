@@ -1,34 +1,46 @@
 from abc import abstractmethod
-from typing import Protocol, Optional
+from typing import Optional, Protocol
 
 
 class MotorControllerProtocol(Protocol):
-    """Протокол для абстракции управления двигателями машинки."""
+    """Протокол низкоуровневого управления двигателями."""
 
     @abstractmethod
     def move_forward(self, speed_percent: int) -> None:
-        """Движение машинки вперед с заданной скоростью."""
+        """Движение вперед с заданной скоростью."""
 
     @abstractmethod
     def stop(self) -> None:
         """Немедленная остановка обоих двигателей."""
 
+    @abstractmethod
+    def destroy(self) -> None:
+        """Освобождение ресурсов."""
+
 
 class UltrasonicSensorProtocol(Protocol):
-    """Протокол для работы с ультразвуковым датчиком расстояния машинки."""
+    """Протокол ультразвукового датчика расстояния HC-SR04."""
 
     @abstractmethod
     def measure_distance_cm(self) -> float:
-        """Выполнение измерения и получение расстояния до препятствия в сантиметрах."""
+        """Измерение расстояния до препятствия."""
+
+    @abstractmethod
+    def destroy(self) -> None:
+        """Освобождение ресурсов."""
 
 
 class DriveControllerProtocol(Protocol):
-    """Протокол для управления движением машинки на высоком уровне."""
+    """Протокол высокоуровневого управления движением."""
 
     @abstractmethod
     def forward_cm(self, distance_cm: float, max_speed_percent: Optional[int] = None) -> None:
-        """Движение машинки вперёд на заданное расстояние с ограничением скорости."""
+        """Движение вперед на заданное расстояние."""
 
     @abstractmethod
     def stop(self) -> None:
-        """Немедленная остановка движения машинки."""
+        """Немедленная остановка движения."""
+
+    @abstractmethod
+    def destroy(self) -> None:
+        """Освобождение ресурсов."""

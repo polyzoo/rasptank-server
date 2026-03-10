@@ -1,8 +1,8 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
 import uvicorn
+from fastapi import FastAPI
 
 from src.application.services.drive_controller import DriveController
 from src.config.settings import Settings
@@ -13,17 +13,19 @@ from src.presentation.api.v1.routers import router as v1_router
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Контекстный менеджер для управления жизненным циклом приложения."""
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Управление жизненным циклом приложения."""
     yield
+    drive_controller: DriveController = app.state.drive_controller
+    drive_controller.destroy()
 
 
 def create_app(settings: Settings) -> FastAPI:
-    """Создание и настройка приложения."""
+    """Создание FastAPI-приложения."""
     app: FastAPI = FastAPI(
         title="Server RaspTank",
         version="1.0.0",
-        description="Сервер для машины RaspTank.",
+        description="Сервис для работы с RaspTank.",
         lifespan=lifespan,
         docs_url="/docs",
     )
@@ -33,10 +35,10 @@ def create_app(settings: Settings) -> FastAPI:
     drive_controller: DriveController = DriveController(
         motor_controller=motor_controller,
         ultrasonic_sensor=ultrasonic_sensor,
-        min_obstacle_distance_cm=20.0,
-        deceleration_distance_cm=50.0,
-        base_speed_percent=60,
-        update_interval_sec=0.1,
+        min_obstacle_distance_cm=settings.min_obstacle_distance_cm,
+        deceleration_distance_cm=settings.deceleration_distance_cm,
+        base_speed_percent=settings.base_speed_percent,
+        update_interval_sec=settings.update_interval_sec,
     )
 
     app.state.settings = settings

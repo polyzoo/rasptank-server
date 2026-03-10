@@ -9,20 +9,20 @@ from src.presentation.api.v1.schemas.drive import ForwardRequestSchema
 router: APIRouter = APIRouter()
 
 
-@router.post("/forward", description="Запуск машинки вперёд")
+@router.post("/forward", description="Движение вперед")
 async def drive_forward(
     body: ForwardRequestSchema,
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
 ) -> None:
-    """Запуск машинки вперёд на заданное расстояние с ограничением скорости."""
+    """Запуск движения вперед."""
     drive.forward_cm(distance_cm=body.distance_cm, max_speed_percent=body.max_speed_percent)
     return
 
 
-@router.post("/stop", description="Остановка машинки")
+@router.post("/stop", description="Немедленная остановка")
 async def drive_stop(
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
 ) -> None:
-    """Немедленная остановка машинки."""
+    """Немедленная остановка движения."""
     drive.stop()
     return
