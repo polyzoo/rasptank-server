@@ -1,0 +1,17 @@
+{
+  "description": "Вперёд 50 см, поворот налево, вперёд 100 см. Препятствие на втором прямом участке.",
+  "segments": [
+    {
+      "action": "forward",
+      "distance_cm": 50
+    },
+    {
+      "action": "turn_left",
+      "duration_sec": 0.5
+    },
+    {
+      "action": "forward",
+      "distance_cm": 100
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "description": "Прямоугольник 150 × 80 см.",
+  "segments": [
+    {
+      "action": "forward",
+      "distance_cm": 150
+    },
+    {
+      "action": "turn_left",
+      "duration_sec": 0.5
+    },
+    {
+      "action": "forward",
+      "distance_cm": 80
+    },
+    {
+      "action": "turn_left",
+      "duration_sec": 0.5
+    },
+    {
+      "action": "forward",
+      "distance_cm": 150
+    },
+    {
+      "action": "turn_left",
+      "duration_sec": 0.5
+    },
+    {
+      "action": "forward",
+      "distance_cm": 80
+    }
+  ]
+}

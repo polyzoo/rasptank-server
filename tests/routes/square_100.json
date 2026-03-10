@@ -1,0 +1,33 @@
+{
+  "description": "Квадрат 100×100 см (4 стороны).",
+  "segments": [
+    {
+      "action": "forward",
+      "distance_cm": 100
+    },
+    {
+      "action": "turn_left",
+      "duration_sec": 0.5
+    },
+    {
+      "action": "forward",
+      "distance_cm": 100
+    },
+    {
+      "action": "turn_left",
+      "duration_sec": 0.5
+    },
+    {
+      "action": "forward",
+      "distance_cm": 100
+    },
+    {
+      "action": "turn_left",
+      "duration_sec": 0.5
+    },
+    {
+      "action": "forward",
+      "distance_cm": 100
+    }
+  ]
+}
