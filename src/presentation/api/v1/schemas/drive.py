@@ -1,19 +1,40 @@
-from typing import Optional
+from typing import Literal, Union, List
 
 from pydantic import BaseModel, Field
 
 
-class ForwardRequestSchema(BaseModel):
-    """Схема запроса для задания движения вперед."""
+class ForwardSegmentSchema(BaseModel):
+    """Сегмент движения вперед."""
 
-    distance_cm: float = Field(
+    action: Literal["forward"] = "forward"
+    distance_cm: float = Field(..., ge=0, description="Расстояние в сантиметрах.")
+
+
+class TurnLeftSegmentSchema(BaseModel):
+    """Сегмент поворота налево."""
+
+    action: Literal["turn_left"] = "turn_left"
+    duration_sec: float = Field(..., ge=0, description="Длительность поворота (с).")
+
+
+class TurnRightSegmentSchema(BaseModel):
+    """Сегмент поворота направо."""
+
+    action: Literal["turn_right"] = "turn_right"
+    duration_sec: float = Field(..., ge=0, description="Длительность поворота (с).")
+
+
+class RouteRequestSchema(BaseModel):
+    """Схема запроса для выполнения маршрута."""
+
+    segments: List[
+        Union[
+            ForwardSegmentSchema,
+            TurnLeftSegmentSchema,
+            TurnRightSegmentSchema,
+        ],
+    ] = Field(
         ...,
-        ge=0,
-        description="Целевое расстояние в сантиметрах.",
-    )
-    max_speed_percent: Optional[int] = Field(
-        default=None,
-        ge=0,
-        le=100,
-        description="Ограничение скорости (0 – 100). При отсутствии значения — базовая скорость.",
+        min_length=1,
+        description="Сегменты маршрута в порядке выполнения.",
     )
