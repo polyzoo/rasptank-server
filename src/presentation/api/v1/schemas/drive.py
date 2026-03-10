@@ -7,7 +7,7 @@ class ForwardSegmentSchema(BaseModel):
     """Сегмент движения вперед."""
 
     action: Literal["forward"] = "forward"
-    distance_cm: float = Field(..., ge=0, description="Расстояние в сантиметрах.")
+    distance_cm: float = Field(..., ge=0, description="Расстояние (см).")
 
 
 class TurnLeftSegmentSchema(BaseModel):
