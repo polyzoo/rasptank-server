@@ -66,9 +66,18 @@ class MotorController(MotorControllerProtocol):
     SPEED_PERCENT_MIN: int = 0
     SPEED_PERCENT_MAX: int = 100
     THROTTLE_STOP: float = 0.0
+    THROTTLE_MIN: float = 0.0
+    THROTTLE_MAX: float = 1.0
 
-    def __init__(self) -> None:
-        """Инициализация контроллера без обращения к железу."""
+    def __init__(self, tl_left_offset: int = 0, tl_right_offset: int = 0) -> None:
+        """Инициализация контроллера.
+
+        Args:
+            tl_left_offset: Смещение левого мотора (M2) для калибровки прямолинейности (%).
+            tl_right_offset: Смещение правого мотора (M1) для калибровки прямолинейности (%).
+        """
+        self.TL_LEFT_OFFSET: int = tl_left_offset
+        self.TL_RIGHT_OFFSET: int = tl_right_offset
         self._pwm_motor: Optional[PCA9685] = None
         self._motor1: Optional[DCMotor] = None
         self._motor2: Optional[DCMotor] = None
@@ -86,8 +95,59 @@ class MotorController(MotorControllerProtocol):
         clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
         throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
 
-        self._motor1.throttle = throttle * self.M1_DIRECTION
+        # Смещения для калибровки прямолинейности
+        left_speed: float = throttle + (self.TL_LEFT_OFFSET / float(self.SPEED_PERCENT_MAX))
+        right_speed: float = throttle + (self.TL_RIGHT_OFFSET / float(self.SPEED_PERCENT_MAX))
+        left_speed: float = max(self.THROTTLE_MIN, min(self.THROTTLE_MAX, left_speed))
+        right_speed: float = max(self.THROTTLE_MIN, min(self.THROTTLE_MAX, right_speed))
+
+        self._motor1.throttle = right_speed * self.M1_DIRECTION
+        self._motor2.throttle = left_speed * self.M2_DIRECTION
+
+    def move_backward(self, speed_percent: int) -> None:
+        """Движение назад с заданной скоростью."""
+        if not _HARDWARE_AVAILABLE:
+            return
+
+        self._setup()
+        if self._motor1 is None or self._motor2 is None:
+            return
+
+        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
+        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
+
+        self._motor1.throttle = -throttle * self.M1_DIRECTION
+        self._motor2.throttle = -throttle * self.M2_DIRECTION
+
+    def turn_left(self, speed_percent: int) -> None:
+        """Поворот налево на месте."""
+        if not _HARDWARE_AVAILABLE:
+            return
+
+        self._setup()
+        if self._motor1 is None or self._motor2 is None:
+            return
+
+        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
+        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
+
+        self._motor1.throttle = -throttle * self.M1_DIRECTION
         self._motor2.throttle = throttle * self.M2_DIRECTION
+
+    def turn_right(self, speed_percent: int) -> None:
+        """Поворот направо на месте."""
+        if not _HARDWARE_AVAILABLE:
+            return
+
+        self._setup()
+        if self._motor1 is None or self._motor2 is None:
+            return
+
+        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
+        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
+
+        self._motor1.throttle = throttle * self.M1_DIRECTION
+        self._motor2.throttle = -throttle * self.M2_DIRECTION
 
     def stop(self) -> None:
         """Немедленная остановка обоих двигателей."""
