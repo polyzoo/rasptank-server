@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 from abc import abstractmethod
-from typing import Optional, Protocol
+from typing import TYPE_CHECKING, Optional, Protocol
+
+if TYPE_CHECKING:
+    from src.application.models.route import Route
 
 
 class MotorControllerProtocol(Protocol):
@@ -8,6 +13,18 @@ class MotorControllerProtocol(Protocol):
     @abstractmethod
     def move_forward(self, speed_percent: int) -> None:
         """Движение вперед с заданной скоростью."""
+
+    @abstractmethod
+    def move_backward(self, speed_percent: int) -> None:
+        """Движение назад с заданной скоростью."""
+
+    @abstractmethod
+    def turn_left(self, speed_percent: int) -> None:
+        """Поворот налево на месте."""
+
+    @abstractmethod
+    def turn_right(self, speed_percent: int) -> None:
+        """Поворот направо на месте."""
 
     @abstractmethod
     def stop(self) -> None:
@@ -36,6 +53,10 @@ class DriveControllerProtocol(Protocol):
     @abstractmethod
     def forward_cm(self, distance_cm: float, max_speed_percent: Optional[int] = None) -> None:
         """Движение вперед на заданное расстояние."""
+
+    @abstractmethod
+    def execute_route(self, route: Route) -> None:
+        """Выполнение маршрута с учетом препятствий."""
 
     @abstractmethod
     def stop(self) -> None:
