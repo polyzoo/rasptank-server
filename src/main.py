@@ -30,14 +30,20 @@ def create_app(settings: Settings) -> FastAPI:
         docs_url="/docs",
     )
 
-    motor_controller: MotorController = MotorController()
     ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
+    motor_controller: MotorController = MotorController(
+        tl_left_offset=settings.tl_left_offset,
+        tl_right_offset=settings.tl_right_offset,
+    )
+
     drive_controller: DriveController = DriveController(
         motor_controller=motor_controller,
         ultrasonic_sensor=ultrasonic_sensor,
         min_obstacle_distance_cm=settings.min_obstacle_distance_cm,
         deceleration_distance_cm=settings.deceleration_distance_cm,
         base_speed_percent=settings.base_speed_percent,
+        turn_speed_percent=settings.turn_speed_percent,
+        max_speed_cm_per_sec=settings.max_speed_cm_per_sec,
         update_interval_sec=settings.update_interval_sec,
     )
 
