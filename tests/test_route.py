@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import time
 from pathlib import Path
 
 from src.application.models.route import Route
@@ -46,12 +45,8 @@ def run(route_file: Path) -> int:
 
     drive: DriveController = create_drive_controller()
     try:
-        drive.execute_route(route=route)
-        print("Маршрут запущен. Ожидание завершения...")
-
-        while drive.is_moving:
-            time.sleep(SLEEP_INTERVAL_SEC)
-        print("Остановка.")
+        drive.execute_route_sync(route=route)
+        print("Маршрут выполнен. Остановка.")
 
         if prompt_yes_no(PROMPT_RESULT):
             print("✓ Тест пройден.")

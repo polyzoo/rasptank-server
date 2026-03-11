@@ -27,14 +27,15 @@ def run(duration_sec: float = DEFAULT_DURATION_SEC) -> int:
 
     drive: DriveController = create_drive_controller()
     try:
-        drive.forward_cm(distance_cm=9999.0, max_speed_percent=100)
-        print(f"Движение {duration_sec} с. Ожидание...")
+        print(f"Движение {duration_sec} с на 100% скорости. Ожидание...")
 
         start: float = time.monotonic()
-        while drive.is_moving and (time.monotonic() - start) < duration_sec:
+        drive.motor_controller.move_forward(speed_percent=100)
+
+        while (time.monotonic() - start) < duration_sec:
             time.sleep(SLEEP_INTERVAL_SEC)
 
-        drive.stop()
+        drive.motor_controller.stop()
         elapsed: float = time.monotonic() - start
         print(f"Остановка. Время: {elapsed:.1f} с")
 

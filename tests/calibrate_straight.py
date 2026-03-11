@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import time
 
 from src.application.services.drive_controller import DriveController
 from tests.common import create_drive_controller, prompt_float, prompt_yes_no
@@ -37,12 +36,9 @@ def run(distance_cm: float = DEFAULT_DISTANCE_CM) -> int:
 
     drive: DriveController = create_drive_controller()
     try:
-        drive.forward_cm(distance_cm=distance_cm)
-
         print(f"Движение на {distance_cm} см. Ожидание...")
-        while drive.is_moving:
-            time.sleep(SLEEP_INTERVAL_SEC)
 
+        drive.forward_cm_sync(distance_cm=distance_cm)
         print("Остановка.")
 
         deviation_cm: float = prompt_float(

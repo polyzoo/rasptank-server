@@ -4,7 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from src.application.models.route import ForwardSegment, Route, TurnLeftSegment, TurnRightSegment
+from src.application.models.route import (
+    BackwardSegment,
+    ForwardSegment,
+    Route,
+    TurnLeftSegment,
+    TurnRightSegment,
+)
 from src.application.services.drive_controller import DriveController
 from src.config.settings import Settings
 from src.infrastructures.motor import MotorController
@@ -41,12 +47,15 @@ def parse_route_from_json(path: Path) -> Route:
     """Загрузка маршрута из JSON-файла."""
     data: dict[str, Any] = json.loads(path.read_text(encoding=ENCODING_UTF8))
 
-    segments: list[ForwardSegment | TurnLeftSegment | TurnRightSegment] = []
+    segments: list[ForwardSegment | BackwardSegment | TurnLeftSegment | TurnRightSegment] = []
     for s in data.get("segments", []):
         action: str = s.get("action")
 
         if action == "forward":
             segments.append(ForwardSegment(distance_cm=float(s["distance_cm"])))
+
+        elif action == "backward":
+            segments.append(BackwardSegment(distance_cm=float(s["distance_cm"])))
 
         elif action == "turn_left":
             segments.append(TurnLeftSegment(duration_sec=float(s["duration_sec"])))

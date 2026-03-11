@@ -2,10 +2,17 @@ from typing import Annotated, List
 
 from fastapi import APIRouter, Depends
 
-from src.application.models.route import ForwardSegment, Route, TurnLeftSegment, TurnRightSegment
+from src.application.models.route import (
+    BackwardSegment,
+    ForwardSegment,
+    Route,
+    TurnLeftSegment,
+    TurnRightSegment,
+)
 from src.application.protocols import DriveControllerProtocol
 from src.presentation.api.dependencies import get_drive_controller
 from src.presentation.api.v1.schemas.drive import (
+    BackwardSegmentSchema,
     ForwardSegmentSchema,
     RouteRequestSchema,
     TurnLeftSegmentSchema,
@@ -22,6 +29,9 @@ def _schema_to_route(body: RouteRequestSchema) -> Route:
     for s in body.segments:
         if isinstance(s, ForwardSegmentSchema):
             segments.append(ForwardSegment(distance_cm=s.distance_cm))
+
+        elif isinstance(s, BackwardSegmentSchema):
+            segments.append(BackwardSegment(distance_cm=s.distance_cm))
 
         elif isinstance(s, TurnLeftSegmentSchema):
             segments.append(TurnLeftSegment(duration_sec=s.duration_sec))
