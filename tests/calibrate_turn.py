@@ -57,7 +57,6 @@ def run(duration_sec: float = DEFAULT_DURATION_SEC) -> int:
         return 0
 
     finally:
-        drive.motor_controller.stop()
         drive.destroy()
 
 

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from src.application.models.route import Route
 from src.application.services.drive_controller import DriveController
+from src.config.settings import Settings
 from tests.common import create_drive_controller, parse_route_from_json, prompt_yes_no
 
 DESCRIPTION: str = "Выполнение маршрута"
@@ -15,11 +16,13 @@ ERROR_ROUTE_FILE: str = "Ошибка: файл не найден: {path}"
 ERROR_ROUTE_CALIBRATION: str = (
     "✗ Тест не пройден. Проверьте калибровку (TL_*, TURN_DURATION_90_DEG_SEC)"
 )
-USAGE_MESSAGE: str = "Использование: python -m tests.test_route <файл.json>"
-SLEEP_INTERVAL_SEC: float = 0.2
+USAGE_MESSAGE: str = "Использование: python -m tests.test_route <файл.json> [max_speed_percent]"
 
 
-def run(route_file: Path) -> int:
+def run(
+    route_file: Path,
+    max_speed_percent: int | None = None,
+) -> int:
     """Запуск теста выполнения маршрута."""
     print(f"\n=== {DESCRIPTION} ===\n")
     print(f"Маршрут: {route_file}")
@@ -35,6 +38,8 @@ def run(route_file: Path) -> int:
         return 1
 
     print(f"Сегментов: {len(route.segments)}")
+    if max_speed_percent is not None:
+        print(f"Ограничение скорости: {max_speed_percent}%.")
     print()
     print("Установите машинку в начальную точку.")
     print("Маршрут должен быть физически достижим.")
@@ -43,7 +48,10 @@ def run(route_file: Path) -> int:
     if not prompt_yes_no(PROMPT_START):
         return 0
 
-    drive: DriveController = create_drive_controller()
+    settings: Settings = Settings()
+    if max_speed_percent is not None:
+        settings = settings.model_copy(update={"base_speed_percent": max_speed_percent})
+    drive: DriveController = create_drive_controller(settings=settings)
     try:
         drive.execute_route_sync(route=route)
         print("Маршрут выполнен. Остановка.")
@@ -62,4 +70,6 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(USAGE_MESSAGE, file=sys.stderr)
         sys.exit(1)
-    sys.exit(run(route_file=Path(sys.argv[1])))
+    route_path: Path = Path(sys.argv[1])
+    speed: int | None = int(sys.argv[2]) if len(sys.argv) > 2 else None
+    sys.exit(run(route_file=route_path, max_speed_percent=speed))

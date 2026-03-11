@@ -8,7 +8,6 @@ from tests.common import create_drive_controller, prompt_yes_no
 DEFAULT_DISTANCE_CM: float = 200.0
 MIN_OBSTACLE_DISTANCE_CM: float = 20.0
 MIN_START_DISTANCE_CM: float = 50.0
-SLEEP_INTERVAL_SEC: float = 0.2
 DESCRIPTION: str = "Торможение перед препятствием"
 PROMPT_START: str = "Запустить тест?"
 PROMPT_RESULT: str = (
@@ -20,11 +19,13 @@ ERROR_OBSTACLE_CONFIG: str = (
 )
 
 
-def run(distance_cm: float = DEFAULT_DISTANCE_CM) -> int:
+def run(distance_cm: float = DEFAULT_DISTANCE_CM, max_speed_percent: int | None = None) -> int:
     """Запуск теста торможения перед препятствием."""
     print(f"\n=== {DESCRIPTION} ===\n")
     print(f"Установите препятствие на пути машинки (≥ {MIN_START_DISTANCE_CM} см от старта).")
     print(f"Машинка поедет вперёд до {distance_cm} см или до препятствия.")
+    if max_speed_percent is not None:
+        print(f"Ограничение скорости: {max_speed_percent}%.")
     print(f"Ожидается: плавная остановка на расстоянии ≥ {MIN_OBSTACLE_DISTANCE_CM} см.")
     print()
 
@@ -35,7 +36,10 @@ def run(distance_cm: float = DEFAULT_DISTANCE_CM) -> int:
     try:
         print("Движение запущено. Ожидание завершения...")
 
-        drive.forward_cm_sync(distance_cm=distance_cm)
+        drive.forward_cm_sync(
+            distance_cm=distance_cm,
+            max_speed_percent=max_speed_percent,
+        )
         print("Остановка.")
 
         if prompt_yes_no(PROMPT_RESULT):
@@ -50,4 +54,5 @@ def run(distance_cm: float = DEFAULT_DISTANCE_CM) -> int:
 
 if __name__ == "__main__":
     dist: float = float(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DISTANCE_CM
-    sys.exit(run(distance_cm=dist))
+    speed: int | None = int(sys.argv[2]) if len(sys.argv) > 2 else None
+    sys.exit(run(distance_cm=dist, max_speed_percent=speed))

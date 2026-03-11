@@ -26,8 +26,8 @@ EXAMPLE_ROUTE_FILE: str = "tests/routes/square_100.json"
 
 # Текст справки для epilog
 EPILOG: str = """Команды:
-  obstacle                   тест торможения на прямой
-  route <файл.json>          тест выполнения маршрута
+  obstacle [см] [%]          тест торможения на прямой (опц.: расстояние, скорость)
+  route <файл.json> [%]      тест выполнения маршрута (опц.: ограничение скорости)
   calibrate-straight [см]    калибровка прямолинейности
   calibrate-turn [сек]       калибровка поворота на 90°
   calibrate-speed [сек]      калибровка скорости
@@ -96,13 +96,15 @@ def main() -> int:
 
         if parsed.command == CMD_OBSTACLE:
             dist: float = float(args[0]) if args else DEFAULT_OBSTACLE_DISTANCE_CM
-            return run_fn(distance_cm=dist)
+            speed: int | None = int(args[1]) if len(args) > 1 else None
+            return run_fn(distance_cm=dist, max_speed_percent=speed)
 
         if parsed.command == CMD_ROUTE:
             if not args:
                 print("Укажите путь к JSON-файлу маршрута", file=sys.stderr)
                 return EXIT_FAILURE
-            return run_fn(route_file=Path(args[0]))
+            speed: int | None = int(args[1]) if len(args) > 1 else None
+            return run_fn(route_file=Path(args[0]), max_speed_percent=speed)
 
         if parsed.command == CMD_CALIBRATE_STRAIGHT:
             dist: float = float(args[0]) if args else DEFAULT_CALIBRATE_STRAIGHT_DISTANCE_CM

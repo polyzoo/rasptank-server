@@ -20,7 +20,7 @@ ENCODING_UTF8: str = "utf-8"
 PROMPT_YES_VALUES: tuple[str, ...] = ("y", "yes", "д", "да")
 PROMPT_NO_VALUES: tuple[str, ...] = ("n", "no", "н", "нет")
 PROMPT_YES_NO_ERROR: str = "Введите y или n"
-PROMT_FLOAT_ERROR: str = "Введите число"
+PROMPT_FLOAT_ERROR: str = "Введите число"
 
 
 def create_drive_controller(settings: Settings | None = None) -> DriveController:
@@ -52,16 +52,28 @@ def parse_route_from_json(path: Path) -> Route:
         action: str = s.get("action")
 
         if action == "forward":
-            segments.append(ForwardSegment(distance_cm=float(s["distance_cm"])))
+            distance_cm: float = float(s["distance_cm"])
+            if distance_cm < 0:
+                raise ValueError(f"distance_cm не может быть отрицательным: {distance_cm}")
+            segments.append(ForwardSegment(distance_cm=distance_cm))
 
         elif action == "backward":
-            segments.append(BackwardSegment(distance_cm=float(s["distance_cm"])))
+            distance_cm = float(s["distance_cm"])
+            if distance_cm < 0:
+                raise ValueError(f"distance_cm не может быть отрицательным: {distance_cm}")
+            segments.append(BackwardSegment(distance_cm=distance_cm))
 
         elif action == "turn_left":
-            segments.append(TurnLeftSegment(duration_sec=float(s["duration_sec"])))
+            duration_sec: float = float(s["duration_sec"])
+            if duration_sec < 0:
+                raise ValueError(f"duration_sec не может быть отрицательным: {duration_sec}")
+            segments.append(TurnLeftSegment(duration_sec=duration_sec))
 
         elif action == "turn_right":
-            segments.append(TurnRightSegment(duration_sec=float(s["duration_sec"])))
+            duration_sec = float(s["duration_sec"])
+            if duration_sec < 0:
+                raise ValueError(f"duration_sec не может быть отрицательным: {duration_sec}")
+            segments.append(TurnRightSegment(duration_sec=duration_sec))
 
         else:
             raise ValueError(f"Неизвестный сегмент: {action}")
@@ -104,4 +116,4 @@ def prompt_float(question: str, default: float | None = None) -> float:
         try:
             return float(answer)
         except ValueError:
-            print(PROMT_FLOAT_ERROR)
+            print(PROMPT_FLOAT_ERROR)
