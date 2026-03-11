@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Optional, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from src.application.models.route import Route
@@ -51,7 +49,7 @@ class DriveControllerProtocol(Protocol):
     """Протокол высокоуровневого управления движением."""
 
     @abstractmethod
-    def forward_cm(self, distance_cm: float, max_speed_percent: Optional[int] = None) -> None:
+    def forward_cm(self, distance_cm: float, max_speed_percent: int | None = None) -> None:
         """Движение вперед на заданное расстояние."""
 
     @abstractmethod

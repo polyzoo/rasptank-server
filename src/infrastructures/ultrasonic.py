@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import Any, Optional, final
+from typing import Any, final
 
 from src.application.protocols import UltrasonicSensorProtocol
 
@@ -40,7 +38,7 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
 
     def __init__(self) -> None:
         """Инициализация без обращения к GPIO."""
-        self._sensor: Optional[object] = None
+        self._sensor: object | None = None
         self._is_initialized: bool = False
 
     def measure_distance_cm(self) -> float:
@@ -69,7 +67,7 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
             except _SENSOR_EXCEPTIONS:
                 pass
             finally:
-                self._sensor: Optional[object] = None
+                self._sensor: object | None = None
                 self._is_initialized: bool = False
 
     def _setup(self) -> None:
@@ -81,11 +79,11 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
             return
 
         try:
-            self._sensor: Optional[object] = DistanceSensor(
+            self._sensor: object | None = DistanceSensor(
                 echo=self.ECHO_PIN,
                 trigger=self.TRIGGER_PIN,
                 max_distance=self.MAX_DISTANCE_M,
             )
             self._is_initialized: bool = True
         except _SENSOR_EXCEPTIONS:
-            self._sensor: Optional[object] = None
+            self._sensor: object | None = None

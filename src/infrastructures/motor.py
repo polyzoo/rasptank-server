@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 import logging
-from typing import TYPE_CHECKING, Any, Optional, final
+from typing import TYPE_CHECKING, Any, final
 
 from src.application.protocols import MotorControllerProtocol
 
@@ -78,9 +76,9 @@ class MotorController(MotorControllerProtocol):
         """
         self.TL_LEFT_OFFSET: int = tl_left_offset
         self.TL_RIGHT_OFFSET: int = tl_right_offset
-        self._pwm_motor: Optional[PCA9685] = None
-        self._motor1: Optional[DCMotor] = None
-        self._motor2: Optional[DCMotor] = None
+        self._pwm_motor: object | None = None
+        self._motor1: object | None = None
+        self._motor2: object | None = None
         self._is_initialized: bool = False
 
     def move_forward(self, speed_percent: int) -> None:
@@ -182,9 +180,9 @@ class MotorController(MotorControllerProtocol):
                 logger.warning("Ошибка при освобождении ресурсов PCA9685: %s", exc)
 
             finally:
-                self._pwm_motor: Optional[PCA9685] = None
-                self._motor1: Optional[DCMotor] = None
-                self._motor2: Optional[DCMotor] = None
+                self._pwm_motor: object | None = None
+                self._motor1: object | None = None
+                self._motor2: object | None = None
                 self._is_initialized: bool = False
 
     def _setup(self) -> None:
@@ -199,26 +197,26 @@ class MotorController(MotorControllerProtocol):
             i2c: busio.I2C = busio.I2C(SCL, SDA)
             pwm: PCA9685 = PCA9685(i2c, address=self.PCA9685_MOTOR_ADDRESS)
             pwm.frequency = self.PWM_FREQUENCY
-            self._pwm_motor: Optional[PCA9685] = pwm
+            self._pwm_motor: object | None = pwm
 
             dc_motor1: motor.DCMotor = motor.DCMotor(
                 pwm.channels[self.MOTOR_M1_IN1],
                 pwm.channels[self.MOTOR_M1_IN2],
             )
             dc_motor1.decay_mode = motor.SLOW_DECAY
-            self._motor1: Optional[DCMotor] = dc_motor1
+            self._motor1: object | None = dc_motor1
 
             dc_motor2: motor.DCMotor = motor.DCMotor(
                 pwm.channels[self.MOTOR_M2_IN1],
                 pwm.channels[self.MOTOR_M2_IN2],
             )
             dc_motor2.decay_mode = motor.SLOW_DECAY
-            self._motor2: Optional[DCMotor] = dc_motor2
+            self._motor2: object | None = dc_motor2
 
             self._is_initialized: bool = True
 
         except _SETUP_EXCEPTIONS as exc:
             logger.exception("Ошибка при инициализации моторов: %s", exc)
-            self._pwm_motor: Optional[PCA9685] = None
-            self._motor1: Optional[DCMotor] = None
-            self._motor2: Optional[DCMotor] = None
+            self._pwm_motor: object | None = None
+            self._motor1: object | None = None
+            self._motor2: object | None = None
