@@ -13,6 +13,14 @@ class ForwardSegment:
 
 
 @dataclass(slots=True)
+class BackwardSegment:
+    """Сегмент движения назад."""
+
+    action: Literal["backward"] = "backward"
+    distance_cm: float = 0.0
+
+
+@dataclass(slots=True)
 class TurnLeftSegment:
     """Сегмент поворота налево на месте."""
 
@@ -35,6 +43,7 @@ class Route:
     segments: list[
         Union[
             ForwardSegment,
+            BackwardSegment,
             TurnLeftSegment,
             TurnRightSegment,
         ],
