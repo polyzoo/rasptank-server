@@ -92,6 +92,24 @@ class MotorController(MotorControllerProtocol):
         self._motor2.throttle = throttle * self.M2_DIRECTION
         logger.debug("move_forward: speed=%d%%, throttle=%.2f", clamped_speed, throttle)
 
+    def move_backward(self, speed_percent: int) -> None:
+        """Движение назад с заданной скоростью."""
+        if not _HARDWARE_AVAILABLE:
+            logger.debug("move_backward(%d): железо недоступно, пропуск", speed_percent)
+            return
+
+        self._setup()
+        if self._motor1 is None or self._motor2 is None:
+            logger.warning("move_backward(%d): моторы не инициализированы", speed_percent)
+            return
+
+        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
+        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
+
+        self._motor1.throttle = -throttle * self.M1_DIRECTION
+        self._motor2.throttle = -throttle * self.M2_DIRECTION
+        logger.debug("move_backward: speed=%d%%, throttle=%.2f", clamped_speed, throttle)
+
     def stop(self) -> None:
         """Немедленная остановка обоих двигателей."""
         if not _HARDWARE_AVAILABLE:
