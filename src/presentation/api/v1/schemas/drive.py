@@ -1,4 +1,6 @@
-from typing import Literal, Union, List
+from __future__ import annotations
+
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -31,12 +33,16 @@ class TurnRightSegmentSchema(BaseModel):
     duration_sec: float = Field(..., ge=0, description="Длительность поворота (с).")
 
 
+_SegmentSchema = Annotated[
+    ForwardSegmentSchema | BackwardSegmentSchema | TurnLeftSegmentSchema | TurnRightSegmentSchema,
+    Field(discriminator="action"),
+]
+
+
 class RouteRequestSchema(BaseModel):
     """Схема запроса для выполнения маршрута."""
 
-    segments: list[
-        ForwardSegmentSchema | BackwardSegmentSchema | TurnLeftSegmentSchema | TurnRightSegmentSchema
-        ] = Field(
+    segments: list[_SegmentSchema] = Field(
         ...,
         min_length=1,
         description="Сегменты маршрута в порядке выполнения.",

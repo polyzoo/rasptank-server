@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -16,8 +18,8 @@ from src.presentation.api.v1.routers import router as v1_router
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Управление жизненным циклом приложения."""
     yield
-    drive_controller: DriveController = app.state.drive_controller
-    drive_controller.destroy()
+    if app.state.drive_controller is not None:
+        app.state.drive_controller.destroy()
 
 
 def create_app(settings: Settings) -> FastAPI:

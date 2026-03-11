@@ -1,4 +1,6 @@
-from typing import Annotated, List
+from __future__ import annotations
+
+from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
@@ -24,7 +26,7 @@ router: APIRouter = APIRouter()
 
 def _schema_to_route(body: RouteRequestSchema) -> Route:
     """Преобразование API-схемы в доменную модель маршрута."""
-    segments: List[object] = []
+    segments: list[object] = []
 
     for s in body.segments:
         if isinstance(s, ForwardSegmentSchema):
