@@ -52,9 +52,9 @@ class MotorController(MotorControllerProtocol):
     MOTOR_M2_IN1: int = 10
     MOTOR_M2_IN2: int = 11
 
-    # Направление моторов (1 или -1), настраивается при разной полярности
+    # Направление моторов
     M1_DIRECTION: int = 1
-    M2_DIRECTION: int = 1
+    M2_DIRECTION: int = -1
 
     # Частота PWM для моторов (Гц)
     PWM_FREQUENCY: int = 50
