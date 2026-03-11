@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import logging
 from typing import Any, final
 
 from src.application.protocols import UltrasonicSensorProtocol
@@ -9,6 +12,8 @@ try:
 except ImportError:
     DistanceSensor: Any = None
     _HARDWARE_AVAILABLE: bool = False
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 # Исключения при работе с датчиком
 _SENSOR_EXCEPTIONS: tuple[type[BaseException], ...] = (
@@ -86,4 +91,9 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
             )
             self._is_initialized: bool = True
         except _SENSOR_EXCEPTIONS:
+            logger.exception(
+                "Ошибка при инициализации датчика (echo=%d, trigger=%d)",
+                self.ECHO_PIN,
+                self.TRIGGER_PIN,
+            )
             self._sensor: object | None = None

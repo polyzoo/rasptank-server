@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING, Any, final
 
@@ -94,10 +96,14 @@ class MotorController(MotorControllerProtocol):
         throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
 
         # Смещения для калибровки прямолинейности
-        left_speed: float = throttle + (self.TL_LEFT_OFFSET / float(self.SPEED_PERCENT_MAX))
-        right_speed: float = throttle + (self.TL_RIGHT_OFFSET / float(self.SPEED_PERCENT_MAX))
-        left_speed: float = max(self.THROTTLE_MIN, min(self.THROTTLE_MAX, left_speed))
-        right_speed: float = max(self.THROTTLE_MIN, min(self.THROTTLE_MAX, right_speed))
+        left_speed: float = max(
+            self.THROTTLE_MIN,
+            min(self.THROTTLE_MAX, throttle + self.TL_LEFT_OFFSET / float(self.SPEED_PERCENT_MAX)),
+        )
+        right_speed: float = max(
+            self.THROTTLE_MIN,
+            min(self.THROTTLE_MAX, throttle + self.TL_RIGHT_OFFSET / float(self.SPEED_PERCENT_MAX)),
+        )
 
         self._motor1.throttle = right_speed * self.M1_DIRECTION
         self._motor2.throttle = left_speed * self.M2_DIRECTION
