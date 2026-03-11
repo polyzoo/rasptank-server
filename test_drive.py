@@ -5,9 +5,13 @@
 Выполняет те же операции, что и REST API:
   forward  — аналог POST /v1/drive/forward.
   stop     — аналог POST /v1/drive/stop (сначала запуск, пауза, затем стоп — для проверки).
+
+Движение выполняется синхронно в основном потоке (без отдельного потока) — для отладки.
+Всегда выводит подробные логи (моторы, датчик, контроллер).
 """
 
 import argparse
+import logging
 import sys
 import time
 from argparse import ArgumentParser, Action, Namespace
@@ -38,7 +42,6 @@ def build_parser() -> ArgumentParser:
         description="Тестирование машинки без веб-сервера",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-
     subparsers: Action = parser.add_subparsers(dest="command", required=True, help="Команда")
 
     # Команда 'forward'
@@ -64,8 +67,35 @@ def build_parser() -> ArgumentParser:
     return parser
 
 
+def _setup_debug_logging() -> None:
+    """Включает подробное логирование моторов, датчика и контроллера."""
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    for name in (
+        "__main__",
+        "src.infrastructures.motor",
+        "src.infrastructures.ultrasonic",
+        "src.application.services.drive_controller",
+    ):
+        logging.getLogger(name).setLevel(logging.DEBUG)
+
+
 def create_drive_controller(settings: Settings) -> DriveController:
     """Создаёт и настраивает экземпляр контроллера движения."""
+    from src.infrastructures.motor import _HARDWARE_AVAILABLE as motor_hw
+    from src.infrastructures.ultrasonic import _HARDWARE_AVAILABLE as us_hw
+
+    logger = logging.getLogger(__name__)
+    logger.debug(
+        "create_drive_controller: motor_hw=%s, ultrasonic_hw=%s, min_obstacle=%.1f см",
+        motor_hw,
+        us_hw,
+        settings.min_obstacle_distance_cm,
+    )
+
     motor_controller: MotorController = MotorController()
     ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
     return DriveController(
@@ -94,11 +124,11 @@ def validate_forward_args(args: Namespace) -> bool:
 
 
 def handle_forward(args: Namespace, drive_controller: DriveController) -> int:
-    """Обработчик команды 'forward'."""
+    """Обработчик команды 'forward'. Синхронно в основном потоке — для отладки."""
     if not validate_forward_args(args):
         return EXIT_FAILURE
 
-    drive_controller.forward_cm(
+    drive_controller.forward_cm_sync(
         distance_cm=args.distance_cm,
         max_speed_percent=args.max_speed_percent,
     )
@@ -110,11 +140,12 @@ def handle_forward(args: Namespace, drive_controller: DriveController) -> int:
 
 
 def handle_stop(args: Namespace, drive_controller: DriveController) -> int:
-    """Обработчик команды 'stop'."""
-    drive_controller.forward_cm(distance_cm=TEST_STOP_DISTANCE_CM)
-    print(f"forward({TEST_STOP_DISTANCE_CM}) запущено, ожидание {args.delay} с...")
-    time.sleep(args.delay)
-    drive_controller.stop()
+    """Обработчик команды 'stop'. Синхронно: движение N с, затем стоп."""
+    print(f"forward({TEST_STOP_DISTANCE_CM}) на {args.delay} с...")
+    drive_controller.forward_cm_sync(
+        distance_cm=TEST_STOP_DISTANCE_CM,
+        max_duration_sec=args.delay,
+    )
     print("stop() — выполнено.")
     return EXIT_SUCCESS
 
@@ -123,6 +154,8 @@ def main() -> int:
     """Точка входа скрипта для тестирования машинки без веб-сервера."""
     parser: ArgumentParser = build_parser()
     args: Namespace = parser.parse_args()
+
+    _setup_debug_logging()
 
     settings: Settings = Settings()
     drive_controller: DriveController = create_drive_controller(settings=settings)

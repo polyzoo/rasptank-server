@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional, final
 
 from src.application.protocols import UltrasonicSensorProtocol
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 try:
     from gpiozero import DistanceSensor
@@ -46,16 +49,21 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
     def measure_distance_cm(self) -> float:
         """Измерение расстояния до препятствия."""
         if not _HARDWARE_AVAILABLE:
+            logger.debug("measure_distance_cm: gpiozero недоступен, fallback=%.1f см", self.FALLBACK_DISTANCE_CM)
             return self.FALLBACK_DISTANCE_CM
 
         self._setup()
         if self._sensor is None:
+            logger.debug("measure_distance_cm: датчик не инициализирован, fallback=%.1f см", self.FALLBACK_DISTANCE_CM)
             return self.FALLBACK_DISTANCE_CM
 
         try:
             distance_m: float = self._sensor.distance
-            return distance_m * self.METERS_TO_CM
-        except _SENSOR_EXCEPTIONS:
+            distance_cm: float = distance_m * self.METERS_TO_CM
+            logger.debug("measure_distance_cm: %.1f см (raw=%.3f м)", distance_cm, distance_m)
+            return distance_cm
+        except _SENSOR_EXCEPTIONS as exc:
+            logger.debug("measure_distance_cm: ошибка датчика %s, fallback=%.1f см", exc, self.FALLBACK_DISTANCE_CM)
             return self.FALLBACK_DISTANCE_CM
 
     def destroy(self) -> None:
@@ -87,5 +95,7 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
                 max_distance=self.MAX_DISTANCE_M,
             )
             self._is_initialized: bool = True
-        except _SENSOR_EXCEPTIONS:
+            logger.debug("UltrasonicSensor: инициализирован (echo=%d, trigger=%d)", self.ECHO_PIN, self.TRIGGER_PIN)
+        except _SENSOR_EXCEPTIONS as exc:
+            logger.warning("UltrasonicSensor: ошибка инициализации (echo=%d, trigger=%d): %s", self.ECHO_PIN, self.TRIGGER_PIN, exc)
             self._sensor: Optional[object] = None

@@ -77,10 +77,12 @@ class MotorController(MotorControllerProtocol):
     def move_forward(self, speed_percent: int) -> None:
         """Движение вперед с заданной скоростью."""
         if not _HARDWARE_AVAILABLE:
+            logger.debug("move_forward(%d): железо недоступно, пропуск", speed_percent)
             return
 
         self._setup()
         if self._motor1 is None or self._motor2 is None:
+            logger.warning("move_forward(%d): моторы не инициализированы", speed_percent)
             return
 
         clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
@@ -88,19 +90,21 @@ class MotorController(MotorControllerProtocol):
 
         self._motor1.throttle = throttle * self.M1_DIRECTION
         self._motor2.throttle = throttle * self.M2_DIRECTION
+        logger.debug("move_forward: speed=%d%%, throttle=%.2f", clamped_speed, throttle)
 
     def stop(self) -> None:
         """Немедленная остановка обоих двигателей."""
         if not _HARDWARE_AVAILABLE:
+            logger.debug("stop: железо недоступно, пропуск")
             return
 
         self._setup()
 
         if self._motor1 is not None:
             self._motor1.throttle = self.THROTTLE_STOP
-
         if self._motor2 is not None:
             self._motor2.throttle = self.THROTTLE_STOP
+        logger.debug("stop: throttle=0")
 
     def destroy(self) -> None:
         """Освобождение ресурсов I2C и PCA9685.
@@ -156,9 +160,21 @@ class MotorController(MotorControllerProtocol):
             self._motor2: Optional[DCMotor] = dc_motor2
 
             self._is_initialized: bool = True
+            logger.debug(
+                "MotorController: PCA9685 0x%02X, M1(ch%d,%d) M2(ch%d,%d)",
+                self.PCA9685_MOTOR_ADDRESS,
+                self.MOTOR_M1_IN1,
+                self.MOTOR_M1_IN2,
+                self.MOTOR_M2_IN1,
+                self.MOTOR_M2_IN2,
+            )
 
         except _SETUP_EXCEPTIONS as exc:
-            logger.exception("Ошибка при инициализации моторов: %s", exc)
+            logger.exception(
+                "Ошибка при инициализации моторов (I2C addr=0x%02X): %s",
+                self.PCA9685_MOTOR_ADDRESS,
+                exc,
+            )
             self._pwm_motor: Optional[PCA9685] = None
             self._motor1: Optional[DCMotor] = None
             self._motor2: Optional[DCMotor] = None

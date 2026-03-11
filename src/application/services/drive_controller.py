@@ -71,14 +71,58 @@ class DriveController(DriveControllerProtocol):
         self._is_moving: bool = True
         self._stop_event.clear()
 
+        logger.debug(
+            "forward_cm: distance=%.1f см, max_speed=%d%%, запуск потока",
+            distance_cm,
+            self._max_speed_percent,
+        )
         self._movement_thread: Thread = Thread(target=self._autonomous_movement, daemon=True)
         self._movement_thread.start()
+
+    def forward_cm_sync(
+        self,
+        distance_cm: float,
+        max_speed_percent: Optional[int] = None,
+        max_duration_sec: Optional[float] = None,
+    ) -> None:
+        """Движение вперёд в текущем потоке (без отдельного потока).
+
+        Для отладки: весь путь выполняется линейно, логи идут по порядку.
+
+        Args:
+            distance_cm: Целевое расстояние в сантиметрах.
+            max_speed_percent: Ограничение скорости (0 – 100).
+            max_duration_sec: Макс. время (с); по истечении — остановка (для теста stop).
+        """
+        if self._is_moving:
+            self.stop()
+
+        self._target_distance_cm = distance_cm
+        self._traveled_distance_cm = 0.0
+        self._max_speed_percent = max_speed_percent or self.base_speed_percent
+        self._is_moving = True
+        self._stop_event.clear()
+        self._movement_thread = None
+
+        logger.debug(
+            "forward_cm_sync: distance=%.1f см, max_speed=%d%%, max_duration=%s с",
+            distance_cm,
+            self._max_speed_percent,
+            max_duration_sec,
+        )
+
+        try:
+            self._run_autonomous_movement(max_duration_sec=max_duration_sec)
+        finally:
+            self.motor_controller.stop()
+            self._is_moving = False
 
     def stop(self) -> None:
         """Немедленная остановка движения.
 
         Останавливает моторы и ждет завершения потока автономного движения (до 1 с).
         """
+        logger.debug("DriveController.stop: _is_moving=False, stop_event.set(), motor.stop()")
         self._is_moving: bool = False
         self._stop_event.set()
         self.motor_controller.stop()
@@ -129,18 +173,26 @@ class DriveController(DriveControllerProtocol):
         """
         return self.MAX_SPEED_CM_PER_SEC * (speed_percent / 100.0) * time_interval
 
-    def _autonomous_movement(self) -> None:
-        """Цикл движения в daemon-потоке.
-
-        На каждой итерации: измерение расстояния, расчет скорости, управление моторами.
-        В finally всегда останавливает моторы.
-        """
+    def _run_autonomous_movement(
+        self,
+        max_duration_sec: Optional[float] = None,
+    ) -> None:
+        """Цикл движения. Вызывается из потока или синхронно."""
+        start_time: float = time.monotonic()
         try:
             while self._is_moving and not self._stop_event.is_set():
+                if max_duration_sec is not None:
+                    elapsed: float = time.monotonic() - start_time
+                    if elapsed >= max_duration_sec:
+                        logger.debug("forward_cm_sync: достигнут max_duration=%.1f с", max_duration_sec)
+                        break
                 obstacle_distance_cm: float = self.ultrasonic_sensor.measure_distance_cm()
 
-                remaining_distance: float = self._target_distance_cm - self._traveled_distance_cm
+                remaining_distance: float = (
+                    self._target_distance_cm - self._traveled_distance_cm
+                )
                 if remaining_distance <= 0:
+                    logger.debug("Цель достигнута: remaining=%.1f", remaining_distance)
                     break
 
                 current_speed: float = self._calculate_speed(
@@ -148,7 +200,15 @@ class DriveController(DriveControllerProtocol):
                     remaining_distance_cm=remaining_distance,
                 )
 
+                logger.debug(
+                    "obstacle=%.1f см, remaining=%.1f см, speed=%.1f%%",
+                    obstacle_distance_cm,
+                    remaining_distance,
+                    current_speed,
+                )
+
                 if current_speed <= 0.0:
+                    logger.debug("speed=0 (препятствие или цель), stop")
                     self.motor_controller.stop()
                     time.sleep(self.update_interval_sec)
                     continue
@@ -165,5 +225,14 @@ class DriveController(DriveControllerProtocol):
             logger.exception("Ошибка в автономном движении: %s", exc)
 
         finally:
+            logger.debug("_run_autonomous_movement: завершение, stop моторов")
             self.motor_controller.stop()
-            self._is_moving: bool = False
+            self._is_moving = False
+
+    def _autonomous_movement(self) -> None:
+        """Цикл движения в daemon-потоке. Обёртка над _run_autonomous_movement."""
+        try:
+            self._run_autonomous_movement(max_duration_sec=None)
+        finally:
+            self.motor_controller.stop()
+            self._is_moving = False
