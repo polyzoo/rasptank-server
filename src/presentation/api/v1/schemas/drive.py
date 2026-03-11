@@ -10,6 +10,13 @@ class ForwardSegmentSchema(BaseModel):
     distance_cm: float = Field(..., ge=0, description="Расстояние (см).")
 
 
+class BackwardSegmentSchema(BaseModel):
+    """Сегмент движения назад."""
+
+    action: Literal["backward"] = "backward"
+    distance_cm: float = Field(..., ge=0, description="Расстояние (см).")
+
+
 class TurnLeftSegmentSchema(BaseModel):
     """Сегмент поворота налево."""
 
@@ -30,6 +37,7 @@ class RouteRequestSchema(BaseModel):
     segments: List[
         Union[
             ForwardSegmentSchema,
+            BackwardSegmentSchema,
             TurnLeftSegmentSchema,
             TurnRightSegmentSchema,
         ],
