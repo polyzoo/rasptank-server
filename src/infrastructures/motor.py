@@ -47,10 +47,10 @@ class MotorController(MotorControllerProtocol):
     """
 
     # Каналы PCA9685 для моторов
-    MOTOR_M1_IN1: int = 15
-    MOTOR_M1_IN2: int = 14
-    MOTOR_M2_IN1: int = 12
-    MOTOR_M2_IN2: int = 13
+    MOTOR_M1_IN1: int = 8
+    MOTOR_M1_IN2: int = 9
+    MOTOR_M2_IN1: int = 10
+    MOTOR_M2_IN2: int = 11
 
     # Направление моторов (1 или -1), настраивается при разной полярности
     M1_DIRECTION: int = 1
