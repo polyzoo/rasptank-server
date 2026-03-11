@@ -34,14 +34,9 @@ class TurnRightSegmentSchema(BaseModel):
 class RouteRequestSchema(BaseModel):
     """Схема запроса для выполнения маршрута."""
 
-    segments: List[
-        Union[
-            ForwardSegmentSchema,
-            BackwardSegmentSchema,
-            TurnLeftSegmentSchema,
-            TurnRightSegmentSchema,
-        ],
-    ] = Field(
+    segments: list[
+        ForwardSegmentSchema | BackwardSegmentSchema | TurnLeftSegmentSchema | TurnRightSegmentSchema
+        ] = Field(
         ...,
         min_length=1,
         description="Сегменты маршрута в порядке выполнения.",

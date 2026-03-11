@@ -1,7 +1,12 @@
+from __future__ import annotations
+
+from typing import final
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+@final
 class Settings(BaseSettings):
     """Основные настройки приложения."""
 
@@ -76,13 +81,13 @@ class Settings(BaseSettings):
         description="Линейная скорость при 100%.",
     )
 
-    # Поворот на 90° (с)
+    # Длительность поворота на 90° (с)
     turn_duration_90_deg_sec: float = Field(
         default=0.5,
         gt=0,
         le=2.0,
         validation_alias="TURN_DURATION_90_DEG_SEC",
-        description="Длительность поворота на 90°.",
+        description="Длительность поворота на 90° (с).",
     )
 
     model_config: SettingsConfigDict = SettingsConfigDict(

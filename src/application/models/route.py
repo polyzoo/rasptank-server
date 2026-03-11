@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Union
+from typing import Literal, TypeAlias, final
 
 
+@final
 @dataclass(slots=True)
 class ForwardSegment:
     """Сегмент движения вперед."""
@@ -12,6 +13,7 @@ class ForwardSegment:
     distance_cm: float = 0.0
 
 
+@final
 @dataclass(slots=True)
 class BackwardSegment:
     """Сегмент движения назад."""
@@ -20,6 +22,7 @@ class BackwardSegment:
     distance_cm: float = 0.0
 
 
+@final
 @dataclass(slots=True)
 class TurnLeftSegment:
     """Сегмент поворота налево на месте."""
@@ -28,6 +31,7 @@ class TurnLeftSegment:
     duration_sec: float = 0.0
 
 
+@final
 @dataclass(slots=True)
 class TurnRightSegment:
     """Сегмент поворота направо на месте."""
@@ -36,15 +40,12 @@ class TurnRightSegment:
     duration_sec: float = 0.0
 
 
+RouteSegment: TypeAlias = ForwardSegment | BackwardSegment | TurnLeftSegment | TurnRightSegment
+
+
+@final
 @dataclass(slots=True)
 class Route:
-    """Маршрут — последовательность сегментов движения."""
+    """Маршрут из последовательности сегментов движения."""
 
-    segments: list[
-        Union[
-            ForwardSegment,
-            BackwardSegment,
-            TurnLeftSegment,
-            TurnRightSegment,
-        ],
-    ] = field(default_factory=list)
+    segments: list[RouteSegment] = field(default_factory=list)

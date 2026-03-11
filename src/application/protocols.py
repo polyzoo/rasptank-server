@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Protocol
 
@@ -49,12 +51,16 @@ class DriveControllerProtocol(Protocol):
     """Протокол высокоуровневого управления движением."""
 
     @abstractmethod
-    def forward_cm(self, distance_cm: float, max_speed_percent: int | None = None) -> None:
-        """Движение вперед на заданное расстояние."""
+    def forward_cm_sync(self, distance_cm: float, max_speed_percent: int | None = None) -> None:
+        """Движение вперёд на заданное расстояние в текущем потоке."""
 
     @abstractmethod
     def execute_route(self, route: Route) -> None:
-        """Выполнение маршрута с учетом препятствий."""
+        """Выполнение маршрута в фоновом потоке."""
+
+    @abstractmethod
+    def execute_route_sync(self, route: Route) -> None:
+        """Выполнение маршрута в текущем потоке."""
 
     @abstractmethod
     def stop(self) -> None:
