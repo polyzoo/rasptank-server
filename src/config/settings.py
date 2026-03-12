@@ -55,6 +55,13 @@ class Settings(BaseSettings):
         validation_alias="UPDATE_INTERVAL_SEC",
         description="Интервал обновления датчика (с).",
     )
+    obstacle_cannot_bypass_timeout_sec: float = Field(
+        default=30.0,
+        gt=0,
+        le=120.0,
+        validation_alias="OBSTACLE_CANNOT_BYPASS_TIMEOUT_SEC",
+        description="Время ожидания перед препятствием до уведомления о невозможности объезда (с).",
+    )
 
     # Прямолинейность (отклонение ≤ 5 см)
     tl_left_offset: int = Field(
