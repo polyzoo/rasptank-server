@@ -180,7 +180,7 @@ class RouteExecutor:
                 self._run_turn_segment(True, segment.duration_sec, should_continue)
 
             elif isinstance(segment, TurnRightSegment):
-                self._run_turn_segment(False, segment.duration_sec, sshould_continue)
+                self._run_turn_segment(False, segment.duration_sec, should_continue)
 
         else:
             self._emit_route_ended(RouteEndReason.COMPLETE)
