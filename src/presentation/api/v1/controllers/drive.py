@@ -44,7 +44,7 @@ def _schema_to_route(body: RouteRequestSchema) -> Route:
     return Route(segments=segments)
 
 
-@router.post("/route", description="Выполнение маршрута")
+@router.post("/route", summary="Выполнение маршрута")
 async def drive_route(
     body: RouteRequestSchema,
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
@@ -55,7 +55,7 @@ async def drive_route(
     return
 
 
-@router.post("/stop", description="Немедленная остановка")
+@router.post("/stop", summary="Немедленная остановка")
 async def drive_stop(
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
 ) -> None:
