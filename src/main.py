@@ -12,12 +12,18 @@ from src.infrastructures.motor import MotorController
 from src.infrastructures.ultrasonic import UltrasonicSensor
 from src.presentation.api.exception_handlers import setup_exception_handlers
 from src.presentation.api.v1.routers import router as v1_router
+from src.presentation.api.websocket_manager import ConnectionManager
+from src.application.models.event import EventType
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Управление жизненным циклом приложения."""
-    yield
+    ws_manager: ConnectionManager = app.state.ws_manager
+
+    async with ws_manager:
+        yield
+
     if app.state.drive_controller is not None:
         app.state.drive_controller.destroy()
 
@@ -31,6 +37,17 @@ def create_app(settings: Settings) -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs",
     )
+
+    ws_manager: ConnectionManager = ConnectionManager()
+    app.state.ws_manager = ws_manager
+
+    def _on_obstacle_cannot_bypass() -> None:
+        """Отправляет отдельное событие невозможности объезда всем WebSocket-клиентам."""
+        ws_manager.broadcast({"type": EventType.OBSTACLE_CANNOT_BYPASS})
+
+    def _on_trajectory_event(event: dict) -> None:
+        """Пробрасывает событие траектории во все WebSocket-подключения."""
+        ws_manager.broadcast(event)
 
     ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
     motor_controller: MotorController = MotorController(
@@ -47,6 +64,10 @@ def create_app(settings: Settings) -> FastAPI:
         turn_speed_percent=settings.turn_speed_percent,
         max_speed_cm_per_sec=settings.max_speed_cm_per_sec,
         update_interval_sec=settings.update_interval_sec,
+        obstacle_cannot_bypass_timeout_sec=settings.obstacle_cannot_bypass_timeout_sec,
+        on_obstacle_cannot_bypass=_on_obstacle_cannot_bypass,
+        turn_duration_90_deg_sec=settings.turn_duration_90_deg_sec,
+        on_trajectory_event=_on_trajectory_event,
     )
 
     app.state.settings = settings
