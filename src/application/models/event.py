@@ -67,18 +67,3 @@ class RouteEndedEvent:
             "y_cm": self.y_cm,
             "heading_deg": self.heading_deg,
         }
-
-
-@final
-@dataclass(slots=True)
-class ObstacleCannotBypassEvent:
-    """Событие невозможности объезда препятствия."""
-
-    message: str
-
-    def to_dict(self) -> dict[str, Any]:
-        """Словарь для отправки данных через WebSocket."""
-        return {
-            "type": EventType.OBSTACLE_CANNOT_BYPASS,
-            "message": self.message,
-        }
