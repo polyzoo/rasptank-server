@@ -13,6 +13,7 @@ from src.application.models.route import (
 )
 from src.application.services.drive_controller import DriveController
 from src.config.settings import Settings
+from src.infrastructures.imu import IMUSensor
 from src.infrastructures.motor import MotorController
 from src.infrastructures.ultrasonic import UltrasonicSensor
 
@@ -26,14 +27,18 @@ PROMPT_FLOAT_ERROR: str = "Введите число"
 def create_drive_controller(settings: Settings | None = None) -> DriveController:
     """Создаёт экземпляр контроллера движения."""
     s: Settings = settings or Settings()
+
+    imu_sensor: IMUSensor = IMUSensor()
     ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
     motor_controller: MotorController = MotorController(
         tl_left_offset=s.tl_left_offset,
         tl_right_offset=s.tl_right_offset,
     )
+
     return DriveController(
         motor_controller=motor_controller,
         ultrasonic_sensor=ultrasonic_sensor,
+        gyroscope=imu_sensor,
         min_obstacle_distance_cm=s.min_obstacle_distance_cm,
         deceleration_distance_cm=s.deceleration_distance_cm,
         base_speed_percent=s.base_speed_percent,
@@ -64,16 +69,16 @@ def parse_route_from_json(path: Path) -> Route:
             segments.append(BackwardSegment(distance_cm=distance_cm))
 
         elif action == "turn_left":
-            duration_sec: float = float(s["duration_sec"])
-            if duration_sec < 0:
-                raise ValueError(f"duration_sec не может быть отрицательным: {duration_sec}")
-            segments.append(TurnLeftSegment(duration_sec=duration_sec))
+            angle_deg: float = float(s.get("angle_deg", 90.0))
+            if angle_deg < 0:
+                raise ValueError(f"angle_deg не может быть отрицательным: {angle_deg}")
+            segments.append(TurnLeftSegment(angle_deg=angle_deg))
 
         elif action == "turn_right":
-            duration_sec = float(s["duration_sec"])
-            if duration_sec < 0:
-                raise ValueError(f"duration_sec не может быть отрицательным: {duration_sec}")
-            segments.append(TurnRightSegment(duration_sec=duration_sec))
+            angle_deg = float(s.get("angle_deg", 90.0))
+            if angle_deg < 0:
+                raise ValueError(f"angle_deg не может быть отрицательным: {angle_deg}")
+            segments.append(TurnRightSegment(angle_deg=angle_deg))
 
         else:
             raise ValueError(f"Неизвестный сегмент: {action}")

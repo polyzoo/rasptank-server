@@ -10,14 +10,11 @@ EXIT_FAILURE: int = 1
 
 # Имена команд CLI
 CMD_LIST: str = "list"
-CMD_OBSTACLE: str = "obstacle"
 CMD_ROUTE: str = "route"
 CMD_CALIBRATE_STRAIGHT: str = "calibrate-straight"
-CMD_CALIBRATE_TURN: str = "calibrate-turn"
 CMD_CALIBRATE_SPEED: str = "calibrate-speed"
 
 # Значения по умолчанию
-DEFAULT_OBSTACLE_DISTANCE_CM: float = 200.0
 DEFAULT_CALIBRATE_STRAIGHT_DISTANCE_CM: float = 150.0
 DEFAULT_CALIBRATE_SPEED_DURATION_SEC: float = 3.0
 
@@ -26,19 +23,15 @@ EXAMPLE_ROUTE_FILE: str = "tests/routes/square_40.json"
 
 # Текст справки для epilog
 EPILOG: str = """Команды:
-  obstacle [см] [%]          тест торможения на прямой (опц.: расстояние, скорость)
   route <файл.json> [%]      тест выполнения маршрута (опц.: ограничение скорости)
   calibrate-straight [см]    калибровка прямолинейности
-  calibrate-turn [сек]       калибровка поворота на 90°
   calibrate-speed [сек]      калибровка скорости
   list                       список всех тестов
 """
 
 TESTS: dict[str, tuple[str, str]] = {
-    CMD_OBSTACLE: ("tests.test_obstacle", "Торможение перед препятствием"),
     CMD_ROUTE: ("tests.test_route", "Выполнение маршрута"),
     CMD_CALIBRATE_STRAIGHT: ("tests.calibrate_straight", "Калибровка прямолинейности"),
-    CMD_CALIBRATE_TURN: ("tests.calibrate_turn", "Калибровка поворота на 90°"),
     CMD_CALIBRATE_SPEED: ("tests.calibrate_speed", "Калибровка скорости (см/с)"),
 }
 
@@ -51,10 +44,8 @@ def run_list() -> int:
         print(f"  {cmd:<22} — {desc}")
 
     print("\nПримеры:")
-    print(f"  python -m tests {CMD_OBSTACLE}")
     print(f"  python -m tests {CMD_ROUTE} {EXAMPLE_ROUTE_FILE}")
     print(f"  python -m tests {CMD_CALIBRATE_STRAIGHT}")
-    print(f"  python -m tests {CMD_CALIBRATE_TURN} 0.5")
     print(f"  python -m tests {CMD_CALIBRATE_SPEED} {int(DEFAULT_CALIBRATE_SPEED_DURATION_SEC)}")
     return EXIT_SUCCESS
 
@@ -78,7 +69,7 @@ def main() -> int:
     parser.add_argument(
         "args",
         nargs="*",
-        help="Аргументы команды (расстояние, путь к файлу, длительность)",
+        help="Аргументы команды (путь к файлу, расстояние, длительность)",
     )
 
     parsed: argparse.Namespace = parser.parse_args()
@@ -94,11 +85,6 @@ def main() -> int:
         mod: Any = importlib.import_module(module_name)
         run_fn: Any = getattr(mod, "run")
 
-        if parsed.command == CMD_OBSTACLE:
-            dist: float = float(args[0]) if args else DEFAULT_OBSTACLE_DISTANCE_CM
-            speed: int | None = int(args[1]) if len(args) > 1 else None
-            return run_fn(distance_cm=dist, max_speed_percent=speed)
-
         if parsed.command == CMD_ROUTE:
             if not args:
                 print("Укажите путь к JSON-файлу маршрута", file=sys.stderr)
@@ -109,12 +95,6 @@ def main() -> int:
         if parsed.command == CMD_CALIBRATE_STRAIGHT:
             dist: float = float(args[0]) if args else DEFAULT_CALIBRATE_STRAIGHT_DISTANCE_CM
             return run_fn(distance_cm=dist)
-
-        if parsed.command == CMD_CALIBRATE_TURN:
-            from src.config.settings import Settings
-
-            dur: float = float(args[0]) if args else Settings().turn_duration_90_deg_sec
-            return run_fn(duration_sec=dur)
 
         if parsed.command == CMD_CALIBRATE_SPEED:
             dur: float = float(args[0]) if args else DEFAULT_CALIBRATE_SPEED_DURATION_SEC

@@ -7,7 +7,7 @@
     },
     {
       "action": "turn_left",
-      "duration_sec": 0.5
+      "angle_deg": 90
     },
     {
       "action": "forward",
@@ -15,7 +15,7 @@
     },
     {
       "action": "turn_left",
-      "duration_sec": 0.5
+      "angle_deg": 90
     },
     {
       "action": "forward",
@@ -23,7 +23,7 @@
     },
     {
       "action": "turn_left",
-      "duration_sec": 0.5
+      "angle_deg": 90
     },
     {
       "action": "forward",

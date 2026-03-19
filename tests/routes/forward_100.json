@@ -1,9 +1,0 @@
-{
-  "description": "Прогон вперёд 100 см.",
-  "segments": [
-    {
-      "action": "forward",
-      "distance_cm": 100
-    }
-  ]
-}
