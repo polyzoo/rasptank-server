@@ -28,7 +28,7 @@ class TurnLeftSegment:
     """Сегмент поворота налево на месте."""
 
     action: Literal["turn_left"] = "turn_left"
-    duration_sec: float = 0.0
+    angle_deg: float = 90.0
 
 
 @final
@@ -37,7 +37,7 @@ class TurnRightSegment:
     """Сегмент поворота направо на месте."""
 
     action: Literal["turn_right"] = "turn_right"
-    duration_sec: float = 0.0
+    angle_deg: float = 90.0
 
 
 RouteSegment: TypeAlias = ForwardSegment | BackwardSegment | TurnLeftSegment | TurnRightSegment
