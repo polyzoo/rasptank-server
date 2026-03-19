@@ -81,15 +81,6 @@ class Settings(BaseSettings):
         description="Линейная скорость при 100%.",
     )
 
-    # Длительность поворота на 90° (с)
-    turn_duration_90_deg_sec: float = Field(
-        default=0.5,
-        gt=0,
-        le=2.0,
-        validation_alias="TURN_DURATION_90_DEG_SEC",
-        description="Длительность поворота на 90° (с).",
-    )
-
     model_config: SettingsConfigDict = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
