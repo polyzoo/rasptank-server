@@ -1,9 +1,9 @@
 {
-  "description": "Квадрат 100×100 см (4 стороны).",
+  "description": "Квадрат 40×40 см (4 стороны).",
   "segments": [
     {
       "action": "forward",
-      "distance_cm": 100
+      "distance_cm": 40
     },
     {
       "action": "turn_left",
@@ -11,7 +11,7 @@
     },
     {
       "action": "forward",
-      "distance_cm": 100
+      "distance_cm": 40
     },
     {
       "action": "turn_left",
@@ -19,7 +19,7 @@
     },
     {
       "action": "forward",
-      "distance_cm": 100
+      "distance_cm": 40
     },
     {
       "action": "turn_left",
@@ -27,7 +27,7 @@
     },
     {
       "action": "forward",
-      "distance_cm": 100
+      "distance_cm": 40
     }
   ]
 }

@@ -22,7 +22,7 @@ DEFAULT_CALIBRATE_STRAIGHT_DISTANCE_CM: float = 150.0
 DEFAULT_CALIBRATE_SPEED_DURATION_SEC: float = 3.0
 
 # Пример файла маршрута для подсказки в help
-EXAMPLE_ROUTE_FILE: str = "tests/routes/square_100.json"
+EXAMPLE_ROUTE_FILE: str = "tests/routes/square_40.json"
 
 # Текст справки для epilog
 EPILOG: str = """Команды:
