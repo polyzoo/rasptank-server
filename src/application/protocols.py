@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 class MotorControllerProtocol(Protocol):
-    """Протокол низкоуровневого управления двигателями."""
+    """Протокол управления двигателями."""
 
     @abstractmethod
     def move_forward(self, speed_percent: int) -> None:
@@ -36,11 +36,31 @@ class MotorControllerProtocol(Protocol):
 
 
 class UltrasonicSensorProtocol(Protocol):
-    """Протокол ультразвукового датчика расстояния HC-SR04."""
+    """Протокол ультразвукового датчика расстояния."""
 
     @abstractmethod
     def measure_distance_cm(self) -> float:
         """Измерение расстояния до препятствия."""
+
+    @abstractmethod
+    def destroy(self) -> None:
+        """Освобождение ресурсов."""
+
+
+class GyroscopeProtocol(Protocol):
+    """Протокол гироскопа."""
+
+    @abstractmethod
+    def start(self, calibrate: bool = True) -> None:
+        """Запуск отслеживания угла."""
+
+    @abstractmethod
+    def get_yaw(self) -> float:
+        """Возврат текущего угла."""
+
+    @abstractmethod
+    def reset_yaw(self) -> None:
+        """Сброс угла."""
 
     @abstractmethod
     def destroy(self) -> None:
