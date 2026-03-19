@@ -15,6 +15,7 @@ from src.application.models.route import (
 )
 from src.application.protocols import (
     DriveControllerProtocol,
+    GyroscopeProtocol,
     MotorControllerProtocol,
     UltrasonicSensorProtocol,
 )
@@ -36,12 +37,11 @@ class DriveController(DriveControllerProtocol):
     OBSTACLE_SPEED_FACTOR_MIN: float = 0.0
     OBSTACLE_SPEED_FACTOR_MAX: float = 1.0
 
-    # Оценка дистанции
+    # Ограничения для навигации
     ESTIMATE_SPEED_DIVISOR: float = 100.0
-
-    # Повороты
-    TURN_CHECK_INTERVAL_MIN_SEC: float = 0.1
-    TURN_CHECK_INTERVAL_DIVISOR: float = 10.0
+    TURN_CHECK_INTERVAL_SEC: float = 0.05
+    TURN_TIMEOUT_PER_DEG: float = 0.05
+    TURN_TIMEOUT_MIN: float = 1.0
 
     # Ожидание завершения потока
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
@@ -50,6 +50,7 @@ class DriveController(DriveControllerProtocol):
         self,
         motor_controller: MotorControllerProtocol,
         ultrasonic_sensor: UltrasonicSensorProtocol,
+        gyroscope: GyroscopeProtocol,
         min_obstacle_distance_cm: float = 20.0,
         deceleration_distance_cm: float = 50.0,
         base_speed_percent: int = 60,
@@ -57,20 +58,11 @@ class DriveController(DriveControllerProtocol):
         max_speed_cm_per_sec: float = 30.0,
         update_interval_sec: float = 0.1,
     ) -> None:
-        """Инициализация контроллера движения.
-
-        Args:
-            motor_controller: Низкоуровневое управление моторами.
-            ultrasonic_sensor: Датчик расстояния до препятствий.
-            min_obstacle_distance_cm: Дистанция остановки (см). Ниже — скорость 0.
-            deceleration_distance_cm: Зона торможения по препятствию (см).
-            base_speed_percent: Базовая скорость (%), если 'max_speed' не задан.
-            turn_speed_percent: Скорость поворотов на месте (%).
-            max_speed_cm_per_sec: Линейная скорость при 100% для оценки пройденного пути.
-            update_interval_sec: Интервал опроса датчика и пересчета скорости (с).
-        """
+        """Инициализация контроллера движения."""
         self.motor_controller: MotorControllerProtocol = motor_controller
         self.ultrasonic_sensor: UltrasonicSensorProtocol = ultrasonic_sensor
+        self.gyroscope: GyroscopeProtocol = gyroscope
+        
         self.min_obstacle_distance_cm: float = min_obstacle_distance_cm
         self.deceleration_distance_cm: float = deceleration_distance_cm
         self.base_speed_percent: int = base_speed_percent
@@ -84,12 +76,7 @@ class DriveController(DriveControllerProtocol):
         self._stop_event: Event = Event()
 
     def forward_cm_sync(self, distance_cm: float, max_speed_percent: int | None = None) -> None:
-        """Запуск движения вперед на заданное расстояние в текущем потоке.
-
-        Args:
-            distance_cm: Целевое расстояние в сантиметрах.
-            max_speed_percent: Ограничение скорости в процентах (0 – 100).
-        """
+        """Запуск движения вперед на заданное расстояние в текущем потоке."""
         if self._is_moving:
             self.stop()
 
@@ -103,14 +90,7 @@ class DriveController(DriveControllerProtocol):
             self._is_moving: bool = False
 
     def execute_route(self, route: Route) -> None:
-        """Запуск выполнения маршрута.
-
-        Не блокирует: маршрут выполняется в daemon-потоке. При обнаружении препятствия на
-        сегменте «вперед» — плавная остановка. При уже идущем движении предыдущее останавливается.
-
-        Args:
-            route: Маршрут — последовательность сегментов ('forward', 'turn_left', 'turn_right').
-        """
+        """Запуск выполнения маршрута в фоновом потоке."""
         if self._is_moving or self._is_route_running:
             self.stop()
 
@@ -126,11 +106,7 @@ class DriveController(DriveControllerProtocol):
         self._movement_thread.start()
 
     def execute_route_sync(self, route: Route) -> None:
-        """Запуск выполнения маршрута в текущем потоке.
-
-        Args:
-            route: Маршрут — последовательность сегментов ('forward', 'turn_left', 'turn_right').
-        """
+        """Запуск выполнения маршрута в текущем потоке."""
         if self._is_moving or self._is_route_running:
             self.stop()
 
@@ -146,10 +122,7 @@ class DriveController(DriveControllerProtocol):
             self._is_route_running: bool = False
 
     def stop(self) -> None:
-        """Немедленная остановка движения.
-
-        Останавливает моторы и ждет завершения потока автономного движения (до 1 с).
-        """
+        """Немедленная остановка движения."""
         self._is_moving: bool = False
         self._is_route_running: bool = False
         self._stop_event.set()
@@ -161,13 +134,14 @@ class DriveController(DriveControllerProtocol):
         self._movement_thread: Thread | None = None
 
     def destroy(self) -> None:
-        """Освобождение ресурсов: остановка движения, моторов и датчика."""
+        """Освобождение ресурсов."""
         self.stop()
         self.motor_controller.destroy()
         self.ultrasonic_sensor.destroy()
+        self.gyroscope.destroy()
 
     def _execute_route_loop(self, segments: list[RouteSegment]) -> None:
-        """Запуск цикла для выполнения маршрута в daemon-потоке."""
+        """Цикл выполнения маршрута в daemon-потоке."""
         try:
             self._execute_route_segments(segments)
         except (OSError, RuntimeError, ConnectionError, ValueError) as exc:
@@ -178,79 +152,69 @@ class DriveController(DriveControllerProtocol):
             self._is_route_running: bool = False
 
     def _execute_route_segments(self, segments: list[RouteSegment]) -> None:
-        """Выполнения сегментов маршрута."""
+        """Последовательное выполнение сегментов маршрута."""
+        self.gyroscope.start(calibrate=True)
+
         for segment in segments:
             if not self._is_moving or self._stop_event.is_set():
                 break
 
             if isinstance(segment, ForwardSegment):
-                completed_forward: bool = self._run_forward_segment(
-                    distance_cm=segment.distance_cm,
-                    speed_percent=self.base_speed_percent,
-                )
-                if not completed_forward:
+                if not self._run_forward_segment(segment.distance_cm, self.base_speed_percent):
                     break
 
             elif isinstance(segment, BackwardSegment):
-                completed_backward: bool = self._run_backward_segment(
-                    distance_cm=segment.distance_cm,
-                    speed_percent=self.base_speed_percent,
-                )
-                if not completed_backward:
+                if not self._run_backward_segment(segment.distance_cm, self.base_speed_percent):
                     break
 
             elif isinstance(segment, TurnLeftSegment):
                 self._run_turn_segment(
                     turn_left=True,
-                    duration_sec=segment.duration_sec,
+                    target_angle=segment.angle_deg,
+                    timeout_sec=max(
+                        self.TURN_TIMEOUT_MIN,
+                        segment.angle_deg * self.TURN_TIMEOUT_PER_DEG,
+                    ),
                 )
 
             elif isinstance(segment, TurnRightSegment):
                 self._run_turn_segment(
                     turn_left=False,
-                    duration_sec=segment.duration_sec,
+                    target_angle=segment.angle_deg,
+                    timeout_sec=max(
+                        self.TURN_TIMEOUT_MIN,
+                        segment.angle_deg * self.TURN_TIMEOUT_PER_DEG,
+                    ),
                 )
 
     def _run_forward_segment(self, distance_cm: float, speed_percent: int) -> bool:
-        """Запуск сегмента «вперед» с учетом препятствий и целевой дистанции.
-
-        Блокирует до завершения или остановки по препятствию или 'stop_event'.
-
-        Returns:
-            True — сегмент пройден полностью; False — остановка по препятствию или stop.
-        """
+        """Запуск сегмента «вперед» с учетом препятствий."""
         traveled_cm: float = 0.0
-        clamped_speed: int = max(
-            self.SPEED_PERCENT_MIN,
-            min(self.SPEED_PERCENT_MAX, speed_percent),
-        )
-
         current_speed: float = 0.0
         last_time: float = time.monotonic()
 
+        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
         try:
             while self._is_moving and not self._stop_event.is_set():
-                obstacle_distance_cm: float = self.ultrasonic_sensor.measure_distance_cm()
+                obstacle_cm: float = self.ultrasonic_sensor.measure_distance_cm()
 
                 now: float = time.monotonic()
                 dt: float = now - last_time
                 last_time: float = now
 
-                traveled_cm += self._estimate_traveled_distance(
-                    speed_percent=current_speed,
-                    time_interval=dt,
-                )
+                traveled_cm += self._estimate_traveled_distance(current_speed, dt)
 
-                remaining_distance: float = distance_cm - traveled_cm
-                if remaining_distance <= 0:
+                remaining_dist: float = distance_cm - traveled_cm
+                if remaining_dist <= 0:
                     self.motor_controller.stop()
                     return True
 
-                current_speed = self._calculate_speed(
-                    obstacle_distance_cm=obstacle_distance_cm,
-                    remaining_distance_cm=remaining_distance,
-                    max_speed_percent=clamped_speed,
+                current_speed: float = self._calculate_speed(
+                    obstacle_cm=obstacle_cm,
+                    remaining_cm=remaining_dist,
+                    max_speed=clamped_speed,
                 )
+
                 if current_speed <= 0.0:
                     self.motor_controller.stop()
                     time.sleep(self.update_interval_sec)
@@ -266,51 +230,32 @@ class DriveController(DriveControllerProtocol):
             return False
 
     def _run_backward_segment(self, distance_cm: float, speed_percent: int) -> bool:
-        """Запуск сегмента «назад» на заданную дистанцию.
-
-        Блокирует до завершения или остановки по 'stop_event'. Препятствия не проверяются.
-
-        Returns:
-            True — сегмент пройден полностью; False — остановка по stop_event/stop.
-        """
+        """Запуск сегмента «назад»."""
         traveled_cm: float = 0.0
-        clamped_speed: int = max(
-            self.SPEED_PERCENT_MIN,
-            min(self.SPEED_PERCENT_MAX, speed_percent),
-        )
-
         current_speed: float = 0.0
         last_time: float = time.monotonic()
 
+        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
         try:
             while self._is_moving and not self._stop_event.is_set():
                 now: float = time.monotonic()
                 dt: float = now - last_time
                 last_time: float = now
 
-                traveled_cm += self._estimate_traveled_distance(
-                    speed_percent=current_speed,
-                    time_interval=dt,
-                )
+                traveled_cm += self._estimate_traveled_distance(current_speed, dt)
 
-                remaining_distance: float = distance_cm - traveled_cm
-                if remaining_distance <= 0:
+                remaining_dist: float = distance_cm - traveled_cm
+                if remaining_dist <= 0:
                     self.motor_controller.stop()
                     return True
 
                 speed_factor: float = (
                     self.SPEED_FACTOR_MAX
-                    if remaining_distance >= self.deceleration_distance_cm
-                    else max(
-                        self.SPEED_FACTOR_MIN,
-                        min(
-                            self.SPEED_FACTOR_MAX,
-                            remaining_distance / self.deceleration_distance_cm,
-                        ),
-                    )
+                    if remaining_dist >= self.deceleration_distance_cm
+                    else max(self.SPEED_FACTOR_MIN, remaining_dist / self.deceleration_distance_cm)
                 )
 
-                current_speed = clamped_speed * speed_factor
+                current_speed: float = clamped_speed * speed_factor
                 self.motor_controller.move_backward(speed_percent=int(current_speed))
                 time.sleep(self.update_interval_sec)
 
@@ -320,19 +265,18 @@ class DriveController(DriveControllerProtocol):
             logger.exception("Ошибка в сегменте движения назад: %s", exc)
             return False
 
-    def _run_turn_segment(self, turn_left: bool, duration_sec: float) -> None:
-        """Запуск сегмента поворота на месте с проверкой препятствий.
-
-        Блокирует до завершения или остановки по препятствию или 'stop_event'.
-        """
+    def _run_turn_segment(self, turn_left: bool, target_angle: float, timeout_sec: float) -> None:
+        """Запуск сегмента поворота на месте с проверкой препятствий."""
+        self.gyroscope.reset_yaw()
         start_time: float = time.monotonic()
-        check_interval: float = min(
-            self.TURN_CHECK_INTERVAL_MIN_SEC,
-            duration_sec / self.TURN_CHECK_INTERVAL_DIVISOR,
-        )
 
         while self._is_moving and not self._stop_event.is_set():
-            if (time.monotonic() - start_time) >= duration_sec:
+            current_yaw: float = self.gyroscope.get_yaw()
+            
+            if abs(current_yaw) >= target_angle:
+                break
+
+            if (time.monotonic() - start_time) >= timeout_sec:
                 break
 
             obstacle_cm: float = self.ultrasonic_sensor.measure_distance_cm()
@@ -344,53 +288,28 @@ class DriveController(DriveControllerProtocol):
             else:
                 self.motor_controller.turn_right(speed_percent=self.turn_speed_percent)
 
-            time.sleep(check_interval)
+            time.sleep(self.TURN_CHECK_INTERVAL_SEC)
 
         self.motor_controller.stop()
 
-    def _calculate_speed(
-        self,
-        obstacle_distance_cm: float,
-        remaining_distance_cm: float,
-        max_speed_percent: int,
-    ) -> float:
-        """Скорость с учетом препятствий и оставшейся дистанции.
-
-        По препятствию: 0 при 'distance' <= 'min', линейный рост до 'max' в зоне торможения.
-        По цели: дополнительное снижение в зоне торможения (не ниже 10%).
-
-        Returns:
-            Скорость в процентах (0 – 100).
-        """
-        if obstacle_distance_cm <= self.min_obstacle_distance_cm:
+    def _calculate_speed(self, obstacle_cm: float, remaining_cm: float, max_speed: int) -> float:
+        """Расчет скорости с учетом препятствий и цели."""
+        if obstacle_cm <= self.min_obstacle_distance_cm:
             return 0.0
 
-        speed: float = float(max_speed_percent)
+        speed: float = float(max_speed)
 
-        if obstacle_distance_cm <= self.deceleration_distance_cm:
+        if obstacle_cm <= self.deceleration_distance_cm:
             decel_range: float = self.deceleration_distance_cm - self.min_obstacle_distance_cm
-            distance_above_min: float = obstacle_distance_cm - self.min_obstacle_distance_cm
-            speed *= max(
-                self.OBSTACLE_SPEED_FACTOR_MIN,
-                min(self.OBSTACLE_SPEED_FACTOR_MAX, distance_above_min / decel_range),
-            )
+            dist_above_min: float = obstacle_cm - self.min_obstacle_distance_cm
+            speed *= max(self.OBSTACLE_SPEED_FACTOR_MIN, dist_above_min / decel_range)
 
-        if remaining_distance_cm and remaining_distance_cm < self.deceleration_distance_cm:
-            speed *= max(
-                self.SPEED_FACTOR_MIN,
-                min(self.SPEED_FACTOR_MAX, remaining_distance_cm / self.deceleration_distance_cm),
-            )
+        if remaining_cm < self.deceleration_distance_cm:
+            speed *= max(self.SPEED_FACTOR_MIN, remaining_cm / self.deceleration_distance_cm)
 
         return max(self.OBSTACLE_SPEED_FACTOR_MIN, speed)
 
     def _estimate_traveled_distance(self, speed_percent: float, time_interval: float) -> float:
-        """Оценка пройденного расстояния за интервал.
-
-        Модель: при 100% скорость 'MAX_SPEED_CM_PER_SEC' см/с. Не учитывает
-        проскальзывание и уклон.
-
-        Returns:
-            Оценочное расстояние в сантиметрах.
-        """
+        """Оценка пройденного пути."""
         speed_ratio: float = speed_percent / self.ESTIMATE_SPEED_DIVISOR
         return self.max_speed_cm_per_sec * speed_ratio * time_interval
