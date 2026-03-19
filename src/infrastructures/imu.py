@@ -82,6 +82,9 @@ class IMUSensor(GyroscopeProtocol):
         if not self._is_initialized:
             return
 
+        if self._update_thread and self._update_thread.is_alive():
+            self.stop()
+
         if calibrate:
             self.calibrate()
 

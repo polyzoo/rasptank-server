@@ -50,6 +50,15 @@ def create_app(settings: Settings) -> FastAPI:
         turn_speed_percent=settings.turn_speed_percent,
         max_speed_cm_per_sec=settings.max_speed_cm_per_sec,
         update_interval_sec=settings.update_interval_sec,
+        avoidance_scan_angle_deg=settings.avoidance_scan_angle_deg,
+        avoidance_side_step_cm=settings.avoidance_side_step_cm,
+        avoidance_forward_step_cm=settings.avoidance_forward_step_cm,
+        avoidance_rejoin_step_cm=settings.avoidance_rejoin_step_cm,
+        avoidance_max_attempts=settings.avoidance_max_attempts,
+        avoidance_confirm_readings=settings.avoidance_confirm_readings,
+        avoidance_min_side_clearance_cm=settings.avoidance_min_side_clearance_cm,
+        avoidance_max_lateral_offset_cm=settings.avoidance_max_lateral_offset_cm,
+        avoidance_max_bypass_distance_cm=settings.avoidance_max_bypass_distance_cm,
     )
 
     app.state.settings = settings

@@ -55,6 +55,69 @@ class Settings(BaseSettings):
         validation_alias="UPDATE_INTERVAL_SEC",
         description="Интервал обновления датчика (с).",
     )
+    avoidance_scan_angle_deg: float = Field(
+        default=45.0,
+        ge=0,
+        le=90.0,
+        validation_alias="AVOIDANCE_SCAN_ANGLE_DEG",
+        description="Угол короткого сканирования при выборе стороны обхода.",
+    )
+    avoidance_side_step_cm: float = Field(
+        default=12.0,
+        gt=0,
+        le=100.0,
+        validation_alias="AVOIDANCE_SIDE_STEP_CM",
+        description="Длина одного бокового шага при обходе препятствия.",
+    )
+    avoidance_forward_step_cm: float = Field(
+        default=15.0,
+        gt=0,
+        le=100.0,
+        validation_alias="AVOIDANCE_FORWARD_STEP_CM",
+        description="Длина одного шага вдоль препятствия.",
+    )
+    avoidance_rejoin_step_cm: float = Field(
+        default=12.0,
+        gt=0,
+        le=100.0,
+        validation_alias="AVOIDANCE_REJOIN_STEP_CM",
+        description="Длина одной попытки возврата на исходную траекторию.",
+    )
+    avoidance_max_attempts: int = Field(
+        default=24,
+        ge=1,
+        le=200,
+        validation_alias="AVOIDANCE_MAX_ATTEMPTS",
+        description="Максимальное число шагов автомата обхода.",
+    )
+    avoidance_confirm_readings: int = Field(
+        default=3,
+        ge=1,
+        le=9,
+        validation_alias="AVOIDANCE_CONFIRM_READINGS",
+        description="Количество чтений датчика для подтверждения свободного пути.",
+    )
+    avoidance_min_side_clearance_cm: float = Field(
+        default=25.0,
+        gt=0,
+        le=200.0,
+        validation_alias="AVOIDANCE_MIN_SIDE_CLEARANCE_CM",
+        description="Минимально допустимое расстояние для выбора стороны обхода.",
+    )
+    avoidance_max_lateral_offset_cm: float = Field(
+        default=60.0,
+        gt=0,
+        le=500.0,
+        validation_alias="AVOIDANCE_MAX_LATERAL_OFFSET_CM",
+        description="Максимально допустимое боковое смещение при обходе.",
+    )
+    avoidance_max_bypass_distance_cm: float = Field(
+        default=200.0,
+        gt=0,
+        le=1000.0,
+        validation_alias="AVOIDANCE_MAX_BYPASS_DISTANCE_CM",
+        description="Максимальная суммарная длина обходного манёвра.",
+    )
 
     # Прямолинейность (отклонение ≤ 5 см)
     tl_left_offset: int = Field(

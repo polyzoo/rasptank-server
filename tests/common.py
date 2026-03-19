@@ -45,6 +45,15 @@ def create_drive_controller(settings: Settings | None = None) -> DriveController
         turn_speed_percent=s.turn_speed_percent,
         max_speed_cm_per_sec=s.max_speed_cm_per_sec,
         update_interval_sec=s.update_interval_sec,
+        avoidance_scan_angle_deg=s.avoidance_scan_angle_deg,
+        avoidance_side_step_cm=s.avoidance_side_step_cm,
+        avoidance_forward_step_cm=s.avoidance_forward_step_cm,
+        avoidance_rejoin_step_cm=s.avoidance_rejoin_step_cm,
+        avoidance_max_attempts=s.avoidance_max_attempts,
+        avoidance_confirm_readings=s.avoidance_confirm_readings,
+        avoidance_min_side_clearance_cm=s.avoidance_min_side_clearance_cm,
+        avoidance_max_lateral_offset_cm=s.avoidance_max_lateral_offset_cm,
+        avoidance_max_bypass_distance_cm=s.avoidance_max_bypass_distance_cm,
     )
 
 
