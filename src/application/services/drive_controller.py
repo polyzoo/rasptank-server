@@ -225,15 +225,28 @@ class DriveController(DriveControllerProtocol):
             min(self.SPEED_PERCENT_MAX, speed_percent),
         )
 
+        current_speed: float = 0.0
+        last_time: float = time.monotonic()
+
         try:
             while self._is_moving and not self._stop_event.is_set():
                 obstacle_distance_cm: float = self.ultrasonic_sensor.measure_distance_cm()
 
+                now: float = time.monotonic()
+                dt: float = now - last_time
+                last_time: float = now
+
+                traveled_cm += self._estimate_traveled_distance(
+                    speed_percent=current_speed,
+                    time_interval=dt,
+                )
+
                 remaining_distance: float = distance_cm - traveled_cm
                 if remaining_distance <= 0:
+                    self.motor_controller.stop()
                     return True
 
-                current_speed: float = self._calculate_speed(
+                current_speed = self._calculate_speed(
                     obstacle_distance_cm=obstacle_distance_cm,
                     remaining_distance_cm=remaining_distance,
                     max_speed_percent=clamped_speed,
@@ -244,11 +257,6 @@ class DriveController(DriveControllerProtocol):
                     return False
 
                 self.motor_controller.move_forward(speed_percent=int(current_speed))
-                traveled_cm += self._estimate_traveled_distance(
-                    speed_percent=current_speed,
-                    time_interval=self.update_interval_sec,
-                )
-
                 time.sleep(self.update_interval_sec)
 
             return False
@@ -271,10 +279,23 @@ class DriveController(DriveControllerProtocol):
             min(self.SPEED_PERCENT_MAX, speed_percent),
         )
 
+        current_speed: float = 0.0
+        last_time: float = time.monotonic()
+
         try:
             while self._is_moving and not self._stop_event.is_set():
+                now: float = time.monotonic()
+                dt: float = now - last_time
+                last_time: float = now
+
+                traveled_cm += self._estimate_traveled_distance(
+                    speed_percent=current_speed,
+                    time_interval=dt,
+                )
+
                 remaining_distance: float = distance_cm - traveled_cm
                 if remaining_distance <= 0:
+                    self.motor_controller.stop()
                     return True
 
                 speed_factor: float = (
@@ -289,13 +310,8 @@ class DriveController(DriveControllerProtocol):
                     )
                 )
 
-                current_speed: float = clamped_speed * speed_factor
+                current_speed = clamped_speed * speed_factor
                 self.motor_controller.move_backward(speed_percent=int(current_speed))
-                traveled_cm += self._estimate_traveled_distance(
-                    speed_percent=current_speed,
-                    time_interval=self.update_interval_sec,
-                )
-
                 time.sleep(self.update_interval_sec)
 
             return False
@@ -309,17 +325,19 @@ class DriveController(DriveControllerProtocol):
 
         Блокирует до завершения или остановки по препятствию или 'stop_event'.
         """
-        elapsed: float = 0.0
+        start_time: float = time.monotonic()
         check_interval: float = min(
             self.TURN_CHECK_INTERVAL_MIN_SEC,
             duration_sec / self.TURN_CHECK_INTERVAL_DIVISOR,
         )
 
-        while elapsed < duration_sec and self._is_moving and not self._stop_event.is_set():
+        while self._is_moving and not self._stop_event.is_set():
+            if (time.monotonic() - start_time) >= duration_sec:
+                break
+
             obstacle_cm: float = self.ultrasonic_sensor.measure_distance_cm()
             if obstacle_cm <= self.min_obstacle_distance_cm:
-                self.motor_controller.stop()
-                return
+                break
 
             if turn_left:
                 self.motor_controller.turn_left(speed_percent=self.turn_speed_percent)
@@ -327,7 +345,6 @@ class DriveController(DriveControllerProtocol):
                 self.motor_controller.turn_right(speed_percent=self.turn_speed_percent)
 
             time.sleep(check_interval)
-            elapsed += check_interval
 
         self.motor_controller.stop()
 
