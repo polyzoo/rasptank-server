@@ -36,10 +36,10 @@ def _schema_to_route(body: RouteRequestSchema) -> Route:
             segments.append(BackwardSegment(distance_cm=s.distance_cm))
 
         elif isinstance(s, TurnLeftSegmentSchema):
-            segments.append(TurnLeftSegment(duration_sec=s.duration_sec))
+            segments.append(TurnLeftSegment(angle_deg=s.angle_deg))
 
         elif isinstance(s, TurnRightSegmentSchema):
-            segments.append(TurnRightSegment(duration_sec=s.duration_sec))
+            segments.append(TurnRightSegment(angle_deg=s.angle_deg))
 
     return Route(segments=segments)
 

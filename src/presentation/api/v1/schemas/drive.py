@@ -23,14 +23,14 @@ class TurnLeftSegmentSchema(BaseModel):
     """Сегмент поворота налево."""
 
     action: Literal["turn_left"] = "turn_left"
-    duration_sec: float = Field(..., ge=0, description="Длительность поворота (с).")
+    angle_deg: float = Field(default=90.0, ge=0, description="Угол поворота (градусы).")
 
 
 class TurnRightSegmentSchema(BaseModel):
     """Сегмент поворота направо."""
 
     action: Literal["turn_right"] = "turn_right"
-    duration_sec: float = Field(..., ge=0, description="Длительность поворота (с).")
+    angle_deg: float = Field(default=90.0, ge=0, description="Угол поворота (градусы).")
 
 
 _SegmentSchema = Annotated[

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from src.application.services.drive_controller import DriveController
 from src.config.settings import Settings
+from src.infrastructures.imu import IMUSensor
 from src.infrastructures.motor import MotorController
 from src.infrastructures.ultrasonic import UltrasonicSensor
 from src.presentation.api.exception_handlers import setup_exception_handlers
@@ -33,6 +34,7 @@ def create_app(settings: Settings) -> FastAPI:
     )
 
     ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
+    imu_sensor: IMUSensor = IMUSensor()
     motor_controller: MotorController = MotorController(
         tl_left_offset=settings.tl_left_offset,
         tl_right_offset=settings.tl_right_offset,
@@ -40,6 +42,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     drive_controller: DriveController = DriveController(
         motor_controller=motor_controller,
+        gyroscope=imu_sensor,
         ultrasonic_sensor=ultrasonic_sensor,
         min_obstacle_distance_cm=settings.min_obstacle_distance_cm,
         deceleration_distance_cm=settings.deceleration_distance_cm,
