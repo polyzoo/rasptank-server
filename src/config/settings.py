@@ -98,6 +98,35 @@ class Settings(BaseSettings):
         validation_alias="HEADING_HOLD_DEADBAND_DEG",
         description="Зона нечувствительности по ошибке курса (°).",
     )
+    heading_hold_steer_speed_ratio: float = Field(
+        default=0.48,
+        ge=0.05,
+        le=0.55,
+        validation_alias="HEADING_HOLD_STEER_SPEED_RATIO",
+        description=(
+            "Макс. |руление| ≤ скорость × ratio: при низкой скорости иначе одно колесо уходит в 0% и робот крутится."
+        ),
+    )
+    heading_hold_min_speed_percent: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=30.0,
+        validation_alias="HEADING_HOLD_MIN_SPEED_PERCENT",
+        description=(
+            "Ниже этой скорости (%) руление по курсу отключено. По умолчанию 0 — коррекция не обрубается "
+            "в конце сегмента; ограничение только через steer_speed_ratio."
+        ),
+    )
+    heading_hold_steer_trim: int = Field(
+        default=0,
+        ge=-20,
+        le=20,
+        validation_alias="HEADING_HOLD_STEER_TRIM",
+        description=(
+            "Постоянное смещение дифференциала (%) без калибровки TL_*: при уводе вправо попробуйте 2…5, "
+            "влево — отрицательное."
+        ),
+    )
 
     # Оценка пройденного пути
     max_speed_cm_per_sec: float = Field(

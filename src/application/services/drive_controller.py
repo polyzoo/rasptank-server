@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from threading import Event, Thread
 from typing import final
@@ -21,6 +22,11 @@ from src.application.protocols import (
 )
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _route_diag_enabled() -> bool:
+    """Подробные логи маршрута (сегменты, yaw, причина остановки поворота)."""
+    return os.environ.get("RASPTANK_DIAG", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 @final
@@ -71,6 +77,9 @@ class DriveController(DriveControllerProtocol):
         heading_hold_kp: float = 1.2,
         heading_hold_steer_max: int = 25,
         heading_hold_deadband_deg: float = 0.4,
+        heading_hold_steer_speed_ratio: float = 0.48,
+        heading_hold_min_speed_percent: float = 0.0,
+        heading_hold_steer_trim: int = 0,
     ) -> None:
         """Инициализация контроллера движения."""
         self.motor_controller: MotorControllerProtocol = motor_controller
@@ -87,6 +96,9 @@ class DriveController(DriveControllerProtocol):
         self.heading_hold_kp: float = heading_hold_kp
         self.heading_hold_steer_max: int = heading_hold_steer_max
         self.heading_hold_deadband_deg: float = heading_hold_deadband_deg
+        self.heading_hold_steer_speed_ratio: float = heading_hold_steer_speed_ratio
+        self.heading_hold_min_speed_percent: float = heading_hold_min_speed_percent
+        self.heading_hold_steer_trim: int = heading_hold_steer_trim
 
         self._is_moving: bool = False
         self._is_route_running: bool = False
@@ -173,53 +185,99 @@ class DriveController(DriveControllerProtocol):
         """Последовательное выполнение сегментов маршрута."""
         self.gyroscope.start(calibrate=True)
 
-        for segment in segments:
+        for idx, segment in enumerate(segments):
             if not self._is_moving or self._stop_event.is_set():
                 break
 
             if isinstance(segment, ForwardSegment):
+                if _route_diag_enabled():
+                    logger.info(
+                        "route seg %d: forward distance_cm=%.1f",
+                        idx,
+                        segment.distance_cm,
+                    )
                 if not self._run_forward_segment(segment.distance_cm, self.base_speed_percent):
+                    if _route_diag_enabled():
+                        logger.info("route seg %d: forward прерван (препятствие/стоп)", idx)
                     break
 
             elif isinstance(segment, BackwardSegment):
+                if _route_diag_enabled():
+                    logger.info(
+                        "route seg %d: backward distance_cm=%.1f",
+                        idx,
+                        segment.distance_cm,
+                    )
                 if not self._run_backward_segment(segment.distance_cm, self.base_speed_percent):
+                    if _route_diag_enabled():
+                        logger.info("route seg %d: backward прерван", idx)
                     break
 
             elif isinstance(segment, TurnLeftSegment):
+                t_out: float = max(
+                    self.TURN_TIMEOUT_MIN,
+                    segment.angle_deg * self.TURN_TIMEOUT_PER_DEG,
+                )
+                if _route_diag_enabled():
+                    logger.info(
+                        "route seg %d: turn_left angle_deg=%.1f timeout_sec=%.2f",
+                        idx,
+                        segment.angle_deg,
+                        t_out,
+                    )
                 self._run_turn_segment(
                     turn_left=True,
                     target_angle=segment.angle_deg,
-                    timeout_sec=max(
-                        self.TURN_TIMEOUT_MIN,
-                        segment.angle_deg * self.TURN_TIMEOUT_PER_DEG,
-                    ),
+                    timeout_sec=t_out,
+                    segment_index=idx,
                 )
 
             elif isinstance(segment, TurnRightSegment):
+                t_out = max(
+                    self.TURN_TIMEOUT_MIN,
+                    segment.angle_deg * self.TURN_TIMEOUT_PER_DEG,
+                )
+                if _route_diag_enabled():
+                    logger.info(
+                        "route seg %d: turn_right angle_deg=%.1f timeout_sec=%.2f",
+                        idx,
+                        segment.angle_deg,
+                        t_out,
+                    )
                 self._run_turn_segment(
                     turn_left=False,
                     target_angle=segment.angle_deg,
-                    timeout_sec=max(
-                        self.TURN_TIMEOUT_MIN,
-                        segment.angle_deg * self.TURN_TIMEOUT_PER_DEG,
-                    ),
+                    timeout_sec=t_out,
+                    segment_index=idx,
                 )
 
-    def _heading_steer_percent(self, heading_setpoint_deg: float) -> int:
-        """Дифференциал колёс для возврата курса к setpoint (положительный — доворот против часовой)."""
+    def _heading_steer_percent(self, heading_setpoint_deg: float, base_speed_percent: float) -> int:
+        """Дифференциал колёс для возврата курса к setpoint (положительный — доворот против часовой).
+
+        При малой базовой скорости большой steer заставляет одно колесо уйти в 0%% ШИМ — робот крутится на месте.
+        Поэтому |steer| ограничивается долей от текущей скорости.
+        """
         if not self.heading_hold_enabled:
             return 0
 
-        err: float = self._angle_error_deg(heading_setpoint_deg, self.gyroscope.get_yaw())
-        if abs(err) < self.heading_hold_deadband_deg:
+        base: float = max(0.0, float(base_speed_percent))
+        if base < self.heading_hold_min_speed_percent:
             return 0
 
-        steer: float = self.heading_hold_kp * err
-        steer_i: int = int(round(steer))
-        return max(
-            -self.heading_hold_steer_max,
-            min(self.heading_hold_steer_max, steer_i),
+        steer_cap: int = min(
+            self.heading_hold_steer_max,
+            int(base * self.heading_hold_steer_speed_ratio),
         )
+        if steer_cap <= 0:
+            return 0
+
+        err: float = self._angle_error_deg(heading_setpoint_deg, self.gyroscope.get_yaw())
+        steer_pid: int = 0
+        if abs(err) >= self.heading_hold_deadband_deg:
+            steer_pid = int(round(self.heading_hold_kp * err))
+
+        steer_i: int = steer_pid + self.heading_hold_steer_trim
+        return max(-steer_cap, min(steer_cap, steer_i))
 
     def _run_forward_segment(self, distance_cm: float, speed_percent: int) -> bool:
         """Запуск сегмента «вперед» с учетом препятствий."""
@@ -227,6 +285,12 @@ class DriveController(DriveControllerProtocol):
         current_speed: float = 0.0
         last_time: float = time.monotonic()
         heading_setpoint_deg: float = self.gyroscope.get_yaw()
+        if _route_diag_enabled():
+            logger.info(
+                "forward: start heading_setpoint_deg=%.2f distance_cm=%.1f",
+                heading_setpoint_deg,
+                distance_cm,
+            )
 
         clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
         try:
@@ -242,6 +306,12 @@ class DriveController(DriveControllerProtocol):
                 remaining_dist: float = distance_cm - traveled_cm
                 if remaining_dist <= 0:
                     self.motor_controller.stop()
+                    if _route_diag_enabled():
+                        logger.info(
+                            "forward: done yaw_deg=%.2f traveled_cm~%.1f",
+                            self.gyroscope.get_yaw(),
+                            traveled_cm,
+                        )
                     return True
 
                 current_speed: float = self._calculate_speed(
@@ -253,9 +323,15 @@ class DriveController(DriveControllerProtocol):
                 if current_speed <= 0.0:
                     self.motor_controller.stop()
                     time.sleep(self.update_interval_sec)
+                    if _route_diag_enabled():
+                        logger.info(
+                            "forward: stopped (obstacle) yaw_deg=%.2f traveled_cm~%.1f",
+                            self.gyroscope.get_yaw(),
+                            traveled_cm,
+                        )
                     return False
 
-                steer: int = self._heading_steer_percent(heading_setpoint_deg)
+                steer: int = self._heading_steer_percent(heading_setpoint_deg, current_speed)
                 self.motor_controller.move_forward(
                     speed_percent=int(current_speed),
                     steer_percent=steer,
@@ -296,7 +372,7 @@ class DriveController(DriveControllerProtocol):
                 )
 
                 current_speed: float = clamped_speed * speed_factor
-                steer: int = self._heading_steer_percent(heading_setpoint_deg)
+                steer: int = self._heading_steer_percent(heading_setpoint_deg, current_speed)
                 self.motor_controller.move_backward(
                     speed_percent=int(current_speed),
                     steer_percent=steer,
@@ -309,22 +385,32 @@ class DriveController(DriveControllerProtocol):
             logger.exception("Ошибка в сегменте движения назад: %s", exc)
             return False
 
-    def _run_turn_segment(self, turn_left: bool, target_angle: float, timeout_sec: float) -> None:
+    def _run_turn_segment(
+        self,
+        turn_left: bool,
+        target_angle: float,
+        timeout_sec: float,
+        segment_index: int = -1,
+    ) -> None:
         """Запуск сегмента поворота на месте с проверкой препятствий."""
         self.gyroscope.reset_yaw()
         start_time: float = time.monotonic()
+        stop_reason: str = "stop_event"
 
         while self._is_moving and not self._stop_event.is_set():
             current_yaw: float = self.gyroscope.get_yaw()
-            
+
             if abs(current_yaw) >= target_angle:
+                stop_reason = "angle_reached"
                 break
 
             if (time.monotonic() - start_time) >= timeout_sec:
+                stop_reason = "timeout"
                 break
 
             obstacle_cm: float = self.ultrasonic_sensor.measure_distance_cm()
             if obstacle_cm <= self.min_obstacle_distance_cm:
+                stop_reason = "obstacle"
                 break
 
             if turn_left:
@@ -335,6 +421,22 @@ class DriveController(DriveControllerProtocol):
             time.sleep(self.TURN_CHECK_INTERVAL_SEC)
 
         self.motor_controller.stop()
+
+        if _route_diag_enabled():
+            elapsed: float = time.monotonic() - start_time
+            final_yaw: float = self.gyroscope.get_yaw()
+            direction: str = "left" if turn_left else "right"
+            logger.info(
+                "turn_%s seg=%d: target_deg=%.1f final_yaw_deg=%.2f elapsed=%.2fs reason=%s "
+                "(timeout was %.2fs; если reason=timeout и |yaw|<<цели — проверьте IMU/I2C)",
+                direction,
+                segment_index,
+                target_angle,
+                final_yaw,
+                elapsed,
+                stop_reason,
+                timeout_sec,
+            )
 
     def _calculate_speed(self, obstacle_cm: float, remaining_cm: float, max_speed: int) -> float:
         """Расчет скорости с учетом препятствий и цели."""

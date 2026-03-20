@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import os
 import sys
 from pathlib import Path
 
@@ -19,11 +21,37 @@ ERROR_ROUTE_CALIBRATION: str = (
 USAGE_MESSAGE: str = "Использование: python -m tests.test_route <файл.json> [max_speed_percent]"
 
 
+def _diag_mode() -> bool:
+    return os.environ.get("RASPTANK_DIAG", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _setup_diag_logging() -> None:
+    """Логи IMU и drive_controller в консоль (см. tests/SQUARE_DIAGNOSTIC.md)."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        force=True,
+    )
+    for name in (
+        "src.infrastructures.imu",
+        "src.application.services.drive_controller",
+    ):
+        logging.getLogger(name).setLevel(logging.INFO)
+
+
 def run(
     route_file: Path,
     max_speed_percent: int | None = None,
 ) -> int:
     """Запуск теста выполнения маршрута."""
+    diag: bool = _diag_mode()
+    if diag:
+        _setup_diag_logging()
+        print(
+            "RASPTANK_DIAG=1: подробные логи, вопросы Y/n пропущены. "
+            "Сохраните вывод: ... 2>&1 | tee square_run.log\n",
+        )
+
     print(f"\n=== {DESCRIPTION} ===\n")
     print(f"Маршрут: {route_file}")
 
@@ -45,7 +73,7 @@ def run(
     print("Маршрут должен быть физически достижим.")
     print()
 
-    if not prompt_yes_no(PROMPT_START):
+    if not diag and not prompt_yes_no(PROMPT_START):
         return 0
 
     settings: Settings = Settings()
@@ -55,6 +83,10 @@ def run(
     try:
         drive.execute_route_sync(route=route)
         print("Маршрут выполнен. Остановка.")
+
+        if diag:
+            print("✓ Прогон завершён (диагностика). Пришлите файл лога, если нужен разбор.")
+            return 0
 
         if prompt_yes_no(PROMPT_RESULT):
             print("✓ Тест пройден.")

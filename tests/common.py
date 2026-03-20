@@ -49,6 +49,9 @@ def create_drive_controller(settings: Settings | None = None) -> DriveController
         heading_hold_kp=s.heading_hold_kp,
         heading_hold_steer_max=s.heading_hold_steer_max,
         heading_hold_deadband_deg=s.heading_hold_deadband_deg,
+        heading_hold_steer_speed_ratio=s.heading_hold_steer_speed_ratio,
+        heading_hold_min_speed_percent=s.heading_hold_min_speed_percent,
+        heading_hold_steer_trim=s.heading_hold_steer_trim,
     )
 
 

@@ -54,6 +54,9 @@ def create_app(settings: Settings) -> FastAPI:
         heading_hold_kp=settings.heading_hold_kp,
         heading_hold_steer_max=settings.heading_hold_steer_max,
         heading_hold_deadband_deg=settings.heading_hold_deadband_deg,
+        heading_hold_steer_speed_ratio=settings.heading_hold_steer_speed_ratio,
+        heading_hold_min_speed_percent=settings.heading_hold_min_speed_percent,
+        heading_hold_steer_trim=settings.heading_hold_steer_trim,
     )
 
     app.state.settings = settings

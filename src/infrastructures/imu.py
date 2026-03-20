@@ -76,10 +76,16 @@ class IMUSensor(GyroscopeProtocol):
     def start(self, calibrate: bool = True) -> None:
         """Запуск отслеживания угла."""
         if not _HARDWARE_AVAILABLE:
+            logger.warning(
+                "IMU: smbus2 недоступен — yaw не считается, повороты по углу не сработают",
+            )
             return
 
         self._setup()
         if not self._is_initialized:
+            logger.warning(
+                "IMU: нет связи с MPU6050 по I2C — yaw не считается, повороты по углу не сработают",
+            )
             return
 
         if calibrate:
