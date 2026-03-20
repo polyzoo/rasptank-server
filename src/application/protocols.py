@@ -11,12 +11,12 @@ class MotorControllerProtocol(Protocol):
     """Протокол управления двигателями."""
 
     @abstractmethod
-    def move_forward(self, speed_percent: int) -> None:
-        """Движение вперед с заданной скоростью."""
+    def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
+        """Движение вперед. steer_percent: дифференциал для удержания курса (−100…100)."""
 
     @abstractmethod
-    def move_backward(self, speed_percent: int) -> None:
-        """Движение назад с заданной скоростью."""
+    def move_backward(self, speed_percent: int, steer_percent: int = 0) -> None:
+        """Движение назад. steer_percent — как у move_forward."""
 
     @abstractmethod
     def turn_left(self, speed_percent: int) -> None:

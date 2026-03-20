@@ -46,6 +46,16 @@ class DriveController(DriveControllerProtocol):
     # Ожидание завершения потока
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
 
+    @staticmethod
+    def _angle_error_deg(setpoint: float, current: float) -> float:
+        """Ошибка курса (setpoint − current) в градусах, нормализованная в [−180, 180]."""
+        diff: float = setpoint - current
+        while diff > 180.0:
+            diff -= 360.0
+        while diff < -180.0:
+            diff += 360.0
+        return diff
+
     def __init__(
         self,
         motor_controller: MotorControllerProtocol,
@@ -57,6 +67,10 @@ class DriveController(DriveControllerProtocol):
         turn_speed_percent: int = 50,
         max_speed_cm_per_sec: float = 30.0,
         update_interval_sec: float = 0.1,
+        heading_hold_enabled: bool = True,
+        heading_hold_kp: float = 1.2,
+        heading_hold_steer_max: int = 25,
+        heading_hold_deadband_deg: float = 0.4,
     ) -> None:
         """Инициализация контроллера движения."""
         self.motor_controller: MotorControllerProtocol = motor_controller
@@ -69,6 +83,10 @@ class DriveController(DriveControllerProtocol):
         self.turn_speed_percent: int = turn_speed_percent
         self.max_speed_cm_per_sec: float = max_speed_cm_per_sec
         self.update_interval_sec: float = update_interval_sec
+        self.heading_hold_enabled: bool = heading_hold_enabled
+        self.heading_hold_kp: float = heading_hold_kp
+        self.heading_hold_steer_max: int = heading_hold_steer_max
+        self.heading_hold_deadband_deg: float = heading_hold_deadband_deg
 
         self._is_moving: bool = False
         self._is_route_running: bool = False
@@ -187,11 +205,28 @@ class DriveController(DriveControllerProtocol):
                     ),
                 )
 
+    def _heading_steer_percent(self, heading_setpoint_deg: float) -> int:
+        """Дифференциал колёс для возврата курса к setpoint (положительный — доворот против часовой)."""
+        if not self.heading_hold_enabled:
+            return 0
+
+        err: float = self._angle_error_deg(heading_setpoint_deg, self.gyroscope.get_yaw())
+        if abs(err) < self.heading_hold_deadband_deg:
+            return 0
+
+        steer: float = self.heading_hold_kp * err
+        steer_i: int = int(round(steer))
+        return max(
+            -self.heading_hold_steer_max,
+            min(self.heading_hold_steer_max, steer_i),
+        )
+
     def _run_forward_segment(self, distance_cm: float, speed_percent: int) -> bool:
         """Запуск сегмента «вперед» с учетом препятствий."""
         traveled_cm: float = 0.0
         current_speed: float = 0.0
         last_time: float = time.monotonic()
+        heading_setpoint_deg: float = self.gyroscope.get_yaw()
 
         clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
         try:
@@ -220,7 +255,11 @@ class DriveController(DriveControllerProtocol):
                     time.sleep(self.update_interval_sec)
                     return False
 
-                self.motor_controller.move_forward(speed_percent=int(current_speed))
+                steer: int = self._heading_steer_percent(heading_setpoint_deg)
+                self.motor_controller.move_forward(
+                    speed_percent=int(current_speed),
+                    steer_percent=steer,
+                )
                 time.sleep(self.update_interval_sec)
 
             return False
@@ -234,6 +273,7 @@ class DriveController(DriveControllerProtocol):
         traveled_cm: float = 0.0
         current_speed: float = 0.0
         last_time: float = time.monotonic()
+        heading_setpoint_deg: float = self.gyroscope.get_yaw()
 
         clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
         try:
@@ -256,7 +296,11 @@ class DriveController(DriveControllerProtocol):
                 )
 
                 current_speed: float = clamped_speed * speed_factor
-                self.motor_controller.move_backward(speed_percent=int(current_speed))
+                steer: int = self._heading_steer_percent(heading_setpoint_deg)
+                self.motor_controller.move_backward(
+                    speed_percent=int(current_speed),
+                    steer_percent=steer,
+                )
                 time.sleep(self.update_interval_sec)
 
             return False

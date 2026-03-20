@@ -50,6 +50,10 @@ def create_app(settings: Settings) -> FastAPI:
         turn_speed_percent=settings.turn_speed_percent,
         max_speed_cm_per_sec=settings.max_speed_cm_per_sec,
         update_interval_sec=settings.update_interval_sec,
+        heading_hold_enabled=settings.heading_hold_enabled,
+        heading_hold_kp=settings.heading_hold_kp,
+        heading_hold_steer_max=settings.heading_hold_steer_max,
+        heading_hold_deadband_deg=settings.heading_hold_deadband_deg,
     )
 
     app.state.settings = settings

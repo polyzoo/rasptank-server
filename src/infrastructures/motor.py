@@ -83,8 +83,11 @@ class MotorController(MotorControllerProtocol):
         self._motor2: object | None = None
         self._is_initialized: bool = False
 
-    def move_forward(self, speed_percent: int) -> None:
-        """Движение вперед с заданной скоростью."""
+    def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
+        """Движение вперед с заданной скоростью.
+
+        Положительный steer_percent усиливает левое колесо относительно правого (доворот против часовой).
+        """
         if not _HARDWARE_AVAILABLE:
             return
 
@@ -93,22 +96,26 @@ class MotorController(MotorControllerProtocol):
             return
 
         clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
-        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
+        steer: int = max(-self.SPEED_PERCENT_MAX, min(self.SPEED_PERCENT_MAX, steer_percent))
 
-        # Смещения для калибровки прямолинейности
-        left_speed: float = max(
-            self.THROTTLE_MIN,
-            min(self.THROTTLE_MAX, throttle + self.TL_LEFT_OFFSET / float(self.SPEED_PERCENT_MAX)),
+        left_pct: int = max(
+            self.SPEED_PERCENT_MIN,
+            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_LEFT_OFFSET + steer),
         )
-        right_speed: float = max(
-            self.THROTTLE_MIN,
-            min(self.THROTTLE_MAX, throttle + self.TL_RIGHT_OFFSET / float(self.SPEED_PERCENT_MAX)),
+        right_pct: int = max(
+            self.SPEED_PERCENT_MIN,
+            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_RIGHT_OFFSET - steer),
         )
+
+        left_speed: float = left_pct / float(self.SPEED_PERCENT_MAX)
+        right_speed: float = right_pct / float(self.SPEED_PERCENT_MAX)
+        left_speed = max(self.THROTTLE_MIN, min(self.THROTTLE_MAX, left_speed))
+        right_speed = max(self.THROTTLE_MIN, min(self.THROTTLE_MAX, right_speed))
 
         self._motor1.throttle = right_speed * self.M1_DIRECTION
         self._motor2.throttle = left_speed * self.M2_DIRECTION
 
-    def move_backward(self, speed_percent: int) -> None:
+    def move_backward(self, speed_percent: int, steer_percent: int = 0) -> None:
         """Движение назад с заданной скоростью."""
         if not _HARDWARE_AVAILABLE:
             return
@@ -118,10 +125,24 @@ class MotorController(MotorControllerProtocol):
             return
 
         clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
-        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
+        steer: int = max(-self.SPEED_PERCENT_MAX, min(self.SPEED_PERCENT_MAX, steer_percent))
 
-        self._motor1.throttle = -throttle * self.M1_DIRECTION
-        self._motor2.throttle = -throttle * self.M2_DIRECTION
+        left_pct: int = max(
+            self.SPEED_PERCENT_MIN,
+            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_LEFT_OFFSET + steer),
+        )
+        right_pct: int = max(
+            self.SPEED_PERCENT_MIN,
+            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_RIGHT_OFFSET - steer),
+        )
+
+        left_speed: float = left_pct / float(self.SPEED_PERCENT_MAX)
+        right_speed: float = right_pct / float(self.SPEED_PERCENT_MAX)
+        left_speed = max(self.THROTTLE_MIN, min(self.THROTTLE_MAX, left_speed))
+        right_speed = max(self.THROTTLE_MIN, min(self.THROTTLE_MAX, right_speed))
+
+        self._motor1.throttle = -right_speed * self.M1_DIRECTION
+        self._motor2.throttle = -left_speed * self.M2_DIRECTION
 
     def turn_left(self, speed_percent: int) -> None:
         """Поворот налево на месте."""

@@ -45,6 +45,10 @@ def create_drive_controller(settings: Settings | None = None) -> DriveController
         turn_speed_percent=s.turn_speed_percent,
         max_speed_cm_per_sec=s.max_speed_cm_per_sec,
         update_interval_sec=s.update_interval_sec,
+        heading_hold_enabled=s.heading_hold_enabled,
+        heading_hold_kp=s.heading_hold_kp,
+        heading_hold_steer_max=s.heading_hold_steer_max,
+        heading_hold_deadband_deg=s.heading_hold_deadband_deg,
     )
 
 

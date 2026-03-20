@@ -72,6 +72,33 @@ class Settings(BaseSettings):
         description="Смещение правого мотора (M1).",
     )
 
+    heading_hold_enabled: bool = Field(
+        default=True,
+        validation_alias="HEADING_HOLD_ENABLED",
+        description="Удержание курса по гироскопу при прямолинейных сегментах.",
+    )
+    heading_hold_kp: float = Field(
+        default=1.2,
+        ge=0.0,
+        le=10.0,
+        validation_alias="HEADING_HOLD_KP",
+        description="Коэффициент P: усиление руления (%% дифференциала на 1° ошибки).",
+    )
+    heading_hold_steer_max: int = Field(
+        default=25,
+        ge=0,
+        le=100,
+        validation_alias="HEADING_HOLD_STEER_MAX",
+        description="Максимальный дифференциал колёс при удержании курса (%).",
+    )
+    heading_hold_deadband_deg: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=5.0,
+        validation_alias="HEADING_HOLD_DEADBAND_DEG",
+        description="Зона нечувствительности по ошибке курса (°).",
+    )
+
     # Оценка пройденного пути
     max_speed_cm_per_sec: float = Field(
         default=30.0,
