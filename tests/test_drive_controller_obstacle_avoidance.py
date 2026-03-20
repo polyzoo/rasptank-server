@@ -143,6 +143,31 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
         self.assertFalse(result.blocked)
         self.controller.motor_controller.move_forward.assert_called_once()
 
+    def test_measure_front_distance_uses_minimum_sample_count(self) -> None:
+        """Даже при misconfig внутри FSM остаётся минимум три чтения для фильтрации."""
+        self.controller.avoidance_confirm_readings = 1
+        self.controller.ultrasonic_sensor = Mock(spec=DummyUltrasonicSensor)
+        self.controller.ultrasonic_sensor.measure_distance_cm.side_effect = [45.0, 10.0, 55.0]
+
+        result: float = self.controller._measure_front_distance()
+
+        self.assertEqual(45.0, result)
+        self.assertEqual(3, self.controller.ultrasonic_sensor.measure_distance_cm.call_count)
+
+    def test_front_clear_confirmation_requires_margin_twice(self) -> None:
+        """Одного «почти свободно» недостаточно для выхода из обхода."""
+        self.controller.update_interval_sec = 0.0
+
+        with patch.object(
+            self.controller,
+            "_measure_front_distance",
+            side_effect=[24.0, 21.0],
+        ) as distance_mock:
+            result: bool = self.controller._is_front_clear_confirmed()
+
+        self.assertFalse(result)
+        self.assertEqual(2, distance_mock.call_count)
+
     def test_obstacle_avoidance_handles_longer_obstacle_in_multiple_steps(self) -> None:
         """Обход продолжает смещаться и постепенно возвращается на маршрут."""
         with (
@@ -158,7 +183,7 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
             patch.object(
                 self.controller,
                 "_measure_front_distance",
-                side_effect=[10.0, 40.0, 40.0, 40.0],
+                side_effect=[10.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0],
             ) as distance_mock,
             patch.object(
                 self.controller,
@@ -187,7 +212,7 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
         self.assertEqual(2, side_step_mock.call_count)
         self.assertEqual(2, forward_step_mock.call_count)
         self.assertEqual(2, rejoin_mock.call_count)
-        self.assertEqual(4, distance_mock.call_count)
+        self.assertEqual(7, distance_mock.call_count)
 
     def test_obstacle_avoidance_stops_when_attempt_limit_is_reached(self) -> None:
         """Автомат безопасно останавливается, если шагов обхода слишком много."""
@@ -210,6 +235,31 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
         self.assertFalse(result.completed)
         self.assertEqual(0.0, result.forward_progress_cm)
         self.assertEqual(2, side_step_mock.call_count)
+
+    def test_obstacle_avoidance_stops_when_side_step_does_not_restore_heading(self) -> None:
+        """После неудачного восстановления курса автомат аварийно завершается."""
+        with (
+            patch.object(self.controller, "_select_avoidance_side", return_value=AvoidanceSide.LEFT),
+            patch.object(
+                self.controller,
+                "_perform_side_step",
+                return_value=LinearMoveResult(
+                    completed=False,
+                    traveled_cm=12.0,
+                    heading_restored=False,
+                ),
+            ) as side_step_mock,
+            patch.object(self.controller, "_measure_front_distance") as distance_mock,
+        ):
+            result: AvoidanceResult = self.controller._run_obstacle_avoidance(
+                remaining_cm=100.0,
+                speed_percent=60,
+            )
+
+        self.assertFalse(result.completed)
+        self.assertEqual(0.0, result.forward_progress_cm)
+        side_step_mock.assert_called_once()
+        distance_mock.assert_not_called()
 
     def test_forward_segment_resumes_after_successful_avoidance(self) -> None:
         """После обхода контроллер продолжает исходный forward-сегмент."""

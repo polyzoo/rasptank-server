@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     )
     avoidance_confirm_readings: int = Field(
         default=3,
-        ge=1,
+        ge=3,
         le=9,
         validation_alias="AVOIDANCE_CONFIRM_READINGS",
         description="Количество чтений датчика для подтверждения свободного пути.",

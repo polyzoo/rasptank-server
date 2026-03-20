@@ -60,6 +60,7 @@ class LinearMoveResult:
     completed: bool
     traveled_cm: float
     blocked: bool = False
+    heading_restored: bool = True
 
 
 @dataclass(slots=True)
@@ -113,6 +114,8 @@ class DriveController(DriveControllerProtocol):
     # Технические допуски
     DISTANCE_TOLERANCE_CM: float = 0.5
     BLOCK_CONFIRMATION_SAMPLES_MIN: int = 3
+    CLEAR_CONFIRMATION_CHECKS: int = 2
+    CLEARANCE_HYSTERESIS_CM: float = 3.0
 
     # Ожидание завершения потока
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
@@ -430,6 +433,9 @@ class DriveController(DriveControllerProtocol):
 
             if context.state is AvoidanceState.SIDE_STEP:
                 side_step: LinearMoveResult = self._perform_side_step(context.side, speed_percent)
+                if not side_step.heading_restored:
+                    logger.warning("Обход остановлен: после бокового шага не удалось восстановить курс.")
+                    break
                 self._update_avoidance_progress(
                     context=context,
                     traveled_cm=side_step.traveled_cm,
@@ -445,8 +451,7 @@ class DriveController(DriveControllerProtocol):
                 continue
 
             if context.state is AvoidanceState.CHECK_FRONT:
-                obstacle_cm: float = self._measure_front_distance()
-                if self._is_front_blocked(obstacle_cm):
+                if not self._is_front_clear_confirmed():
                     context.state = AvoidanceState.SIDE_STEP
                     continue
 
@@ -490,6 +495,9 @@ class DriveController(DriveControllerProtocol):
                     lateral_offset_cm=context.lateral_offset_cm,
                     speed_percent=speed_percent,
                 )
+                if not rejoin_step.heading_restored:
+                    logger.warning("Обход остановлен: после попытки возврата не удалось восстановить курс.")
+                    break
                 self._update_avoidance_progress(
                     context=context,
                     traveled_cm=rejoin_step.traveled_cm,
@@ -502,8 +510,7 @@ class DriveController(DriveControllerProtocol):
                     continue
 
                 if self._has_reached_target_distance(context.lateral_offset_cm):
-                    obstacle_cm = self._measure_front_distance()
-                    if self._is_front_blocked(obstacle_cm):
+                    if not self._is_front_clear_confirmed():
                         context.state = AvoidanceState.SIDE_STEP
                         continue
                     return AvoidanceResult(completed=True, forward_progress_cm=context.forward_progress_cm)
@@ -617,27 +624,34 @@ class DriveController(DriveControllerProtocol):
             stop_on_front_obstacle=False,
         )
 
-        try:
-            if not turn_result.completed:
-                return LinearMoveResult(completed=False, traveled_cm=0.0)
+        move_result: LinearMoveResult = LinearMoveResult(completed=False, traveled_cm=0.0)
 
-            return self._run_linear_motion(
+        if turn_result.completed:
+            move_result = self._run_linear_motion(
                 distance_cm=distance_cm,
                 speed_percent=speed_percent,
                 move_forward=True,
                 obstacle_aware=True,
             )
+        if turn_result.angle_deg <= self.DISTANCE_TOLERANCE_CM:
+            return move_result
 
-        finally:
-            if turn_result.angle_deg > self.DISTANCE_TOLERANCE_CM:
-                restore_result: TurnResult = self._turn_relative(
-                    turn_left=not side.turn_left,
-                    target_angle=turn_result.angle_deg,
-                    timeout_sec=self._calculate_turn_timeout(turn_result.angle_deg),
-                    stop_on_front_obstacle=False,
-                )
-                if not restore_result.completed:
-                    logger.warning("Не удалось полностью восстановить исходный курс.")
+        restore_result: TurnResult = self._turn_relative(
+            turn_left=not side.turn_left,
+            target_angle=turn_result.angle_deg,
+            timeout_sec=self._calculate_turn_timeout(turn_result.angle_deg),
+            stop_on_front_obstacle=False,
+        )
+        if restore_result.completed:
+            return move_result
+
+        logger.warning("Не удалось полностью восстановить исходный курс.")
+        return LinearMoveResult(
+            completed=False,
+            traveled_cm=move_result.traveled_cm,
+            blocked=move_result.blocked,
+            heading_restored=False,
+        )
 
     def _turn_relative(
         self,
@@ -679,13 +693,30 @@ class DriveController(DriveControllerProtocol):
 
     def _measure_front_distance(self, samples: int | None = None) -> float:
         """Измерение фронтальной дистанции с подавлением одиночных шумовых чтений."""
-        sample_count: int = max(1, samples or self.avoidance_confirm_readings)
+        sample_count: int = max(
+            self.BLOCK_CONFIRMATION_SAMPLES_MIN,
+            samples or self.avoidance_confirm_readings,
+        )
         measurements: list[float] = [
             self.ultrasonic_sensor.measure_distance_cm()
             for _ in range(sample_count)
         ]
         measurements.sort()
         return measurements[len(measurements) // 2]
+
+    def _is_front_clear_confirmed(self) -> bool:
+        """Проверка, что фронт стабильно свободен с небольшим запасом."""
+        clear_threshold_cm: float = self.min_obstacle_distance_cm + self.CLEARANCE_HYSTERESIS_CM
+
+        for check_index in range(self.CLEAR_CONFIRMATION_CHECKS):
+            obstacle_cm: float = self._measure_front_distance()
+            if obstacle_cm <= clear_threshold_cm:
+                return False
+
+            if check_index + 1 < self.CLEAR_CONFIRMATION_CHECKS:
+                time.sleep(self.update_interval_sec)
+
+        return True
 
     def _measure_motion_obstacle_distance(self) -> float:
         """Чтение дистанции для движения с подтверждением критически малого расстояния."""
