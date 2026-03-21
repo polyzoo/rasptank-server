@@ -1,0 +1,10 @@
+{
+  "description": "Буква Г: два прямых угла, открытый конец (не замкнуто).",
+  "segments": [
+    { "action": "forward", "distance_cm": 50 },
+    { "action": "turn_left", "angle_deg": 90 },
+    { "action": "forward", "distance_cm": 50 },
+    { "action": "turn_left", "angle_deg": 90 },
+    { "action": "forward", "distance_cm": 50 }
+  ]
+}

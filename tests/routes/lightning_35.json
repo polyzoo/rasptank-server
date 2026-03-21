@@ -1,0 +1,12 @@
+{
+  "description": "Короткая «молния»: вперёд — влево — вперёд — вправо — вперёд (для демо на столе).",
+  "segments": [
+    { "action": "forward", "distance_cm": 35 },
+    { "action": "turn_left", "angle_deg": 90 },
+    { "action": "forward", "distance_cm": 35 },
+    { "action": "turn_right", "angle_deg": 90 },
+    { "action": "forward", "distance_cm": 35 },
+    { "action": "turn_left", "angle_deg": 90 },
+    { "action": "forward", "distance_cm": 35 }
+  ]
+}

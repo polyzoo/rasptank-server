@@ -1,0 +1,12 @@
+{
+  "description": "Зигзаг: чередование лево/право, траектория не замыкается.",
+  "segments": [
+    { "action": "forward", "distance_cm": 40 },
+    { "action": "turn_left", "angle_deg": 90 },
+    { "action": "forward", "distance_cm": 40 },
+    { "action": "turn_right", "angle_deg": 90 },
+    { "action": "forward", "distance_cm": 40 },
+    { "action": "turn_right", "angle_deg": 90 },
+    { "action": "forward", "distance_cm": 40 }
+  ]
+}
