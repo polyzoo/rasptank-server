@@ -18,7 +18,11 @@ ERROR_ROUTE_FILE: str = "Ошибка: файл не найден: {path}"
 ERROR_ROUTE_CALIBRATION: str = (
     "✗ Тест не пройден. Проверьте калибровку (TL_*, TURN_DURATION_90_DEG_SEC)"
 )
-USAGE_MESSAGE: str = "Использование: python -m tests.test_route <файл.json> [max_speed_percent]"
+USAGE_MESSAGE: str = (
+    "Использование: python -m tests.test_route <файл.json> [max_speed_percent] [--start N]\n"
+    "  или: RASPTANK_ROUTE_START_SEG=N (тот же эффект, что --start N)\n"
+    "  N — индекс сегмента в JSON (0 = с начала), пропускаются 0..N-1."
+)
 
 
 def _diag_mode() -> bool:
@@ -39,9 +43,20 @@ def _setup_diag_logging() -> None:
         logging.getLogger(name).setLevel(logging.INFO)
 
 
+def _parse_start_segment() -> int | None:
+    raw: str = os.environ.get("RASPTANK_ROUTE_START_SEG", "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw, 10)
+    except ValueError:
+        return None
+
+
 def run(
     route_file: Path,
     max_speed_percent: int | None = None,
+    start_segment_index: int = 0,
 ) -> int:
     """Запуск теста выполнения маршрута."""
     diag: bool = _diag_mode()
@@ -65,7 +80,20 @@ def run(
         print(ERROR_ROUTE_PARSE.format(exc=exc), file=sys.stderr)
         return 1
 
-    print(f"Сегментов: {len(route.segments)}")
+    n_seg: int = len(route.segments)
+    print(f"Сегментов: {n_seg}")
+    if start_segment_index > 0:
+        if start_segment_index >= n_seg:
+            print(
+                f"Ошибка: --start / RASPTANK_ROUTE_START_SEG={start_segment_index} "
+                f"≥ числа сегментов ({n_seg}).",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"Старт с сегмента {start_segment_index} (сегменты 0..{start_segment_index - 1} пропущены). "
+            "Робот должен стоять так, как после выполнения пропущенной части.",
+        )
     if max_speed_percent is not None:
         print(f"Ограничение скорости: {max_speed_percent}%.")
     print()
@@ -81,7 +109,7 @@ def run(
         settings = settings.model_copy(update={"base_speed_percent": max_speed_percent})
     drive: DriveController = create_drive_controller(settings=settings)
     try:
-        drive.execute_route_sync(route=route)
+        drive.execute_route_sync(route=route, start_segment_index=start_segment_index)
         print("Маршрут выполнен. Остановка.")
 
         if diag:
@@ -103,5 +131,31 @@ if __name__ == "__main__":
         print(USAGE_MESSAGE, file=sys.stderr)
         sys.exit(1)
     route_path: Path = Path(sys.argv[1])
-    speed: int | None = int(sys.argv[2]) if len(sys.argv) > 2 else None
-    sys.exit(run(route_file=route_path, max_speed_percent=speed))
+    speed: int | None = None
+    start_seg: int = _parse_start_segment() or 0
+    i: int = 2
+    while i < len(sys.argv):
+        arg: str = sys.argv[i]
+        if arg == "--start" and i + 1 < len(sys.argv):
+            try:
+                start_seg = int(sys.argv[i + 1], 10)
+            except ValueError:
+                print(f"Ожидалось число после --start: {sys.argv[i + 1]}", file=sys.stderr)
+                sys.exit(1)
+            i += 2
+            continue
+        try:
+            speed = int(arg, 10)
+        except ValueError:
+            print(f"Неизвестный аргумент: {arg}", file=sys.stderr)
+            print(USAGE_MESSAGE, file=sys.stderr)
+            sys.exit(1)
+        i += 1
+
+    sys.exit(
+        run(
+            route_file=route_path,
+            max_speed_percent=speed,
+            start_segment_index=start_seg,
+        ),
+    )

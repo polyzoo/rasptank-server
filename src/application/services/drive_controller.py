@@ -138,7 +138,7 @@ class DriveController(DriveControllerProtocol):
             self.motor_controller.stop()
             self._is_moving: bool = False
 
-    def execute_route(self, route: Route) -> None:
+    def execute_route(self, route: Route, *, start_segment_index: int = 0) -> None:
         """Запуск выполнения маршрута в фоновом потоке."""
         if self._is_moving or self._is_route_running:
             self.stop()
@@ -149,12 +149,12 @@ class DriveController(DriveControllerProtocol):
 
         self._movement_thread: Thread = Thread(
             target=self._execute_route_loop,
-            args=(route.segments,),
+            args=(route.segments, start_segment_index),
             daemon=True,
         )
         self._movement_thread.start()
 
-    def execute_route_sync(self, route: Route) -> None:
+    def execute_route_sync(self, route: Route, *, start_segment_index: int = 0) -> None:
         """Запуск выполнения маршрута в текущем потоке."""
         if self._is_moving or self._is_route_running:
             self.stop()
@@ -164,7 +164,7 @@ class DriveController(DriveControllerProtocol):
         self._stop_event.clear()
 
         try:
-            self._execute_route_segments(route.segments)
+            self._execute_route_segments(route.segments, start_segment_index)
         finally:
             self.motor_controller.stop()
             self._is_moving: bool = False
@@ -189,10 +189,14 @@ class DriveController(DriveControllerProtocol):
         self.ultrasonic_sensor.destroy()
         self.gyroscope.destroy()
 
-    def _execute_route_loop(self, segments: list[RouteSegment]) -> None:
+    def _execute_route_loop(
+        self,
+        segments: list[RouteSegment],
+        start_segment_index: int = 0,
+    ) -> None:
         """Цикл выполнения маршрута в daemon-потоке."""
         try:
-            self._execute_route_segments(segments)
+            self._execute_route_segments(segments, start_segment_index)
         except (OSError, RuntimeError, ConnectionError, ValueError) as exc:
             logger.exception("Ошибка при выполнении маршрута: %s", exc)
         finally:
@@ -200,12 +204,33 @@ class DriveController(DriveControllerProtocol):
             self._is_moving: bool = False
             self._is_route_running: bool = False
 
-    def _execute_route_segments(self, segments: list[RouteSegment]) -> None:
+    def _execute_route_segments(
+        self,
+        segments: list[RouteSegment],
+        start_segment_index: int = 0,
+    ) -> None:
         """Последовательное выполнение сегментов маршрута."""
         self.gyroscope.start(calibrate=True)
         n_seg: int = len(segments)
+        start_idx: int = max(0, min(start_segment_index, n_seg))
+        if start_idx >= n_seg:
+            if _route_diag_enabled():
+                logger.warning(
+                    "route: start_segment_index=%d ≥ сегментов=%d — ничего не выполнено",
+                    start_segment_index,
+                    n_seg,
+                )
+            return
 
-        for idx, segment in enumerate(segments):
+        if start_idx > 0 and _route_diag_enabled():
+            logger.info(
+                "route: пропуск сегментов 0..%d, старт с route seg=%d",
+                start_idx - 1,
+                start_idx,
+            )
+
+        for idx in range(start_idx, n_seg):
+            segment = segments[idx]
             if not self._is_moving or self._stop_event.is_set():
                 break
 

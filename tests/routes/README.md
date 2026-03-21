@@ -1,9 +1,10 @@
 # Примеры маршрутов (JSON)
 
-Все файлы — для `python3 -m tests.test_route <файл>`.
+Все файлы — для `python3 -m tests.test_route <файл>` (опционально скорость и `--start N`, см. ниже).
 
 | Файл | Идея |
 |------|------|
+| `cancel_turns_pair_demo.json` | **L60 → прямая → R60 → прямая** — проверка, что после пары поворотов нос снова параллелен старту |
 | `square_40.json` | Замкнутый квадрат 40×40 см |
 | `l_shape_50.json` | Буква Г, открытый конец |
 | `zigzag_40.json` | Зигзаг, не замкнут |
@@ -48,3 +49,30 @@ HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
 ```bash
 grep -E "turn_(left|right)|angle_reached|final_yaw" sweep.log
 ```
+
+### Старт с сегмента N (например, как в `sweep` с сегмента 10)
+
+Чтобы **не гонять** весь `sweep_angles_demo.json` с начала, а начать с **того же** места, что сегмент **10** в файле (индексы с **0**):
+
+```bash
+HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
+  python3 -m tests.test_route tests/routes/sweep_angles_demo.json --start 10 2>&1 | tee from10.log
+```
+
+Эквивалент:
+
+```bash
+export RASPTANK_ROUTE_START_SEG=10
+# далее тот же вызов test_route без --start
+```
+
+**Важно:** гироскоп при старте **калибруется заново**, а пропущенные сегменты **физически не выполняются**. Робота нужно **поставить** так, как он стоял бы **после** сегментов `0..9` (тот же курс и положение на столе), иначе смысла в `--start` нет.
+
+Проверка **симметрии влево/вправо** без длинного sweep — отдельный короткий файл:
+
+```bash
+HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
+  python3 -m tests.test_route tests/routes/cancel_turns_pair_demo.json 2>&1 | tee cancel.log
+```
+
+Смотри последнюю прямую: нос должен быть **примерно** параллелен первой прямой; в логе сравни `forward: start` / `done` по `yaw` на первой и последней прямой (или положение линейки на столе).

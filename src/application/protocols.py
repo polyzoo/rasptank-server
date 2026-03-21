@@ -75,11 +75,11 @@ class DriveControllerProtocol(Protocol):
         """Движение вперёд на заданное расстояние в текущем потоке."""
 
     @abstractmethod
-    def execute_route(self, route: Route) -> None:
+    def execute_route(self, route: Route, *, start_segment_index: int = 0) -> None:
         """Выполнение маршрута в фоновом потоке."""
 
     @abstractmethod
-    def execute_route_sync(self, route: Route) -> None:
+    def execute_route_sync(self, route: Route, *, start_segment_index: int = 0) -> None:
         """Выполнение маршрута в текущем потоке."""
 
     @abstractmethod
