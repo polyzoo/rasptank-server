@@ -48,6 +48,8 @@ def create_app(settings: Settings) -> FastAPI:
         deceleration_distance_cm=settings.deceleration_distance_cm,
         base_speed_percent=settings.base_speed_percent,
         turn_speed_percent=settings.turn_speed_percent,
+        turn_slowdown_remaining_deg=settings.turn_slowdown_remaining_deg,
+        turn_creep_speed_percent=settings.turn_creep_speed_percent,
         turn_angle_trim_deg=settings.turn_angle_trim_deg,
         last_turn_angle_trim_deg=settings.last_turn_angle_trim_deg,
         max_speed_cm_per_sec=settings.max_speed_cm_per_sec,

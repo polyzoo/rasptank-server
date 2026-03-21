@@ -48,6 +48,23 @@ class Settings(BaseSettings):
         validation_alias="TURN_SPEED_PERCENT",
         description="Скорость поворотов на месте (%).",
     )
+    turn_slowdown_remaining_deg: float = Field(
+        default=18.0,
+        ge=0.0,
+        le=60.0,
+        validation_alias="TURN_SLOWDOWN_REMAINING_DEG",
+        description=(
+            "Когда до целевого угла остаётся не больше столько градусов — поворот на пониженной скорости "
+            "(меньше проскальзывание). 0 = всегда полная скорость."
+        ),
+    )
+    turn_creep_speed_percent: int = Field(
+        default=26,
+        ge=10,
+        le=100,
+        validation_alias="TURN_CREEP_SPEED_PERCENT",
+        description="Скорость поворота на последних градусах (до замедления).",
+    )
     turn_angle_trim_deg: float = Field(
         default=0.0,
         ge=-15.0,

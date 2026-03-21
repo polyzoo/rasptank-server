@@ -74,6 +74,8 @@ class DriveController(DriveControllerProtocol):
         deceleration_distance_cm: float = 50.0,
         base_speed_percent: int = 60,
         turn_speed_percent: int = 50,
+        turn_slowdown_remaining_deg: float = 18.0,
+        turn_creep_speed_percent: int = 26,
         turn_angle_trim_deg: float = 0.0,
         last_turn_angle_trim_deg: float = 0.0,
         max_speed_cm_per_sec: float = 30.0,
@@ -97,6 +99,8 @@ class DriveController(DriveControllerProtocol):
         self.deceleration_distance_cm: float = deceleration_distance_cm
         self.base_speed_percent: int = base_speed_percent
         self.turn_speed_percent: int = turn_speed_percent
+        self.turn_slowdown_remaining_deg: float = turn_slowdown_remaining_deg
+        self.turn_creep_speed_percent: int = turn_creep_speed_percent
         self.turn_angle_trim_deg: float = turn_angle_trim_deg
         self.last_turn_angle_trim_deg: float = last_turn_angle_trim_deg
         self.max_speed_cm_per_sec: float = max_speed_cm_per_sec
@@ -458,6 +462,19 @@ class DriveController(DriveControllerProtocol):
             logger.exception("Ошибка в сегменте движения назад: %s", exc)
             return False
 
+    def _turn_motor_speed_percent(self, target_angle: float, current_yaw_abs: float) -> int:
+        """Полная скорость до конца дуги, затем creep — меньше проскальзывание, ближе реальный угол."""
+        if self.turn_slowdown_remaining_deg <= 0.0:
+            return self.turn_speed_percent
+        remaining: float = target_angle - current_yaw_abs
+        if remaining > self.turn_slowdown_remaining_deg:
+            return self.turn_speed_percent
+        creep: int = max(
+            15,
+            min(self.turn_speed_percent, self.turn_creep_speed_percent),
+        )
+        return creep
+
     def _run_turn_segment(
         self,
         turn_left: bool,
@@ -486,10 +503,13 @@ class DriveController(DriveControllerProtocol):
                 stop_reason = "obstacle"
                 break
 
+            yaw_abs: float = abs(current_yaw)
+            sp: int = self._turn_motor_speed_percent(target_angle, yaw_abs)
+
             if turn_left:
-                self.motor_controller.turn_left(speed_percent=self.turn_speed_percent)
+                self.motor_controller.turn_left(speed_percent=sp)
             else:
-                self.motor_controller.turn_right(speed_percent=self.turn_speed_percent)
+                self.motor_controller.turn_right(speed_percent=sp)
 
             time.sleep(self.TURN_CHECK_INTERVAL_SEC)
 
