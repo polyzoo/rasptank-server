@@ -78,14 +78,14 @@ class Settings(BaseSettings):
         description="Удержание курса по гироскопу при прямолинейных сегментах.",
     )
     heading_hold_kp: float = Field(
-        default=2.2,
+        default=2.8,
         ge=0.0,
         le=10.0,
         validation_alias="HEADING_HOLD_KP",
         description="Коэффициент P: усиление руления (%% дифференциала на 1° ошибки).",
     )
     heading_hold_steer_max: int = Field(
-        default=35,
+        default=45,
         ge=0,
         le=100,
         validation_alias="HEADING_HOLD_STEER_MAX",
@@ -99,7 +99,7 @@ class Settings(BaseSettings):
         description="Зона нечувствительности по ошибке курса (°).",
     )
     heading_hold_steer_speed_ratio: float = Field(
-        default=0.52,
+        default=0.55,
         ge=0.05,
         le=0.58,
         validation_alias="HEADING_HOLD_STEER_SPEED_RATIO",
@@ -125,6 +125,23 @@ class Settings(BaseSettings):
         description=(
             "Постоянное смещение дифференциала (%) без калибровки TL_*: при уводе вправо попробуйте 2…5, "
             "влево — отрицательное."
+        ),
+    )
+    heading_hold_invert_steer: bool = Field(
+        default=False,
+        validation_alias="HEADING_HOLD_INVERT_STEER",
+        description=(
+            "Инвертировать знак руления по курсу: True, если при прямой yaw уходит в минус, "
+            "а машинка визуально вправо — коррекция «в разрез»."
+        ),
+    )
+    forward_soft_start_sec: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=2.0,
+        validation_alias="FORWARD_SOFT_START_SEC",
+        description=(
+            "Разгон в начале каждого прямого сегмента (с): 0 = выкл. Снижает рывок и ложный крен по гироскопу."
         ),
     )
 

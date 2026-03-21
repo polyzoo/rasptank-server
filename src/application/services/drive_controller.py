@@ -77,12 +77,14 @@ class DriveController(DriveControllerProtocol):
         max_speed_cm_per_sec: float = 30.0,
         update_interval_sec: float = 0.1,
         heading_hold_enabled: bool = True,
-        heading_hold_kp: float = 2.2,
-        heading_hold_steer_max: int = 35,
+        heading_hold_kp: float = 2.8,
+        heading_hold_steer_max: int = 45,
         heading_hold_deadband_deg: float = 0.4,
-        heading_hold_steer_speed_ratio: float = 0.52,
+        heading_hold_steer_speed_ratio: float = 0.55,
         heading_hold_min_speed_percent: float = 0.0,
         heading_hold_steer_trim: int = 0,
+        heading_hold_invert_steer: bool = False,
+        forward_soft_start_sec: float = 0.35,
     ) -> None:
         """Инициализация контроллера движения."""
         self.motor_controller: MotorControllerProtocol = motor_controller
@@ -102,6 +104,8 @@ class DriveController(DriveControllerProtocol):
         self.heading_hold_steer_speed_ratio: float = heading_hold_steer_speed_ratio
         self.heading_hold_min_speed_percent: float = heading_hold_min_speed_percent
         self.heading_hold_steer_trim: int = heading_hold_steer_trim
+        self.heading_hold_invert_steer: bool = heading_hold_invert_steer
+        self.forward_soft_start_sec: float = forward_soft_start_sec
 
         self._is_moving: bool = False
         self._is_route_running: bool = False
@@ -280,15 +284,19 @@ class DriveController(DriveControllerProtocol):
             steer_pid = int(round(self.heading_hold_kp * err))
 
         steer_i: int = steer_pid + self.heading_hold_steer_trim
-        return max(-steer_cap, min(steer_cap, steer_i))
+        steer_i = max(-steer_cap, min(steer_cap, steer_i))
+        if self.heading_hold_invert_steer:
+            steer_i = -steer_i
+        return steer_i
 
     def _run_forward_segment(self, distance_cm: float, speed_percent: int) -> bool:
         """Запуск сегмента «вперед» с учетом препятствий."""
         traveled_cm: float = 0.0
-        current_speed: float = 0.0
+        last_effective_speed: float = 0.0
         last_cmd_speed: float = 0.0
         last_time: float = time.monotonic()
         heading_setpoint_deg: float = self.gyroscope.get_yaw()
+        segment_start_t: float = time.monotonic()
         if _route_diag_enabled():
             logger.info(
                 "forward: start heading_setpoint_deg=%.2f distance_cm=%.1f",
@@ -305,7 +313,7 @@ class DriveController(DriveControllerProtocol):
                 dt: float = now - last_time
                 last_time: float = now
 
-                traveled_cm += self._estimate_traveled_distance(current_speed, dt)
+                traveled_cm += self._estimate_traveled_distance(last_effective_speed, dt)
 
                 remaining_dist: float = distance_cm - traveled_cm
                 if remaining_dist <= 0:
@@ -345,10 +353,21 @@ class DriveController(DriveControllerProtocol):
                         )
                     return False
 
-                steer: int = self._heading_steer_percent(heading_setpoint_deg, current_speed)
-                last_cmd_speed = current_speed
+                elapsed_seg: float = time.monotonic() - segment_start_t
+                if self.forward_soft_start_sec > 0.0:
+                    ramp: float = min(
+                        1.0,
+                        elapsed_seg / self.forward_soft_start_sec,
+                    )
+                else:
+                    ramp = 1.0
+                effective_speed: float = current_speed * ramp
+
+                steer: int = self._heading_steer_percent(heading_setpoint_deg, effective_speed)
+                last_effective_speed = effective_speed
+                last_cmd_speed = effective_speed
                 self.motor_controller.move_forward(
-                    speed_percent=int(current_speed),
+                    speed_percent=int(effective_speed),
                     steer_percent=steer,
                 )
                 time.sleep(self.update_interval_sec)
