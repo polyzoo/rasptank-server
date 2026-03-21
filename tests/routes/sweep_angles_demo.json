@@ -1,21 +1,21 @@
 {
-  "description": "Один прогон: несколько разных углов (30–120°) с короткими прямыми — проверка turn по гироскопу.",
+  "description": "Разные углы (28–52°): сумма влево = сумма вправо → нос в конце снова смотрит как в начале первой прямой.",
   "segments": [
     { "action": "forward", "distance_cm": 25 },
-    { "action": "turn_left", "angle_deg": 30 },
+    { "action": "turn_left", "angle_deg": 28 },
     { "action": "forward", "distance_cm": 25 },
-    { "action": "turn_right", "angle_deg": 30 },
+    { "action": "turn_right", "angle_deg": 33 },
     { "action": "forward", "distance_cm": 25 },
-    { "action": "turn_left", "angle_deg": 35 },
+    { "action": "turn_left", "angle_deg": 37 },
     { "action": "forward", "distance_cm": 25 },
-    { "action": "turn_right", "angle_deg": 40 },
+    { "action": "turn_right", "angle_deg": 41 },
     { "action": "forward", "distance_cm": 25 },
-    { "action": "turn_left", "angle_deg": 45 },
+    { "action": "turn_left", "angle_deg": 46 },
     { "action": "forward", "distance_cm": 25 },
-    { "action": "turn_right", "angle_deg": 60 },
+    { "action": "turn_right", "angle_deg": 44 },
     { "action": "forward", "distance_cm": 25 },
-    { "action": "turn_left", "angle_deg": 90 },
+    { "action": "turn_left", "angle_deg": 52 },
     { "action": "forward", "distance_cm": 25 },
-    { "action": "turn_right", "angle_deg": 120 }
+    { "action": "turn_right", "angle_deg": 45 }
   ]
 }

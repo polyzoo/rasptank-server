@@ -33,7 +33,7 @@ HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
 
 ### Проверка поворотов при разных углах (один прогон)
 
-Маршрут `sweep_angles_demo.json` — подряд углы **30, 30, 35, 40, 45, 60, 90, 120°** с короткими прямыми.
+Маршрут `sweep_angles_demo.json` — чередование **влево / вправо** с **разными** углами (28–52°). Сумма углов **влево** = сумма **вправо** (= **163°**), поэтому в **идеале** после **полного** прогона нос снова **параллелен** направлению первой прямой (на железе будет небольшой остаток из‑за скольжения и IMU).
 
 ```bash
 HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
@@ -50,25 +50,20 @@ HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
 grep -E "turn_(left|right)|angle_reached|final_yaw" sweep.log
 ```
 
-### Старт с сегмента N (например, как в `sweep` с сегмента 10)
+### Старт с сегмента N (отладка без полного круга)
 
-Чтобы **не гонять** весь `sweep_angles_demo.json` с начала, а начать с **того же** места, что сегмент **10** в файле (индексы с **0**):
+Чтобы не гонять весь файл с начала, например с **сегмента 10** (индексы с **0**):
 
 ```bash
 HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
   python3 -m tests.test_route tests/routes/sweep_angles_demo.json --start 10 2>&1 | tee from10.log
 ```
 
-Эквивалент:
+Эквивалент: `export RASPTANK_ROUTE_START_SEG=10`
 
-```bash
-export RASPTANK_ROUTE_START_SEG=10
-# далее тот же вызов test_route без --start
-```
+**Важно:** гироскоп при старте **калибруется заново**, пропущенные сегменты **не выполняются**. Робота нужно **поставить** так, как после сегментов `0..N-1` полного прогона, иначе картина на столе не совпадёт. **Сумма** пропущенных поворотов + выполненных дальше **уже не** «ноль к старту» — для проверки «нос снова прямо» лучше **полный** `sweep_angles_demo` или **`cancel_turns_pair_demo.json`**.
 
-**Важно:** гироскоп при старте **калибруется заново**, а пропущенные сегменты **физически не выполняются**. Робота нужно **поставить** так, как он стоял бы **после** сегментов `0..9` (тот же курс и положение на столе), иначе смысла в `--start` нет.
-
-Проверка **симметрии влево/вправо** без длинного sweep — отдельный короткий файл:
+Проверка **симметрии влево/вправо** на одной паре углов — короткий файл:
 
 ```bash
 HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
@@ -76,3 +71,10 @@ HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
 ```
 
 Смотри последнюю прямую: нос должен быть **примерно** параллелен первой прямой; в логе сравни `forward: start` / `done` по `yaw` на первой и последней прямой (или положение линейки на столе).
+
+
+HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
+  python3 -m tests.test_route tests/routes/sweep_angles_demo.json 2>&1 | tee sweep_angles_demo.log
+
+HEADING_HOLD_INVERT_STEER=true RASPTANK_DIAG=1 \
+  python3 -m tests.test_route tests/routes/square_40.json 2>&1 | tee sweep_angles_demo.log
