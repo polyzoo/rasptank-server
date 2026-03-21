@@ -154,6 +154,17 @@ class Settings(BaseSettings):
             "в конце сегмента; ограничение только через steer_speed_ratio."
         ),
     )
+    heading_hold_steer_cap_min_speed_percent: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=60.0,
+        validation_alias="HEADING_HOLD_STEER_CAP_MIN_SPEED_PERCENT",
+        description=(
+            "Нижняя граница скорости (%) только для расчёта лимита руления: при разгоне/торможении "
+            "steer_cap = speed×ratio падает — курс «плывёт». Если 25–35, лимит руления не ниже, чем "
+            "для этой скорости (осторожно: при очень малой фактической скорости возможен упор колеса в 0%%)."
+        ),
+    )
     heading_hold_steer_trim: int = Field(
         default=0,
         ge=-20,

@@ -60,6 +60,7 @@ def create_app(settings: Settings) -> FastAPI:
         heading_hold_deadband_deg=settings.heading_hold_deadband_deg,
         heading_hold_steer_speed_ratio=settings.heading_hold_steer_speed_ratio,
         heading_hold_min_speed_percent=settings.heading_hold_min_speed_percent,
+        heading_hold_steer_cap_min_speed_percent=settings.heading_hold_steer_cap_min_speed_percent,
         heading_hold_steer_trim=settings.heading_hold_steer_trim,
         heading_hold_invert_steer=settings.heading_hold_invert_steer,
         forward_soft_start_sec=settings.forward_soft_start_sec,

@@ -86,6 +86,7 @@ class DriveController(DriveControllerProtocol):
         heading_hold_deadband_deg: float = 0.4,
         heading_hold_steer_speed_ratio: float = 0.55,
         heading_hold_min_speed_percent: float = 0.0,
+        heading_hold_steer_cap_min_speed_percent: float = 0.0,
         heading_hold_steer_trim: int = 0,
         heading_hold_invert_steer: bool = False,
         forward_soft_start_sec: float = 0.35,
@@ -111,6 +112,9 @@ class DriveController(DriveControllerProtocol):
         self.heading_hold_deadband_deg: float = heading_hold_deadband_deg
         self.heading_hold_steer_speed_ratio: float = heading_hold_steer_speed_ratio
         self.heading_hold_min_speed_percent: float = heading_hold_min_speed_percent
+        self.heading_hold_steer_cap_min_speed_percent: float = (
+            heading_hold_steer_cap_min_speed_percent
+        )
         self.heading_hold_steer_trim: int = heading_hold_steer_trim
         self.heading_hold_invert_steer: bool = heading_hold_invert_steer
         self.forward_soft_start_sec: float = forward_soft_start_sec
@@ -302,9 +306,13 @@ class DriveController(DriveControllerProtocol):
         if base < self.heading_hold_min_speed_percent:
             return 0
 
+        cap_base: float = base
+        if self.heading_hold_steer_cap_min_speed_percent > 0.0:
+            cap_base = max(base, self.heading_hold_steer_cap_min_speed_percent)
+
         steer_cap: int = min(
             self.heading_hold_steer_max,
-            int(base * self.heading_hold_steer_speed_ratio),
+            int(cap_base * self.heading_hold_steer_speed_ratio),
         )
         if steer_cap <= 0:
             return 0
@@ -353,9 +361,13 @@ class DriveController(DriveControllerProtocol):
                         min(self.SPEED_PERCENT_MAX, int(last_cmd_speed)),
                     )
                     if coast_sp > 0:
+                        coast_steer: int = self._heading_steer_percent(
+                            heading_setpoint_deg,
+                            float(coast_sp),
+                        )
                         self.motor_controller.move_forward(
                             speed_percent=coast_sp,
-                            steer_percent=0,
+                            steer_percent=coast_steer,
                         )
                         time.sleep(self.FORWARD_COAST_BEFORE_STOP_SEC)
                     self.motor_controller.stop()
@@ -433,9 +445,13 @@ class DriveController(DriveControllerProtocol):
                         min(self.SPEED_PERCENT_MAX, int(last_cmd_speed)),
                     )
                     if coast_sp > 0:
+                        coast_steer_b: int = self._heading_steer_percent(
+                            heading_setpoint_deg,
+                            float(coast_sp),
+                        )
                         self.motor_controller.move_backward(
                             speed_percent=coast_sp,
-                            steer_percent=0,
+                            steer_percent=coast_steer_b,
                         )
                         time.sleep(self.FORWARD_COAST_BEFORE_STOP_SEC)
                     self.motor_controller.stop()
