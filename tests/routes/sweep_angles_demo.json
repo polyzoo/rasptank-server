@@ -1,0 +1,21 @@
+{
+  "description": "Один прогон: несколько разных углов (30–120°) с короткими прямыми — проверка turn по гироскопу.",
+  "segments": [
+    { "action": "forward", "distance_cm": 25 },
+    { "action": "turn_left", "angle_deg": 30 },
+    { "action": "forward", "distance_cm": 25 },
+    { "action": "turn_right", "angle_deg": 30 },
+    { "action": "forward", "distance_cm": 25 },
+    { "action": "turn_left", "angle_deg": 35 },
+    { "action": "forward", "distance_cm": 25 },
+    { "action": "turn_right", "angle_deg": 40 },
+    { "action": "forward", "distance_cm": 25 },
+    { "action": "turn_left", "angle_deg": 45 },
+    { "action": "forward", "distance_cm": 25 },
+    { "action": "turn_right", "angle_deg": 60 },
+    { "action": "forward", "distance_cm": 25 },
+    { "action": "turn_left", "angle_deg": 90 },
+    { "action": "forward", "distance_cm": 25 },
+    { "action": "turn_right", "angle_deg": 120 }
+  ]
+}

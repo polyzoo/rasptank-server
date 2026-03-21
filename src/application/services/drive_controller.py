@@ -462,12 +462,24 @@ class DriveController(DriveControllerProtocol):
             logger.exception("Ошибка в сегменте движения назад: %s", exc)
             return False
 
+    def _turn_slowdown_zone_deg(self, target_angle: float) -> float:
+        """Сколько последних градусов дуги идти на creep.
+
+        Для коротких поворотов (30–40°) фиксированные 18° «съедали» почти всю дугу — почти весь
+        поворот на низкой скорости, хуже попадание в угол. Ужимаем зону пропорционально цели.
+        """
+        if self.turn_slowdown_remaining_deg <= 0.0:
+            return 0.0
+        proportional: float = max(5.0, target_angle * 0.40)
+        return min(self.turn_slowdown_remaining_deg, proportional)
+
     def _turn_motor_speed_percent(self, target_angle: float, current_yaw_abs: float) -> int:
         """Полная скорость до конца дуги, затем creep — меньше проскальзывание, ближе реальный угол."""
-        if self.turn_slowdown_remaining_deg <= 0.0:
+        zone: float = self._turn_slowdown_zone_deg(target_angle)
+        if zone <= 0.0:
             return self.turn_speed_percent
         remaining: float = target_angle - current_yaw_abs
-        if remaining > self.turn_slowdown_remaining_deg:
+        if remaining > zone:
             return self.turn_speed_percent
         creep: int = max(
             15,
