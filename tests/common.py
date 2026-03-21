@@ -44,6 +44,7 @@ def create_drive_controller(settings: Settings | None = None) -> DriveController
         base_speed_percent=s.base_speed_percent,
         turn_speed_percent=s.turn_speed_percent,
         turn_angle_trim_deg=s.turn_angle_trim_deg,
+        last_turn_angle_trim_deg=s.last_turn_angle_trim_deg,
         max_speed_cm_per_sec=s.max_speed_cm_per_sec,
         update_interval_sec=s.update_interval_sec,
         heading_hold_enabled=s.heading_hold_enabled,

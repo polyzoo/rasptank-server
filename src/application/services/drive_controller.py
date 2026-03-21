@@ -75,6 +75,7 @@ class DriveController(DriveControllerProtocol):
         base_speed_percent: int = 60,
         turn_speed_percent: int = 50,
         turn_angle_trim_deg: float = 0.0,
+        last_turn_angle_trim_deg: float = 0.0,
         max_speed_cm_per_sec: float = 30.0,
         update_interval_sec: float = 0.1,
         heading_hold_enabled: bool = True,
@@ -97,6 +98,7 @@ class DriveController(DriveControllerProtocol):
         self.base_speed_percent: int = base_speed_percent
         self.turn_speed_percent: int = turn_speed_percent
         self.turn_angle_trim_deg: float = turn_angle_trim_deg
+        self.last_turn_angle_trim_deg: float = last_turn_angle_trim_deg
         self.max_speed_cm_per_sec: float = max_speed_cm_per_sec
         self.update_interval_sec: float = update_interval_sec
         self.heading_hold_enabled: bool = heading_hold_enabled
@@ -193,6 +195,7 @@ class DriveController(DriveControllerProtocol):
     def _execute_route_segments(self, segments: list[RouteSegment]) -> None:
         """Последовательное выполнение сегментов маршрута."""
         self.gyroscope.start(calibrate=True)
+        n_seg: int = len(segments)
 
         for idx, segment in enumerate(segments):
             if not self._is_moving or self._stop_event.is_set():
@@ -223,9 +226,12 @@ class DriveController(DriveControllerProtocol):
                     break
 
             elif isinstance(segment, TurnLeftSegment):
-                eff_angle: float = max(
+                last_extra: float = (
+                    self.last_turn_angle_trim_deg if idx == n_seg - 1 else 0.0
+                )
+                eff_angle = max(
                     1.0,
-                    min(179.0, segment.angle_deg + self.turn_angle_trim_deg),
+                    min(179.0, segment.angle_deg + self.turn_angle_trim_deg + last_extra),
                 )
                 t_out: float = max(
                     self.TURN_TIMEOUT_MIN,
@@ -233,11 +239,13 @@ class DriveController(DriveControllerProtocol):
                 )
                 if _route_diag_enabled():
                     logger.info(
-                        "route seg %d: turn_left angle_deg=%.1f effective=%.1f (trim %+.1f) timeout_sec=%.2f",
+                        "route seg %d: turn_left angle_deg=%.1f effective=%.1f "
+                        "(trim %+.1f last %+.1f) timeout_sec=%.2f",
                         idx,
                         segment.angle_deg,
                         eff_angle,
                         self.turn_angle_trim_deg,
+                        last_extra,
                         t_out,
                     )
                 self._run_turn_segment(
@@ -248,9 +256,12 @@ class DriveController(DriveControllerProtocol):
                 )
 
             elif isinstance(segment, TurnRightSegment):
+                last_extra = (
+                    self.last_turn_angle_trim_deg if idx == n_seg - 1 else 0.0
+                )
                 eff_angle = max(
                     1.0,
-                    min(179.0, segment.angle_deg + self.turn_angle_trim_deg),
+                    min(179.0, segment.angle_deg + self.turn_angle_trim_deg + last_extra),
                 )
                 t_out = max(
                     self.TURN_TIMEOUT_MIN,
@@ -258,11 +269,13 @@ class DriveController(DriveControllerProtocol):
                 )
                 if _route_diag_enabled():
                     logger.info(
-                        "route seg %d: turn_right angle_deg=%.1f effective=%.1f (trim %+.1f) timeout_sec=%.2f",
+                        "route seg %d: turn_right angle_deg=%.1f effective=%.1f "
+                        "(trim %+.1f last %+.1f) timeout_sec=%.2f",
                         idx,
                         segment.angle_deg,
                         eff_angle,
                         self.turn_angle_trim_deg,
+                        last_extra,
                         t_out,
                     )
                 self._run_turn_segment(

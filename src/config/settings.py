@@ -58,6 +58,16 @@ class Settings(BaseSettings):
             "(при переразвороте ~92° вместо 90° попробуйте -2…-4 на угол)."
         ),
     )
+    last_turn_angle_trim_deg: float = Field(
+        default=0.0,
+        ge=-15.0,
+        le=15.0,
+        validation_alias="LAST_TURN_ANGLE_TRIM_DEG",
+        description=(
+            "Дополнительно только к последнему сегменту-повороту (замыкание). "
+            "Если в конце квадрата нос смотрит вправо от старта — попробуйте +3…+8 (доворот влево)."
+        ),
+    )
     update_interval_sec: float = Field(
         default=0.1,
         gt=0,
