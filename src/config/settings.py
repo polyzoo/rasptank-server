@@ -78,14 +78,14 @@ class Settings(BaseSettings):
         description="Удержание курса по гироскопу при прямолинейных сегментах.",
     )
     heading_hold_kp: float = Field(
-        default=1.2,
+        default=2.2,
         ge=0.0,
         le=10.0,
         validation_alias="HEADING_HOLD_KP",
         description="Коэффициент P: усиление руления (%% дифференциала на 1° ошибки).",
     )
     heading_hold_steer_max: int = Field(
-        default=25,
+        default=35,
         ge=0,
         le=100,
         validation_alias="HEADING_HOLD_STEER_MAX",
@@ -99,9 +99,9 @@ class Settings(BaseSettings):
         description="Зона нечувствительности по ошибке курса (°).",
     )
     heading_hold_steer_speed_ratio: float = Field(
-        default=0.48,
+        default=0.52,
         ge=0.05,
-        le=0.55,
+        le=0.58,
         validation_alias="HEADING_HOLD_STEER_SPEED_RATIO",
         description=(
             "Макс. |руление| ≤ скорость × ratio: при низкой скорости иначе одно колесо уходит в 0% и робот крутится."

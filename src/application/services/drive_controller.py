@@ -52,6 +52,9 @@ class DriveController(DriveControllerProtocol):
     # Ожидание завершения потока
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
 
+    # Краткий выбег без дифференциала перед стопом (снимает рывок «поворота» в конце прямого)
+    FORWARD_COAST_BEFORE_STOP_SEC: float = 0.08
+
     @staticmethod
     def _angle_error_deg(setpoint: float, current: float) -> float:
         """Ошибка курса (setpoint − current) в градусах, нормализованная в [−180, 180]."""
@@ -74,10 +77,10 @@ class DriveController(DriveControllerProtocol):
         max_speed_cm_per_sec: float = 30.0,
         update_interval_sec: float = 0.1,
         heading_hold_enabled: bool = True,
-        heading_hold_kp: float = 1.2,
-        heading_hold_steer_max: int = 25,
+        heading_hold_kp: float = 2.2,
+        heading_hold_steer_max: int = 35,
         heading_hold_deadband_deg: float = 0.4,
-        heading_hold_steer_speed_ratio: float = 0.48,
+        heading_hold_steer_speed_ratio: float = 0.52,
         heading_hold_min_speed_percent: float = 0.0,
         heading_hold_steer_trim: int = 0,
     ) -> None:
@@ -283,6 +286,7 @@ class DriveController(DriveControllerProtocol):
         """Запуск сегмента «вперед» с учетом препятствий."""
         traveled_cm: float = 0.0
         current_speed: float = 0.0
+        last_cmd_speed: float = 0.0
         last_time: float = time.monotonic()
         heading_setpoint_deg: float = self.gyroscope.get_yaw()
         if _route_diag_enabled():
@@ -305,6 +309,16 @@ class DriveController(DriveControllerProtocol):
 
                 remaining_dist: float = distance_cm - traveled_cm
                 if remaining_dist <= 0:
+                    coast_sp: int = max(
+                        self.SPEED_PERCENT_MIN,
+                        min(self.SPEED_PERCENT_MAX, int(last_cmd_speed)),
+                    )
+                    if coast_sp > 0:
+                        self.motor_controller.move_forward(
+                            speed_percent=coast_sp,
+                            steer_percent=0,
+                        )
+                        time.sleep(self.FORWARD_COAST_BEFORE_STOP_SEC)
                     self.motor_controller.stop()
                     if _route_diag_enabled():
                         logger.info(
@@ -332,6 +346,7 @@ class DriveController(DriveControllerProtocol):
                     return False
 
                 steer: int = self._heading_steer_percent(heading_setpoint_deg, current_speed)
+                last_cmd_speed = current_speed
                 self.motor_controller.move_forward(
                     speed_percent=int(current_speed),
                     steer_percent=steer,
@@ -348,6 +363,7 @@ class DriveController(DriveControllerProtocol):
         """Запуск сегмента «назад»."""
         traveled_cm: float = 0.0
         current_speed: float = 0.0
+        last_cmd_speed: float = 0.0
         last_time: float = time.monotonic()
         heading_setpoint_deg: float = self.gyroscope.get_yaw()
 
@@ -362,6 +378,16 @@ class DriveController(DriveControllerProtocol):
 
                 remaining_dist: float = distance_cm - traveled_cm
                 if remaining_dist <= 0:
+                    coast_sp = max(
+                        self.SPEED_PERCENT_MIN,
+                        min(self.SPEED_PERCENT_MAX, int(last_cmd_speed)),
+                    )
+                    if coast_sp > 0:
+                        self.motor_controller.move_backward(
+                            speed_percent=coast_sp,
+                            steer_percent=0,
+                        )
+                        time.sleep(self.FORWARD_COAST_BEFORE_STOP_SEC)
                     self.motor_controller.stop()
                     return True
 
@@ -373,6 +399,7 @@ class DriveController(DriveControllerProtocol):
 
                 current_speed: float = clamped_speed * speed_factor
                 steer: int = self._heading_steer_percent(heading_setpoint_deg, current_speed)
+                last_cmd_speed = current_speed
                 self.motor_controller.move_backward(
                     speed_percent=int(current_speed),
                     steer_percent=steer,

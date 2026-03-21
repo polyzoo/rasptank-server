@@ -20,7 +20,7 @@ sudo apt-get install -y python3-gpiozero python3-pigpio python3-rpi.gpio python3
 2. Клонируйте репозиторий и перейдите в каталог проекта.
 
 ```bash
-git clone git@github.com:polyzoo/rasptank-server.git
+git clone https://github.com/polyzoo/rasptank-server.git
 cd rasptank-server
 ```
 
