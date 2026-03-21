@@ -1,0 +1,16 @@
+{
+  "description": "Цепочка дуг: пять поворотов по 35° с прямыми — траектория как ломаная дуга.",
+  "segments": [
+    { "action": "forward", "distance_cm": 30 },
+    { "action": "turn_left", "angle_deg": 35 },
+    { "action": "forward", "distance_cm": 40 },
+    { "action": "turn_left", "angle_deg": 35 },
+    { "action": "forward", "distance_cm": 40 },
+    { "action": "turn_left", "angle_deg": 35 },
+    { "action": "forward", "distance_cm": 40 },
+    { "action": "turn_right", "angle_deg": 35 },
+    { "action": "forward", "distance_cm": 45 },
+    { "action": "turn_right", "angle_deg": 35 },
+    { "action": "forward", "distance_cm": 55 }
+  ]
+}
