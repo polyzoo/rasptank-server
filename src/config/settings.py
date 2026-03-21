@@ -48,6 +48,16 @@ class Settings(BaseSettings):
         validation_alias="TURN_SPEED_PERCENT",
         description="Скорость поворотов на месте (%).",
     )
+    turn_angle_trim_deg: float = Field(
+        default=0.0,
+        ge=-15.0,
+        le=15.0,
+        validation_alias="TURN_ANGLE_TRIM_DEG",
+        description=(
+            "Добавляется к углу поворота из маршрута: отрицательное — остановиться раньше "
+            "(при переразвороте ~92° вместо 90° попробуйте -2…-4 на угол)."
+        ),
+    )
     update_interval_sec: float = Field(
         default=0.1,
         gt=0,

@@ -74,6 +74,7 @@ class DriveController(DriveControllerProtocol):
         deceleration_distance_cm: float = 50.0,
         base_speed_percent: int = 60,
         turn_speed_percent: int = 50,
+        turn_angle_trim_deg: float = 0.0,
         max_speed_cm_per_sec: float = 30.0,
         update_interval_sec: float = 0.1,
         heading_hold_enabled: bool = True,
@@ -95,6 +96,7 @@ class DriveController(DriveControllerProtocol):
         self.deceleration_distance_cm: float = deceleration_distance_cm
         self.base_speed_percent: int = base_speed_percent
         self.turn_speed_percent: int = turn_speed_percent
+        self.turn_angle_trim_deg: float = turn_angle_trim_deg
         self.max_speed_cm_per_sec: float = max_speed_cm_per_sec
         self.update_interval_sec: float = update_interval_sec
         self.heading_hold_enabled: bool = heading_hold_enabled
@@ -221,39 +223,51 @@ class DriveController(DriveControllerProtocol):
                     break
 
             elif isinstance(segment, TurnLeftSegment):
+                eff_angle: float = max(
+                    1.0,
+                    min(179.0, segment.angle_deg + self.turn_angle_trim_deg),
+                )
                 t_out: float = max(
                     self.TURN_TIMEOUT_MIN,
-                    segment.angle_deg * self.TURN_TIMEOUT_PER_DEG,
+                    eff_angle * self.TURN_TIMEOUT_PER_DEG,
                 )
                 if _route_diag_enabled():
                     logger.info(
-                        "route seg %d: turn_left angle_deg=%.1f timeout_sec=%.2f",
+                        "route seg %d: turn_left angle_deg=%.1f effective=%.1f (trim %+.1f) timeout_sec=%.2f",
                         idx,
                         segment.angle_deg,
+                        eff_angle,
+                        self.turn_angle_trim_deg,
                         t_out,
                     )
                 self._run_turn_segment(
                     turn_left=True,
-                    target_angle=segment.angle_deg,
+                    target_angle=eff_angle,
                     timeout_sec=t_out,
                     segment_index=idx,
                 )
 
             elif isinstance(segment, TurnRightSegment):
+                eff_angle = max(
+                    1.0,
+                    min(179.0, segment.angle_deg + self.turn_angle_trim_deg),
+                )
                 t_out = max(
                     self.TURN_TIMEOUT_MIN,
-                    segment.angle_deg * self.TURN_TIMEOUT_PER_DEG,
+                    eff_angle * self.TURN_TIMEOUT_PER_DEG,
                 )
                 if _route_diag_enabled():
                     logger.info(
-                        "route seg %d: turn_right angle_deg=%.1f timeout_sec=%.2f",
+                        "route seg %d: turn_right angle_deg=%.1f effective=%.1f (trim %+.1f) timeout_sec=%.2f",
                         idx,
                         segment.angle_deg,
+                        eff_angle,
+                        self.turn_angle_trim_deg,
                         t_out,
                     )
                 self._run_turn_segment(
                     turn_left=False,
-                    target_angle=segment.angle_deg,
+                    target_angle=eff_angle,
                     timeout_sec=t_out,
                     segment_index=idx,
                 )
