@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from src.application.factories import create_drive_controller as create_app_drive_controller
 from src.application.models.route import (
     BackwardSegment,
     ForwardSegment,
@@ -11,96 +12,90 @@ from src.application.models.route import (
     TurnLeftSegment,
     TurnRightSegment,
 )
-from src.application.services.drive_controller import DriveController
 from src.config.settings import Settings
-from src.infrastructures.imu import IMUSensor
+from src.application.services.drive_controller import DriveController
 from src.infrastructures.motor import MotorController
-from src.infrastructures.ultrasonic import UltrasonicSensor
 
 ENCODING_UTF8: str = "utf-8"
 PROMPT_YES_VALUES: tuple[str, ...] = ("y", "yes", "д", "да")
 PROMPT_NO_VALUES: tuple[str, ...] = ("n", "no", "н", "нет")
 PROMPT_YES_NO_ERROR: str = "Введите y или n"
 PROMPT_FLOAT_ERROR: str = "Введите число"
+DEFAULT_TURN_ANGLE_DEG: float = 90.0
 
 
 def create_drive_controller(settings: Settings | None = None) -> DriveController:
     """Создаёт экземпляр контроллера движения."""
     s: Settings = settings or Settings()
+    return create_app_drive_controller(s)
 
-    imu_sensor: IMUSensor = IMUSensor()
-    ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
-    motor_controller: MotorController = MotorController(
+
+def create_motor_controller(settings: Settings | None = None) -> MotorController:
+    """Создаёт контроллер моторов без высокоуровневой логики движения."""
+    s: Settings = settings or Settings()
+    return MotorController(
         tl_left_offset=s.tl_left_offset,
         tl_right_offset=s.tl_right_offset,
-    )
-
-    return DriveController(
-        motor_controller=motor_controller,
-        ultrasonic_sensor=ultrasonic_sensor,
-        gyroscope=imu_sensor,
-        min_obstacle_distance_cm=s.min_obstacle_distance_cm,
-        deceleration_distance_cm=s.deceleration_distance_cm,
-        base_speed_percent=s.base_speed_percent,
-        turn_speed_percent=s.turn_speed_percent,
-        turn_slowdown_remaining_deg=s.turn_slowdown_remaining_deg,
-        turn_creep_speed_percent=s.turn_creep_speed_percent,
-        turn_angle_trim_deg=s.turn_angle_trim_deg,
-        last_turn_angle_trim_deg=s.last_turn_angle_trim_deg,
-        max_speed_cm_per_sec=s.max_speed_cm_per_sec,
-        update_interval_sec=s.update_interval_sec,
-        heading_hold_enabled=s.heading_hold_enabled,
-        heading_hold_kp=s.heading_hold_kp,
-        heading_hold_steer_max=s.heading_hold_steer_max,
-        heading_hold_deadband_deg=s.heading_hold_deadband_deg,
-        heading_hold_steer_speed_ratio=s.heading_hold_steer_speed_ratio,
-        heading_hold_min_speed_percent=s.heading_hold_min_speed_percent,
-        heading_hold_steer_cap_min_speed_percent=s.heading_hold_steer_cap_min_speed_percent,
-        heading_hold_steer_trim=s.heading_hold_steer_trim,
-        heading_hold_invert_steer=s.heading_hold_invert_steer,
-        forward_soft_start_sec=s.forward_soft_start_sec,
     )
 
 
 def parse_route_from_json(path: Path) -> Route:
     """Загрузка маршрута из JSON-файла."""
     data: dict[str, Any] = json.loads(path.read_text(encoding=ENCODING_UTF8))
-
-    segments: list[ForwardSegment | BackwardSegment | TurnLeftSegment | TurnRightSegment] = []
-    for s in data.get("segments", []):
-        action: str = s.get("action")
-
-        if action == "forward":
-            distance_cm: float = float(s["distance_cm"])
-            if distance_cm < 0:
-                raise ValueError(f"distance_cm не может быть отрицательным: {distance_cm}")
-            segments.append(ForwardSegment(distance_cm=distance_cm))
-
-        elif action == "backward":
-            distance_cm = float(s["distance_cm"])
-            if distance_cm < 0:
-                raise ValueError(f"distance_cm не может быть отрицательным: {distance_cm}")
-            segments.append(BackwardSegment(distance_cm=distance_cm))
-
-        elif action == "turn_left":
-            angle_deg: float = float(s.get("angle_deg", 90.0))
-            if angle_deg < 0:
-                raise ValueError(f"angle_deg не может быть отрицательным: {angle_deg}")
-            segments.append(TurnLeftSegment(angle_deg=angle_deg))
-
-        elif action == "turn_right":
-            angle_deg = float(s.get("angle_deg", 90.0))
-            if angle_deg < 0:
-                raise ValueError(f"angle_deg не может быть отрицательным: {angle_deg}")
-            segments.append(TurnRightSegment(angle_deg=angle_deg))
-
-        else:
-            raise ValueError(f"Неизвестный сегмент: {action}")
+    raw_segments: list[dict[str, Any]] = data.get("segments", [])
+    segments = [_parse_segment(segment_data) for segment_data in raw_segments]
 
     if not segments:
         raise ValueError("Маршрут должен содержать хотя бы один сегмент")
 
     return Route(segments=segments)
+
+
+def _parse_segment(
+    segment_data: dict[str, Any],
+) -> ForwardSegment | BackwardSegment | TurnLeftSegment | TurnRightSegment:
+    """Преобразует JSON-сегмент в доменную модель маршрута."""
+    action: str = str(segment_data.get("action"))
+
+    if action == "forward":
+        return ForwardSegment(distance_cm=_parse_non_negative_float(segment_data, "distance_cm"))
+
+    if action == "backward":
+        return BackwardSegment(distance_cm=_parse_non_negative_float(segment_data, "distance_cm"))
+
+    if action == "turn_left":
+        return TurnLeftSegment(
+            angle_deg=_parse_non_negative_float(
+                segment_data,
+                "angle_deg",
+                default=DEFAULT_TURN_ANGLE_DEG,
+            ),
+        )
+
+    if action == "turn_right":
+        return TurnRightSegment(
+            angle_deg=_parse_non_negative_float(
+                segment_data,
+                "angle_deg",
+                default=DEFAULT_TURN_ANGLE_DEG,
+            ),
+        )
+
+    raise ValueError(f"Неизвестный сегмент: {action}")
+
+
+def _parse_non_negative_float(
+    data: dict[str, Any],
+    field_name: str,
+    *,
+    default: float | None = None,
+) -> float:
+    """Читает неотрицательное число из словаря сегмента."""
+    raw_value: Any = data.get(field_name, default)
+    value: float = float(raw_value)
+    if value < 0:
+        raise ValueError(f"{field_name} не может быть отрицательным: {value}")
+    return value
 
 
 def prompt_yes_no(question: str, default: bool = True) -> bool:

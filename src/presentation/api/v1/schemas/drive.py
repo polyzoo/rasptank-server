@@ -47,3 +47,15 @@ class RouteRequestSchema(BaseModel):
         min_length=1,
         description="Сегменты маршрута в порядке выполнения.",
     )
+
+
+class DriveRouteResponseSchema(BaseModel):
+    """Ответ на запуск маршрута."""
+
+    status: str = "accepted"
+
+
+class DriveStopResponseSchema(BaseModel):
+    """Ответ на остановку движения."""
+
+    status: str = "stopped"

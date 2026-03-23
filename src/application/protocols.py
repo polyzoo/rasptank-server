@@ -12,11 +12,11 @@ class MotorControllerProtocol(Protocol):
 
     @abstractmethod
     def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
-        """Движение вперед. steer_percent: дифференциал для удержания курса (−100…100)."""
+        """Движение вперед."""
 
     @abstractmethod
     def move_backward(self, speed_percent: int, steer_percent: int = 0) -> None:
-        """Движение назад. steer_percent — как у move_forward."""
+        """Движение назад."""
 
     @abstractmethod
     def turn_left(self, speed_percent: int) -> None:
@@ -59,6 +59,10 @@ class GyroscopeProtocol(Protocol):
         """Возврат текущего угла."""
 
     @abstractmethod
+    def stop(self) -> None:
+        """Остановка фонового отслеживания."""
+
+    @abstractmethod
     def reset_yaw(self) -> None:
         """Сброс угла."""
 
@@ -68,18 +72,18 @@ class GyroscopeProtocol(Protocol):
 
 
 class DriveControllerProtocol(Protocol):
-    """Протокол высокоуровневого управления движением."""
+    """Протокол управления движением."""
 
     @abstractmethod
     def forward_cm_sync(self, distance_cm: float, max_speed_percent: int | None = None) -> None:
-        """Движение вперёд на заданное расстояние в текущем потоке."""
+        """Движение вперед на заданное расстояние в текущем потоке."""
 
     @abstractmethod
-    def execute_route(self, route: Route, *, start_segment_index: int = 0) -> None:
+    def execute_route(self, route: Route) -> None:
         """Выполнение маршрута в фоновом потоке."""
 
     @abstractmethod
-    def execute_route_sync(self, route: Route, *, start_segment_index: int = 0) -> None:
+    def execute_route_sync(self, route: Route) -> None:
         """Выполнение маршрута в текущем потоке."""
 
     @abstractmethod

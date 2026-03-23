@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def setup_exception_handlers(app: FastAPI) -> None:
@@ -27,5 +31,5 @@ def setup_exception_handlers(app: FastAPI) -> None:
         """Обработчик для всех ошибок."""
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"message": str(exc)},
+            content={"message": "Internal server error"},
         )

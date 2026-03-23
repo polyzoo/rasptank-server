@@ -15,6 +15,8 @@ from src.application.protocols import DriveControllerProtocol
 from src.presentation.api.dependencies import get_drive_controller
 from src.presentation.api.v1.schemas.drive import (
     BackwardSegmentSchema,
+    DriveRouteResponseSchema,
+    DriveStopResponseSchema,
     ForwardSegmentSchema,
     RouteRequestSchema,
     TurnLeftSegmentSchema,
@@ -26,7 +28,7 @@ router: APIRouter = APIRouter()
 
 def _schema_to_route(body: RouteRequestSchema) -> Route:
     """Преобразование API-схемы в доменную модель маршрута."""
-    segments: list[object] = []
+    segments: list[ForwardSegment | BackwardSegment | TurnLeftSegment | TurnRightSegment] = []
 
     for s in body.segments:
         if isinstance(s, ForwardSegmentSchema):
@@ -41,6 +43,9 @@ def _schema_to_route(body: RouteRequestSchema) -> Route:
         elif isinstance(s, TurnRightSegmentSchema):
             segments.append(TurnRightSegment(angle_deg=s.angle_deg))
 
+        else:
+            raise ValueError(f"Неподдерживаемый сегмент маршрута: {type(s).__name__}")
+
     return Route(segments=segments)
 
 
@@ -48,17 +53,17 @@ def _schema_to_route(body: RouteRequestSchema) -> Route:
 async def drive_route(
     body: RouteRequestSchema,
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
-) -> None:
+) -> DriveRouteResponseSchema:
     """Запуск движения по заданному маршруту с плавной остановкой при препятствиях."""
     route: Route = _schema_to_route(body)
     drive.execute_route(route=route)
-    return
+    return DriveRouteResponseSchema()
 
 
 @router.post("/stop", description="Немедленная остановка")
 async def drive_stop(
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
-) -> None:
+) -> DriveStopResponseSchema:
     """Немедленная остановка движения."""
     drive.stop()
-    return
+    return DriveStopResponseSchema()

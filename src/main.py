@@ -6,11 +6,8 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 
-from src.application.services.drive_controller import DriveController
+from src.application.factories import create_drive_controller
 from src.config.settings import Settings
-from src.infrastructures.imu import IMUSensor
-from src.infrastructures.motor import MotorController
-from src.infrastructures.ultrasonic import UltrasonicSensor
 from src.presentation.api.exception_handlers import setup_exception_handlers
 from src.presentation.api.v1.routers import router as v1_router
 
@@ -33,41 +30,8 @@ def create_app(settings: Settings) -> FastAPI:
         docs_url="/docs",
     )
 
-    ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
-    imu_sensor: IMUSensor = IMUSensor()
-    motor_controller: MotorController = MotorController(
-        tl_left_offset=settings.tl_left_offset,
-        tl_right_offset=settings.tl_right_offset,
-    )
-
-    drive_controller: DriveController = DriveController(
-        motor_controller=motor_controller,
-        gyroscope=imu_sensor,
-        ultrasonic_sensor=ultrasonic_sensor,
-        min_obstacle_distance_cm=settings.min_obstacle_distance_cm,
-        deceleration_distance_cm=settings.deceleration_distance_cm,
-        base_speed_percent=settings.base_speed_percent,
-        turn_speed_percent=settings.turn_speed_percent,
-        turn_slowdown_remaining_deg=settings.turn_slowdown_remaining_deg,
-        turn_creep_speed_percent=settings.turn_creep_speed_percent,
-        turn_angle_trim_deg=settings.turn_angle_trim_deg,
-        last_turn_angle_trim_deg=settings.last_turn_angle_trim_deg,
-        max_speed_cm_per_sec=settings.max_speed_cm_per_sec,
-        update_interval_sec=settings.update_interval_sec,
-        heading_hold_enabled=settings.heading_hold_enabled,
-        heading_hold_kp=settings.heading_hold_kp,
-        heading_hold_steer_max=settings.heading_hold_steer_max,
-        heading_hold_deadband_deg=settings.heading_hold_deadband_deg,
-        heading_hold_steer_speed_ratio=settings.heading_hold_steer_speed_ratio,
-        heading_hold_min_speed_percent=settings.heading_hold_min_speed_percent,
-        heading_hold_steer_cap_min_speed_percent=settings.heading_hold_steer_cap_min_speed_percent,
-        heading_hold_steer_trim=settings.heading_hold_steer_trim,
-        heading_hold_invert_steer=settings.heading_hold_invert_steer,
-        forward_soft_start_sec=settings.forward_soft_start_sec,
-    )
-
     app.state.settings = settings
-    app.state.drive_controller = drive_controller
+    app.state.drive_controller = create_drive_controller(settings)
 
     setup_exception_handlers(app)
 

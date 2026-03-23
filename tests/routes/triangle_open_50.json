@@ -1,8 +1,0 @@
-{
-  "description": "Две стороны и тупой угол 120° — открытая «складка», не треугольник целиком.",
-  "segments": [
-    { "action": "forward", "distance_cm": 50 },
-    { "action": "turn_left", "angle_deg": 120 },
-    { "action": "forward", "distance_cm": 50 }
-  ]
-}
