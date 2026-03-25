@@ -6,11 +6,8 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 
-from src.application.services.drive_controller import DriveController
+from src.application.factories import create_drive_controller
 from src.config.settings import Settings
-from src.infrastructures.imu import IMUSensor
-from src.infrastructures.motor import MotorController
-from src.infrastructures.ultrasonic import UltrasonicSensor
 from src.presentation.api.exception_handlers import setup_exception_handlers
 from src.presentation.api.v1.routers import router as v1_router
 
@@ -33,41 +30,11 @@ def create_app(settings: Settings) -> FastAPI:
         docs_url="/docs",
     )
 
-    ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
-    imu_sensor: IMUSensor = IMUSensor()
-    motor_controller: MotorController = MotorController(
-        tl_left_offset=settings.tl_left_offset,
-        tl_right_offset=settings.tl_right_offset,
-    )
-
-    drive_controller: DriveController = DriveController(
-        motor_controller=motor_controller,
-        gyroscope=imu_sensor,
-        ultrasonic_sensor=ultrasonic_sensor,
-        min_obstacle_distance_cm=settings.min_obstacle_distance_cm,
-        deceleration_distance_cm=settings.deceleration_distance_cm,
-        base_speed_percent=settings.base_speed_percent,
-        turn_speed_percent=settings.turn_speed_percent,
-        max_speed_cm_per_sec=settings.max_speed_cm_per_sec,
-        update_interval_sec=settings.update_interval_sec,
-        avoidance_scan_angle_deg=settings.avoidance_scan_angle_deg,
-        avoidance_side_step_cm=settings.avoidance_side_step_cm,
-        avoidance_forward_step_cm=settings.avoidance_forward_step_cm,
-        avoidance_rejoin_step_cm=settings.avoidance_rejoin_step_cm,
-        avoidance_max_attempts=settings.avoidance_max_attempts,
-        avoidance_confirm_readings=settings.avoidance_confirm_readings,
-        avoidance_min_side_clearance_cm=settings.avoidance_min_side_clearance_cm,
-        avoidance_max_lateral_offset_cm=settings.avoidance_max_lateral_offset_cm,
-        avoidance_max_bypass_distance_cm=settings.avoidance_max_bypass_distance_cm,
-    )
-
     app.state.settings = settings
-    app.state.drive_controller = drive_controller
+    app.state.drive_controller = create_drive_controller(settings)
 
     setup_exception_handlers(app)
-
     app.include_router(v1_router)
-
     return app
 
 

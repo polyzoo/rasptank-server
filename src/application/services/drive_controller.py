@@ -4,23 +4,25 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from threading import Event, Thread
+from threading import Event
 from typing import final
 
-from src.application.models.route import (
-    BackwardSegment,
-    ForwardSegment,
-    Route,
-    RouteSegment,
-    TurnLeftSegment,
-    TurnRightSegment,
-)
+from src.application.models.route import Route
 from src.application.protocols import (
     DriveControllerProtocol,
     GyroscopeProtocol,
     MotorControllerProtocol,
     UltrasonicSensorProtocol,
 )
+from src.application.services.linear_motion_executor import (
+    LinearMotionExecutionResult,
+    LinearMotionExecutor,
+)
+from src.application.services.motion_config import MotionConfig
+from src.application.services.motion_lifecycle import MotionLifecycle
+from src.application.services.route_executor import RouteExecutor
+from src.application.services.route_runner import RouteRunner
+from src.application.services.turn_executor import TurnExecutionResult, TurnExecutor
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -93,31 +95,12 @@ class AvoidanceContext:
 
 @final
 class DriveController(DriveControllerProtocol):
-    """Контроллер движения с учетом препятствий и целевой дистанции."""
+    """Контроллер движения поверх модульных executors с obstacle avoidance."""
 
-    # Ограничения и коэффициенты для пересчёта скорости
-    SPEED_PERCENT_MIN: int = 0
-    SPEED_PERCENT_MAX: int = 100
-    SPEED_FACTOR_MIN: float = 0.1
-    SPEED_FACTOR_MAX: float = 1.0
-
-    # Ограничения для расчёта скорости по препятствию
-    OBSTACLE_SPEED_FACTOR_MIN: float = 0.0
-    OBSTACLE_SPEED_FACTOR_MAX: float = 1.0
-
-    # Ограничения для навигации
-    ESTIMATE_SPEED_DIVISOR: float = 100.0
-    TURN_CHECK_INTERVAL_SEC: float = 0.05
-    TURN_TIMEOUT_PER_DEG: float = 0.05
-    TURN_TIMEOUT_MIN: float = 1.0
-
-    # Технические допуски
     DISTANCE_TOLERANCE_CM: float = 0.5
     BLOCK_CONFIRMATION_SAMPLES_MIN: int = 3
     CLEAR_CONFIRMATION_CHECKS: int = 2
     CLEARANCE_HYSTERESIS_CM: float = 3.0
-
-    # Ожидание завершения потока
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
 
     def __init__(
@@ -125,11 +108,13 @@ class DriveController(DriveControllerProtocol):
         motor_controller: MotorControllerProtocol,
         ultrasonic_sensor: UltrasonicSensorProtocol,
         gyroscope: GyroscopeProtocol,
+        config: MotionConfig | None = None,
+        *,
         min_obstacle_distance_cm: float = 20.0,
-        deceleration_distance_cm: float = 50.0,
-        base_speed_percent: int = 60,
-        turn_speed_percent: int = 50,
-        max_speed_cm_per_sec: float = 30.0,
+        deceleration_distance_cm: float = 10.0,
+        base_speed_percent: int = 55,
+        turn_speed_percent: int = 72,
+        max_speed_cm_per_sec: float = 28.0,
         update_interval_sec: float = 0.1,
         avoidance_scan_angle_deg: float = 45.0,
         avoidance_side_step_cm: float = 12.0,
@@ -140,155 +125,207 @@ class DriveController(DriveControllerProtocol):
         avoidance_min_side_clearance_cm: float = 25.0,
         avoidance_max_lateral_offset_cm: float = 60.0,
         avoidance_max_bypass_distance_cm: float = 200.0,
+        turn_slowdown_remaining_deg: float = 8.0,
+        turn_creep_speed_percent: int = 42,
+        turn_angle_trim_deg: float = -2.0,
+        last_turn_angle_trim_deg: float = 2.0,
+        heading_hold_enabled: bool = True,
+        heading_hold_kp: float = 6.0,
+        heading_hold_steer_max: int = 85,
+        heading_hold_deadband_deg: float = 0.15,
+        heading_hold_steer_speed_ratio: float = 0.58,
+        heading_hold_min_speed_percent: float = 0.0,
+        heading_hold_steer_cap_min_speed_percent: float = 45.0,
+        heading_hold_steer_trim: int = 0,
+        heading_hold_invert_steer: bool = True,
+        forward_soft_start_sec: float = 0.35,
+        turn_check_interval_sec: float = 0.01,
+        turn_obstacle_check_interval_sec: float = 0.20,
+        turn_timeout_per_deg: float = 0.05,
+        turn_timeout_min: float = 1.0,
     ) -> None:
         """Инициализация контроллера движения."""
         self.motor_controller: MotorControllerProtocol = motor_controller
         self.ultrasonic_sensor: UltrasonicSensorProtocol = ultrasonic_sensor
         self.gyroscope: GyroscopeProtocol = gyroscope
+        self.config: MotionConfig = config or MotionConfig(
+            min_obstacle_distance_cm=min_obstacle_distance_cm,
+            deceleration_distance_cm=deceleration_distance_cm,
+            base_speed_percent=base_speed_percent,
+            turn_speed_percent=turn_speed_percent,
+            turn_slowdown_remaining_deg=turn_slowdown_remaining_deg,
+            turn_creep_speed_percent=turn_creep_speed_percent,
+            turn_angle_trim_deg=turn_angle_trim_deg,
+            last_turn_angle_trim_deg=last_turn_angle_trim_deg,
+            max_speed_cm_per_sec=max_speed_cm_per_sec,
+            update_interval_sec=update_interval_sec,
+            avoidance_scan_angle_deg=avoidance_scan_angle_deg,
+            avoidance_side_step_cm=avoidance_side_step_cm,
+            avoidance_forward_step_cm=avoidance_forward_step_cm,
+            avoidance_rejoin_step_cm=avoidance_rejoin_step_cm,
+            avoidance_max_attempts=avoidance_max_attempts,
+            avoidance_confirm_readings=avoidance_confirm_readings,
+            avoidance_min_side_clearance_cm=avoidance_min_side_clearance_cm,
+            avoidance_max_lateral_offset_cm=avoidance_max_lateral_offset_cm,
+            avoidance_max_bypass_distance_cm=avoidance_max_bypass_distance_cm,
+            heading_hold_enabled=heading_hold_enabled,
+            heading_hold_kp=heading_hold_kp,
+            heading_hold_steer_max=heading_hold_steer_max,
+            heading_hold_deadband_deg=heading_hold_deadband_deg,
+            heading_hold_steer_speed_ratio=heading_hold_steer_speed_ratio,
+            heading_hold_min_speed_percent=heading_hold_min_speed_percent,
+            heading_hold_steer_cap_min_spd_percent=heading_hold_steer_cap_min_speed_percent,
+            heading_hold_steer_trim=heading_hold_steer_trim,
+            heading_hold_invert_steer=heading_hold_invert_steer,
+            forward_soft_start_sec=forward_soft_start_sec,
+            turn_check_interval_sec=turn_check_interval_sec,
+            turn_obstacle_check_interval_sec=turn_obstacle_check_interval_sec,
+            turn_timeout_per_deg=turn_timeout_per_deg,
+            turn_timeout_min=turn_timeout_min,
+        )
+        self.lifecycle: MotionLifecycle = MotionLifecycle()
+        self._stop_event: Event = self.lifecycle.stop_event
+        self._sync_runtime_settings_from_config()
 
-        self.min_obstacle_distance_cm: float = min_obstacle_distance_cm
-        self.deceleration_distance_cm: float = deceleration_distance_cm
-        self.base_speed_percent: int = base_speed_percent
-        self.turn_speed_percent: int = turn_speed_percent
-        self.max_speed_cm_per_sec: float = max_speed_cm_per_sec
-        self.update_interval_sec: float = update_interval_sec
+        self._linear_motion: LinearMotionExecutor = LinearMotionExecutor(
+            motor_controller=motor_controller,
+            ultrasonic_sensor=ultrasonic_sensor,
+            gyroscope=gyroscope,
+            min_obstacle_distance_cm=self.config.min_obstacle_distance_cm,
+            deceleration_distance_cm=self.config.deceleration_distance_cm,
+            max_speed_cm_per_sec=self.config.max_speed_cm_per_sec,
+            update_interval_sec=self.config.update_interval_sec,
+            forward_soft_start_sec=self.config.forward_soft_start_sec,
+            heading_hold_enabled=self.config.heading_hold_enabled,
+            heading_hold_kp=self.config.heading_hold_kp,
+            heading_hold_steer_max=self.config.heading_hold_steer_max,
+            heading_hold_deadband_deg=self.config.heading_hold_deadband_deg,
+            heading_hold_steer_speed_ratio=self.config.heading_hold_steer_speed_ratio,
+            heading_hold_min_speed_percent=self.config.heading_hold_min_speed_percent,
+            heading_hold_steer_cap_min_spd_percent=self.config.heading_hold_steer_cap_min_spd_percent,
+            heading_hold_steer_trim=self.config.heading_hold_steer_trim,
+            heading_hold_invert_steer=self.config.heading_hold_invert_steer,
+            lifecycle=self.lifecycle,
+        )
 
-        self.avoidance_scan_angle_deg: float = avoidance_scan_angle_deg
-        self.avoidance_side_step_cm: float = avoidance_side_step_cm
-        self.avoidance_forward_step_cm: float = avoidance_forward_step_cm
-        self.avoidance_rejoin_step_cm: float = avoidance_rejoin_step_cm
-        self.avoidance_max_attempts: int = avoidance_max_attempts
-        self.avoidance_confirm_readings: int = avoidance_confirm_readings
-        self.avoidance_min_side_clearance_cm: float = avoidance_min_side_clearance_cm
-        self.avoidance_max_lateral_offset_cm: float = avoidance_max_lateral_offset_cm
-        self.avoidance_max_bypass_distance_cm: float = avoidance_max_bypass_distance_cm
+        self._turn_executor: TurnExecutor = TurnExecutor(
+            motor_controller=motor_controller,
+            ultrasonic_sensor=ultrasonic_sensor,
+            gyroscope=gyroscope,
+            min_obstacle_distance_cm=self.config.min_obstacle_distance_cm,
+            turn_speed_percent=self.config.turn_speed_percent,
+            turn_slowdown_remaining_deg=self.config.turn_slowdown_remaining_deg,
+            turn_creep_speed_percent=self.config.turn_creep_speed_percent,
+            turn_angle_trim_deg=self.config.turn_angle_trim_deg,
+            last_turn_angle_trim_deg=self.config.last_turn_angle_trim_deg,
+            turn_check_interval_sec=self.config.turn_check_interval_sec,
+            turn_obstacle_check_interval_sec=self.config.turn_obstacle_check_interval_sec,
+            turn_timeout_per_deg=self.config.turn_timeout_per_deg,
+            turn_timeout_min=self.config.turn_timeout_min,
+            lifecycle=self.lifecycle,
+        )
 
-        self._is_moving: bool = False
-        self._is_route_running: bool = False
-        self._movement_thread: Thread | None = None
-        self._stop_event: Event = Event()
+        self._route_runner: RouteRunner = RouteRunner(
+            linear_motion=self._linear_motion,
+            turn_executor=self._turn_executor,
+            move_forward=motor_controller.move_forward,
+            move_backward=motor_controller.move_backward,
+            gyroscope=gyroscope,
+            lifecycle=self.lifecycle,
+            base_speed_percent=self.base_speed_percent,
+            forward_segment_runner=self._run_forward_segment,
+        )
+
+        self._route_executor: RouteExecutor = RouteExecutor(
+            route_runner=self._route_runner,
+            motor_controller=motor_controller,
+            lifecycle=self.lifecycle,
+        )
+
+    @property
+    def _is_moving(self) -> bool:
+        """Совместимость со старыми тестами, ожидающими приватный флаг."""
+        return self.lifecycle.is_moving
+
+    @_is_moving.setter
+    def _is_moving(self, value: bool) -> None:
+        if value:
+            self.lifecycle.set_running(is_route_running=self.lifecycle.is_route_running)
+            return
+        self.lifecycle.set_stopped()
+
+    @property
+    def _is_route_running(self) -> bool:
+        """Совместимость со старыми тестами, ожидающими приватный флаг маршрута."""
+        return self.lifecycle.is_route_running
+
+    @_is_route_running.setter
+    def _is_route_running(self, value: bool) -> None:
+        if value or self.lifecycle.is_moving:
+            self.lifecycle.set_running(is_route_running=value)
+            return
+        self.lifecycle.set_stopped()
 
     def forward_cm_sync(self, distance_cm: float, max_speed_percent: int | None = None) -> None:
-        """Запуск движения вперед на заданное расстояние в текущем потоке."""
-        if self._is_moving:
-            self.stop()
-
-        self._is_moving = True
-        self._stop_event.clear()
-        self._start_navigation_tracking()
+        """Проехать заданную дистанцию в текущем потоке."""
+        self._stop_motion()
+        self.lifecycle.set_running(is_route_running=False)
+        self.gyroscope.start(calibrate=True)
 
         try:
-            self._run_forward_segment(distance_cm, max_speed_percent or self.base_speed_percent)
+            speed_percent: int = (
+                self.base_speed_percent if max_speed_percent is None else max_speed_percent
+            )
+            self._run_forward_segment(distance_cm, speed_percent)
         finally:
             self.motor_controller.stop()
-            self._is_moving = False
+            self.gyroscope.stop()
+            self.lifecycle.set_stopped()
 
     def execute_route(self, route: Route) -> None:
-        """Запуск выполнения маршрута в фоновом потоке."""
-        if self._is_moving or self._is_route_running:
-            self.stop()
-
-        self._is_moving = True
-        self._is_route_running = True
-        self._stop_event.clear()
-
-        self._movement_thread = Thread(
-            target=self._execute_route_loop,
-            args=(route.segments,),
-            daemon=True,
-        )
-        self._movement_thread.start()
+        """Запустить выполнение маршрута в фоновом потоке."""
+        self._stop_motion()
+        self._route_runner.base_speed_percent = self.base_speed_percent
+        self.lifecycle.set_running(is_route_running=True)
+        self._route_executor.execute(route)
 
     def execute_route_sync(self, route: Route) -> None:
-        """Запуск выполнения маршрута в текущем потоке."""
-        if self._is_moving or self._is_route_running:
-            self.stop()
-
-        self._is_moving = True
-        self._is_route_running = True
-        self._stop_event.clear()
+        """Запустить выполнение маршрута в текущем потоке."""
+        self._stop_motion()
+        self._route_runner.base_speed_percent = self.base_speed_percent
+        self.lifecycle.set_running(is_route_running=True)
 
         try:
-            self._execute_route_segments(route.segments)
+            self._route_executor.execute_sync(route)
         finally:
             self.motor_controller.stop()
-            self._is_moving = False
-            self._is_route_running = False
+            self.lifecycle.set_stopped()
 
     def stop(self) -> None:
-        """Немедленная остановка движения."""
-        self._is_moving = False
-        self._is_route_running = False
-        self._stop_event.set()
-        self.motor_controller.stop()
-
-        if self._movement_thread and self._movement_thread.is_alive():
-            self._movement_thread.join(timeout=self.STOP_JOIN_TIMEOUT_SEC)
-
-        self._movement_thread = None
+        """Остановить текущее движение."""
+        self._route_executor.stop()
+        self._stop_motion()
 
     def destroy(self) -> None:
-        """Освобождение ресурсов."""
+        """Освободить все ресурсы, связанные с движением."""
         self.stop()
         self.motor_controller.destroy()
         self.ultrasonic_sensor.destroy()
         self.gyroscope.destroy()
 
-    def _execute_route_loop(self, segments: list[RouteSegment]) -> None:
-        """Цикл выполнения маршрута в daemon-потоке."""
-        try:
-            self._execute_route_segments(segments)
-        except (OSError, RuntimeError, ConnectionError, ValueError) as exc:
-            logger.exception("Ошибка при выполнении маршрута: %s", exc)
-        finally:
-            self.motor_controller.stop()
-            self._is_moving = False
-            self._is_route_running = False
-
-    def _execute_route_segments(self, segments: list[RouteSegment]) -> None:
-        """Последовательное выполнение сегментов маршрута."""
-        self._start_navigation_tracking()
-
-        for segment in segments:
-            if not self._is_moving or self._stop_event.is_set():
-                break
-
-            if isinstance(segment, ForwardSegment):
-                if not self._run_forward_segment(segment.distance_cm, self.base_speed_percent):
-                    break
-
-            elif isinstance(segment, BackwardSegment):
-                if not self._run_backward_segment(segment.distance_cm, self.base_speed_percent):
-                    break
-
-            elif isinstance(segment, TurnLeftSegment):
-                self._run_turn_segment(
-                    turn_left=True,
-                    target_angle=segment.angle_deg,
-                    timeout_sec=self._calculate_turn_timeout(segment.angle_deg),
-                )
-
-            elif isinstance(segment, TurnRightSegment):
-                self._run_turn_segment(
-                    turn_left=False,
-                    target_angle=segment.angle_deg,
-                    timeout_sec=self._calculate_turn_timeout(segment.angle_deg),
-                )
-
     def _run_forward_segment(self, distance_cm: float, speed_percent: int) -> bool:
-        """Запуск сегмента «вперед» с учетом препятствий и обхода."""
+        """Запустить forward-сегмент с obstacle avoidance поверх linear executor."""
         remaining_cm: float = max(0.0, distance_cm)
-        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
 
         try:
-            while self._is_moving and not self._stop_event.is_set():
+            while self.lifecycle.should_keep_running():
                 if self._has_reached_target_distance(remaining_cm):
                     self.motor_controller.stop()
                     return True
 
                 move_result: LinearMoveResult = self._run_linear_motion(
                     distance_cm=remaining_cm,
-                    speed_percent=clamped_speed,
+                    speed_percent=speed_percent,
                     move_forward=True,
                     obstacle_aware=True,
                 )
@@ -303,7 +340,7 @@ class DriveController(DriveControllerProtocol):
 
                 avoidance_result: AvoidanceResult = self._run_obstacle_avoidance(
                     remaining_cm=remaining_cm,
-                    speed_percent=clamped_speed,
+                    speed_percent=speed_percent,
                 )
                 remaining_cm = max(0.0, remaining_cm - avoidance_result.forward_progress_cm)
 
@@ -321,7 +358,7 @@ class DriveController(DriveControllerProtocol):
             return False
 
     def _run_backward_segment(self, distance_cm: float, speed_percent: int) -> bool:
-        """Запуск сегмента «назад»."""
+        """Запуск сегмента «назад» без фронтальной obstacle-check логики."""
         move_result: LinearMoveResult = self._run_linear_motion(
             distance_cm=distance_cm,
             speed_percent=speed_percent,
@@ -330,15 +367,6 @@ class DriveController(DriveControllerProtocol):
         )
         return move_result.completed
 
-    def _run_turn_segment(self, turn_left: bool, target_angle: float, timeout_sec: float) -> None:
-        """Запуск сегмента поворота на месте с проверкой препятствий."""
-        self._turn_relative(
-            turn_left=turn_left,
-            target_angle=target_angle,
-            timeout_sec=timeout_sec,
-            stop_on_front_obstacle=True,
-        )
-
     def _run_linear_motion(
         self,
         distance_cm: float,
@@ -346,77 +374,37 @@ class DriveController(DriveControllerProtocol):
         move_forward: bool,
         obstacle_aware: bool,
     ) -> LinearMoveResult:
-        """Движение по прямой на ограниченную дистанцию."""
+        """Выполнить линейное движение через reusable executor с расширенным результатом."""
         if self._has_reached_target_distance(distance_cm):
             self.motor_controller.stop()
             return LinearMoveResult(completed=True, traveled_cm=0.0)
 
-        traveled_cm: float = 0.0
-        current_speed: float = 0.0
-        last_time: float = time.monotonic()
-        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
+        self._linear_motion.min_obstacle_distance_cm = self.min_obstacle_distance_cm
+        self._linear_motion.deceleration_distance_cm = self.deceleration_distance_cm
+        self._linear_motion.max_speed_cm_per_sec = self.max_speed_cm_per_sec
+        self._linear_motion.update_interval_sec = self.update_interval_sec
 
-        try:
-            while self._is_moving and not self._stop_event.is_set():
-                obstacle_cm: float | None = None
-                if obstacle_aware:
-                    obstacle_cm = self._measure_motion_obstacle_distance()
-
-                now: float = time.monotonic()
-                dt: float = now - last_time
-                last_time = now
-
-                traveled_cm += self._estimate_traveled_distance(current_speed, dt)
-                remaining_dist: float = max(0.0, distance_cm - traveled_cm)
-
-                if self._has_reached_target_distance(remaining_dist):
-                    self.motor_controller.stop()
-                    return LinearMoveResult(completed=True, traveled_cm=distance_cm)
-
-                if obstacle_aware and obstacle_cm is not None:
-                    current_speed = self._calculate_speed(
-                        obstacle_cm=obstacle_cm,
-                        remaining_cm=remaining_dist,
-                        max_speed=clamped_speed,
-                    )
-                    if current_speed <= 0.0:
-                        self.motor_controller.stop()
-                        time.sleep(self.update_interval_sec)
-                        return LinearMoveResult(
-                            completed=False,
-                            traveled_cm=min(traveled_cm, distance_cm),
-                            blocked=True,
-                        )
-                else:
-                    current_speed = clamped_speed * self._calculate_distance_speed_factor(remaining_dist)
-
-                if move_forward:
-                    self.motor_controller.move_forward(speed_percent=int(current_speed))
-                else:
-                    self.motor_controller.move_backward(speed_percent=int(current_speed))
-
-                time.sleep(self.update_interval_sec)
-
-            return LinearMoveResult(
-                completed=False,
-                traveled_cm=min(traveled_cm, distance_cm),
-                blocked=False,
-            )
-
-        except (OSError, RuntimeError, ConnectionError, ValueError) as exc:
-            direction: str = "вперед" if move_forward else "назад"
-            logger.exception("Ошибка в линейном движении %s: %s", direction, exc)
-            return LinearMoveResult(
-                completed=False,
-                traveled_cm=min(traveled_cm, distance_cm),
-                blocked=False,
-            )
+        move_fn = self.motor_controller.move_forward if move_forward else self.motor_controller.move_backward
+        result: LinearMotionExecutionResult = self._linear_motion.run_with_result(
+            distance_cm=distance_cm,
+            speed_percent=speed_percent,
+            move_fn=move_fn,
+            obstacle_aware=obstacle_aware,
+            obstacle_distance_provider=(
+                self._measure_motion_obstacle_distance if obstacle_aware else None
+            ),
+        )
+        return LinearMoveResult(
+            completed=result.completed,
+            traveled_cm=result.traveled_cm,
+            blocked=result.blocked,
+        )
 
     def _run_obstacle_avoidance(self, remaining_cm: float, speed_percent: int) -> AvoidanceResult:
         """Пошаговый автомат обхода препятствия."""
         context: AvoidanceContext = AvoidanceContext()
 
-        while self._is_moving and not self._stop_event.is_set():
+        while self.lifecycle.should_keep_running():
             if self._has_reached_target_distance(remaining_cm - context.forward_progress_cm):
                 return AvoidanceResult(completed=True, forward_progress_cm=context.forward_progress_cm)
 
@@ -496,7 +484,9 @@ class DriveController(DriveControllerProtocol):
                     speed_percent=speed_percent,
                 )
                 if not rejoin_step.heading_restored:
-                    logger.warning("Обход остановлен: после попытки возврата не удалось восстановить курс.")
+                    logger.warning(
+                        "Обход остановлен: после попытки возврата не удалось восстановить курс."
+                    )
                     break
                 self._update_avoidance_progress(
                     context=context,
@@ -550,7 +540,6 @@ class DriveController(DriveControllerProtocol):
         turn_result: TurnResult = self._turn_relative(
             turn_left=side.turn_left,
             target_angle=target_angle,
-            timeout_sec=self._calculate_turn_timeout(target_angle),
             stop_on_front_obstacle=False,
         )
         clearance: float = 0.0
@@ -564,7 +553,6 @@ class DriveController(DriveControllerProtocol):
                 restore_result: TurnResult = self._turn_relative(
                     turn_left=not side.turn_left,
                     target_angle=turn_result.angle_deg,
-                    timeout_sec=self._calculate_turn_timeout(turn_result.angle_deg),
                     stop_on_front_obstacle=False,
                 )
                 if not restore_result.completed:
@@ -620,12 +608,10 @@ class DriveController(DriveControllerProtocol):
         turn_result: TurnResult = self._turn_relative(
             turn_left=side.turn_left,
             target_angle=90.0,
-            timeout_sec=self._calculate_turn_timeout(90.0),
             stop_on_front_obstacle=False,
         )
 
         move_result: LinearMoveResult = LinearMoveResult(completed=False, traveled_cm=0.0)
-
         if turn_result.completed:
             move_result = self._run_linear_motion(
                 distance_cm=distance_cm,
@@ -633,13 +619,13 @@ class DriveController(DriveControllerProtocol):
                 move_forward=True,
                 obstacle_aware=True,
             )
+
         if turn_result.angle_deg <= self.DISTANCE_TOLERANCE_CM:
             return move_result
 
         restore_result: TurnResult = self._turn_relative(
             turn_left=not side.turn_left,
             target_angle=turn_result.angle_deg,
-            timeout_sec=self._calculate_turn_timeout(turn_result.angle_deg),
             stop_on_front_obstacle=False,
         )
         if restore_result.completed:
@@ -657,39 +643,18 @@ class DriveController(DriveControllerProtocol):
         self,
         turn_left: bool,
         target_angle: float,
-        timeout_sec: float,
         stop_on_front_obstacle: bool,
     ) -> TurnResult:
-        """Поворот на относительный угол по данным гироскопа."""
-        if target_angle <= 0.0:
-            return TurnResult(completed=True, angle_deg=0.0)
+        """Поворот на относительный угол по данным turn executor."""
+        self._turn_executor.min_obstacle_distance_cm = self.min_obstacle_distance_cm
+        self._turn_executor.turn_speed_percent = self.turn_speed_percent
 
-        self.gyroscope.reset_yaw()
-        start_time: float = time.monotonic()
-
-        while self._is_moving and not self._stop_event.is_set():
-            current_yaw: float = abs(self.gyroscope.get_yaw())
-            if current_yaw >= target_angle:
-                break
-
-            if (time.monotonic() - start_time) >= timeout_sec:
-                break
-
-            if stop_on_front_obstacle:
-                obstacle_cm: float = self.ultrasonic_sensor.measure_distance_cm()
-                if self._is_front_blocked(obstacle_cm):
-                    break
-
-            if turn_left:
-                self.motor_controller.turn_left(speed_percent=self.turn_speed_percent)
-            else:
-                self.motor_controller.turn_right(speed_percent=self.turn_speed_percent)
-
-            time.sleep(self.TURN_CHECK_INTERVAL_SEC)
-
-        self.motor_controller.stop()
-        turned_angle: float = abs(self.gyroscope.get_yaw())
-        return TurnResult(completed=turned_angle >= target_angle, angle_deg=turned_angle)
+        turn_result: TurnExecutionResult = self._turn_executor.run_relative(
+            target_angle_deg=target_angle,
+            turn_left=turn_left,
+            stop_on_front_obstacle=stop_on_front_obstacle,
+        )
+        return TurnResult(completed=turn_result.completed, angle_deg=turn_result.angle_deg)
 
     def _measure_front_distance(self, samples: int | None = None) -> float:
         """Измерение фронтальной дистанции с подавлением одиночных шумовых чтений."""
@@ -763,10 +728,6 @@ class DriveController(DriveControllerProtocol):
         context.attempts += attempts_delta
         context.bypass_distance_cm += traveled_cm
 
-    def _start_navigation_tracking(self) -> None:
-        """Подготовка гироскопа к поворотам и обходу препятствий."""
-        self.gyroscope.start(calibrate=True)
-
     def _is_front_blocked(self, obstacle_cm: float) -> bool:
         """Проверка, что впереди недостаточно места для безопасного движения."""
         return obstacle_cm <= self.min_obstacle_distance_cm
@@ -775,39 +736,24 @@ class DriveController(DriveControllerProtocol):
         """Проверка достижения цели с учётом допуска на оценку пути."""
         return distance_cm <= self.DISTANCE_TOLERANCE_CM
 
-    def _calculate_turn_timeout(self, target_angle: float) -> float:
-        """Расчёт безопасного таймаута для поворота."""
-        return max(self.TURN_TIMEOUT_MIN, target_angle * self.TURN_TIMEOUT_PER_DEG)
+    def _sync_runtime_settings_from_config(self) -> None:
+        """Разворачивает конфиг в mutable runtime-поля контроллера."""
+        self.min_obstacle_distance_cm: float = self.config.min_obstacle_distance_cm
+        self.deceleration_distance_cm: float = self.config.deceleration_distance_cm
+        self.base_speed_percent: int = self.config.base_speed_percent
+        self.turn_speed_percent: int = self.config.turn_speed_percent
+        self.max_speed_cm_per_sec: float = self.config.max_speed_cm_per_sec
+        self.update_interval_sec: float = self.config.update_interval_sec
+        self.avoidance_scan_angle_deg: float = self.config.avoidance_scan_angle_deg
+        self.avoidance_side_step_cm: float = self.config.avoidance_side_step_cm
+        self.avoidance_forward_step_cm: float = self.config.avoidance_forward_step_cm
+        self.avoidance_rejoin_step_cm: float = self.config.avoidance_rejoin_step_cm
+        self.avoidance_max_attempts: int = self.config.avoidance_max_attempts
+        self.avoidance_confirm_readings: int = self.config.avoidance_confirm_readings
+        self.avoidance_min_side_clearance_cm: float = self.config.avoidance_min_side_clearance_cm
+        self.avoidance_max_lateral_offset_cm: float = self.config.avoidance_max_lateral_offset_cm
+        self.avoidance_max_bypass_distance_cm: float = self.config.avoidance_max_bypass_distance_cm
 
-    def _calculate_distance_speed_factor(self, remaining_cm: float) -> float:
-        """Коэффициент замедления при приближении к целевой точке."""
-        if self.deceleration_distance_cm <= 0:
-            return self.SPEED_FACTOR_MAX
-
-        if remaining_cm >= self.deceleration_distance_cm:
-            return self.SPEED_FACTOR_MAX
-
-        return max(self.SPEED_FACTOR_MIN, remaining_cm / self.deceleration_distance_cm)
-
-    def _calculate_speed(self, obstacle_cm: float, remaining_cm: float, max_speed: int) -> float:
-        """Расчет скорости с учетом препятствий и цели."""
-        if self._is_front_blocked(obstacle_cm):
-            return 0.0
-
-        speed: float = float(max_speed)
-
-        if (
-            obstacle_cm <= self.deceleration_distance_cm
-            and self.deceleration_distance_cm > self.min_obstacle_distance_cm
-        ):
-            decel_range: float = self.deceleration_distance_cm - self.min_obstacle_distance_cm
-            dist_above_min: float = obstacle_cm - self.min_obstacle_distance_cm
-            speed *= max(self.OBSTACLE_SPEED_FACTOR_MIN, dist_above_min / decel_range)
-
-        speed *= self._calculate_distance_speed_factor(remaining_cm)
-        return max(self.OBSTACLE_SPEED_FACTOR_MIN, speed)
-
-    def _estimate_traveled_distance(self, speed_percent: float, time_interval: float) -> float:
-        """Оценка пройденного пути."""
-        speed_ratio: float = speed_percent / self.ESTIMATE_SPEED_DIVISOR
-        return self.max_speed_cm_per_sec * speed_ratio * time_interval
+    def _stop_motion(self) -> None:
+        """Остановить движение и дождаться фонового потока при необходимости."""
+        self.lifecycle.stop_and_join(self.motor_controller.stop, timeout_sec=self.STOP_JOIN_TIMEOUT_SEC)

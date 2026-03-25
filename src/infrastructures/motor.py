@@ -26,7 +26,6 @@ except ImportError:
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-# Исключения при инициализации I2C/PCA9685
 _SETUP_EXCEPTIONS: tuple[type[BaseException], ...] = (
     OSError,
     RuntimeError,
@@ -37,32 +36,19 @@ _SETUP_EXCEPTIONS: tuple[type[BaseException], ...] = (
 
 @final
 class MotorController(MotorControllerProtocol):
-    """Контроллер управления моторами RaspTank.
+    """Контроллер управления моторами RaspTank."""
 
-    Использует PCA9685 по I2C (адрес 0x5F) для управления DC-моторами.
-    M1 — правый мотор, M2 — левый. Поддерживает движение вперед и остановку.
-
-    При отсутствии железа (ImportError) методы выполняются без ошибок, но не
-    оказывают эффекта.
-    """
-
-    # Каналы PCA9685 для моторов
     MOTOR_M1_IN1: int = 8
     MOTOR_M1_IN2: int = 9
     MOTOR_M2_IN1: int = 10
     MOTOR_M2_IN2: int = 11
 
-    # Направление моторов
     M1_DIRECTION: int = 1
     M2_DIRECTION: int = -1
 
-    # Частота PWM для моторов (Гц)
     PWM_FREQUENCY: int = 50
-
-    # I2C-адрес PCA9685 для моторов на HAT V3.1
     PCA9685_MOTOR_ADDRESS: int = 0x5F
 
-    # Скорость (0 – 100%) и газ (0.0 = стоп, 1.0 = максимальный)
     SPEED_PERCENT_MIN: int = 0
     SPEED_PERCENT_MAX: int = 100
     THROTTLE_STOP: float = 0.0
@@ -70,12 +56,7 @@ class MotorController(MotorControllerProtocol):
     THROTTLE_MAX: float = 1.0
 
     def __init__(self, tl_left_offset: int = 0, tl_right_offset: int = 0) -> None:
-        """Инициализация контроллера.
-
-        Args:
-            tl_left_offset: Смещение левого мотора (M2) для калибровки прямолинейности (%).
-            tl_right_offset: Смещение правого мотора (M1) для калибровки прямолинейности (%).
-        """
+        """Инициализация контроллера."""
         self.TL_LEFT_OFFSET: int = tl_left_offset
         self.TL_RIGHT_OFFSET: int = tl_right_offset
         self._pwm_motor: object | None = None
@@ -83,75 +64,21 @@ class MotorController(MotorControllerProtocol):
         self._motor2: object | None = None
         self._is_initialized: bool = False
 
-    def move_forward(self, speed_percent: int) -> None:
+    def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
         """Движение вперед с заданной скоростью."""
-        if not _HARDWARE_AVAILABLE:
-            return
+        self._move_line(speed_percent, steer_percent, reverse=False)
 
-        self._setup()
-        if self._motor1 is None or self._motor2 is None:
-            return
-
-        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
-        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
-
-        # Смещения для калибровки прямолинейности
-        left_speed: float = max(
-            self.THROTTLE_MIN,
-            min(self.THROTTLE_MAX, throttle + self.TL_LEFT_OFFSET / float(self.SPEED_PERCENT_MAX)),
-        )
-        right_speed: float = max(
-            self.THROTTLE_MIN,
-            min(self.THROTTLE_MAX, throttle + self.TL_RIGHT_OFFSET / float(self.SPEED_PERCENT_MAX)),
-        )
-
-        self._motor1.throttle = right_speed * self.M1_DIRECTION
-        self._motor2.throttle = left_speed * self.M2_DIRECTION
-
-    def move_backward(self, speed_percent: int) -> None:
+    def move_backward(self, speed_percent: int, steer_percent: int = 0) -> None:
         """Движение назад с заданной скоростью."""
-        if not _HARDWARE_AVAILABLE:
-            return
-
-        self._setup()
-        if self._motor1 is None or self._motor2 is None:
-            return
-
-        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
-        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
-
-        self._motor1.throttle = -throttle * self.M1_DIRECTION
-        self._motor2.throttle = -throttle * self.M2_DIRECTION
+        self._move_line(speed_percent, steer_percent, reverse=True)
 
     def turn_left(self, speed_percent: int) -> None:
         """Поворот налево на месте."""
-        if not _HARDWARE_AVAILABLE:
-            return
-
-        self._setup()
-        if self._motor1 is None or self._motor2 is None:
-            return
-
-        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
-        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
-
-        self._motor1.throttle = -throttle * self.M1_DIRECTION
-        self._motor2.throttle = throttle * self.M2_DIRECTION
+        self._turn_in_place(speed_percent, left=True)
 
     def turn_right(self, speed_percent: int) -> None:
         """Поворот направо на месте."""
-        if not _HARDWARE_AVAILABLE:
-            return
-
-        self._setup()
-        if self._motor1 is None or self._motor2 is None:
-            return
-
-        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
-        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
-
-        self._motor1.throttle = throttle * self.M1_DIRECTION
-        self._motor2.throttle = -throttle * self.M2_DIRECTION
+        self._turn_in_place(speed_percent, left=False)
 
     def stop(self) -> None:
         """Немедленная остановка обоих двигателей."""
@@ -167,12 +94,7 @@ class MotorController(MotorControllerProtocol):
             self._motor2.throttle = self.THROTTLE_STOP
 
     def destroy(self) -> None:
-        """Освобождение ресурсов I2C и PCA9685.
-
-        Вызывать при завершении работы приложения. После вызова контроллер переходит
-        в неинициализированное состояние; повторный вызов move_forward или stop
-        выполнит _setup() заново.
-        """
+        """Освобождение ресурсов I2C и PCA9685."""
         if not _HARDWARE_AVAILABLE:
             return
 
@@ -181,22 +103,70 @@ class MotorController(MotorControllerProtocol):
         if self._pwm_motor is not None:
             try:
                 self._pwm_motor.deinit()
-
             except _SETUP_EXCEPTIONS as exc:
                 logger.warning("Ошибка при освобождении ресурсов PCA9685: %s", exc)
-
             finally:
                 self._pwm_motor: object | None = None
                 self._motor1: object | None = None
                 self._motor2: object | None = None
                 self._is_initialized: bool = False
 
-    def _setup(self) -> None:
-        """Однократная инициализация PCA9685 и DC-моторов."""
+    def _move_line(self, speed_percent: int, steer_percent: int, *, reverse: bool) -> None:
+        """Выполнить движение вперед или назад с подруливанием."""
         if not _HARDWARE_AVAILABLE:
             return
 
-        if self._is_initialized:
+        self._setup()
+        if self._motor1 is None or self._motor2 is None:
+            return
+
+        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
+        steer: int = max(-self.SPEED_PERCENT_MAX, min(self.SPEED_PERCENT_MAX, steer_percent))
+
+        left_pct: int = max(
+            self.SPEED_PERCENT_MIN,
+            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_LEFT_OFFSET + steer),
+        )
+        right_pct: int = max(
+            self.SPEED_PERCENT_MIN,
+            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_RIGHT_OFFSET - steer),
+        )
+
+        left_speed: float = max(
+            self.THROTTLE_MIN,
+            min(self.THROTTLE_MAX, left_pct / float(self.SPEED_PERCENT_MAX)),
+        )
+        right_speed: float = max(
+            self.THROTTLE_MIN,
+            min(self.THROTTLE_MAX, right_pct / float(self.SPEED_PERCENT_MAX)),
+        )
+
+        direction: float = -1.0 if reverse else 1.0
+        self._motor1.throttle = direction * right_speed * self.M1_DIRECTION
+        self._motor2.throttle = direction * left_speed * self.M2_DIRECTION
+
+    def _turn_in_place(self, speed_percent: int, *, left: bool) -> None:
+        """Выполнить поворот на месте в заданную сторону."""
+        if not _HARDWARE_AVAILABLE:
+            return
+
+        self._setup()
+        if self._motor1 is None or self._motor2 is None:
+            return
+
+        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
+        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
+
+        if left:
+            self._motor1.throttle = -throttle * self.M1_DIRECTION
+            self._motor2.throttle = throttle * self.M2_DIRECTION
+        else:
+            self._motor1.throttle = throttle * self.M1_DIRECTION
+            self._motor2.throttle = -throttle * self.M2_DIRECTION
+
+    def _setup(self) -> None:
+        """Однократная инициализация PCA9685 и DC-моторов."""
+        if not _HARDWARE_AVAILABLE or self._is_initialized:
             return
 
         try:

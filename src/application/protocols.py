@@ -11,12 +11,12 @@ class MotorControllerProtocol(Protocol):
     """Протокол управления двигателями."""
 
     @abstractmethod
-    def move_forward(self, speed_percent: int) -> None:
-        """Движение вперед с заданной скоростью."""
+    def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
+        """Движение вперед."""
 
     @abstractmethod
-    def move_backward(self, speed_percent: int) -> None:
-        """Движение назад с заданной скоростью."""
+    def move_backward(self, speed_percent: int, steer_percent: int = 0) -> None:
+        """Движение назад."""
 
     @abstractmethod
     def turn_left(self, speed_percent: int) -> None:
@@ -59,6 +59,10 @@ class GyroscopeProtocol(Protocol):
         """Возврат текущего угла."""
 
     @abstractmethod
+    def stop(self) -> None:
+        """Остановка фонового отслеживания."""
+
+    @abstractmethod
     def reset_yaw(self) -> None:
         """Сброс угла."""
 
@@ -68,11 +72,11 @@ class GyroscopeProtocol(Protocol):
 
 
 class DriveControllerProtocol(Protocol):
-    """Протокол высокоуровневого управления движением."""
+    """Протокол управления движением."""
 
     @abstractmethod
     def forward_cm_sync(self, distance_cm: float, max_speed_percent: int | None = None) -> None:
-        """Движение вперёд на заданное расстояние в текущем потоке."""
+        """Движение вперед на заданное расстояние в текущем потоке."""
 
     @abstractmethod
     def execute_route(self, route: Route) -> None:

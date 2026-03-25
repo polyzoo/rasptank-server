@@ -1,0 +1,9 @@
+{
+  "description": "Прямая 5 м для эксперимента v(U).",
+  "segments": [
+    {
+      "action": "forward",
+      "distance_cm": 500
+    }
+  ]
+}

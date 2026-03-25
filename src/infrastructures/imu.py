@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from typing import Any, final
 
 from src.application.protocols import GyroscopeProtocol
@@ -20,10 +20,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 @final
 class IMUSensor(GyroscopeProtocol):
-    """Драйвер MPU6050 для отслеживания угла поворота (Yaw).
-
-    Оптимизирован для перевернутой платы и высокой точности при резких движениях.
-    """
+    """Драйвер MPU6050 для отслеживания угла поворота."""
 
     # Настройки подключения
     I2C_BUS: int = 1
@@ -68,6 +65,7 @@ class IMUSensor(GyroscopeProtocol):
 
         self._yaw: float = 0.0
         self._gyro_z_bias: float = 0.0
+        self._state_lock: Lock = Lock()
 
         self._stop_event: Event = Event()
         self._update_thread: Thread | None = None
@@ -82,17 +80,16 @@ class IMUSensor(GyroscopeProtocol):
         if not self._is_initialized:
             return
 
-        if self._update_thread and self._update_thread.is_alive():
-            self.stop()
-
+        self.stop()
         if calibrate:
             self.calibrate()
 
-        self.reset_yaw()
-        self._last_update_time: float = time.monotonic()
-        self._stop_event.clear()
+        with self._state_lock:
+            self._yaw: float = 0.0
+            self._last_update_time: float = time.monotonic()
 
-        self._update_thread = Thread(target=self._update_loop, daemon=True)
+        self._stop_event.clear()
+        self._update_thread: Thread = Thread(target=self._update_loop, daemon=True)
         self._update_thread.start()
         logger.info("IMU: Навигация запущена (0° = текущее положение)")
 
@@ -104,6 +101,7 @@ class IMUSensor(GyroscopeProtocol):
             self._update_thread.join(timeout=self.THREAD_JOIN_TIMEOUT_SEC)
 
         self._update_thread: Thread | None = None
+        self._stop_event.clear()
 
     def calibrate(self, samples: int | None = None) -> None:
         """Калибровка для определения статического шума чипа."""
@@ -118,27 +116,31 @@ class IMUSensor(GyroscopeProtocol):
             sums += self._read_raw_gyro_z()
             time.sleep(self.CALIBRATION_SLEEP_SEC)
 
-        self._gyro_z_bias: int = sums / num_samples
+        self._gyro_z_bias: float = sums / num_samples
         logger.info("IMU: Ноль откалиброван. Bias: %.4f", self._gyro_z_bias)
 
     def get_yaw(self) -> float:
         """Возврат текущего угла поворота."""
-        return self._yaw
+        with self._state_lock:
+            return self._yaw
 
     def reset_yaw(self) -> None:
         """Сброс текущего значения угла в ноль."""
-        self._yaw = 0.0
+        with self._state_lock:
+            self._yaw = 0.0
 
     def destroy(self) -> None:
         """Освобождение ресурсов."""
         self.stop()
+
         if self._bus:
             try:
                 self._bus.close()
-            except:
-                pass
+            except Exception as exc:
+                logger.warning("IMU: Ошибка закрытия I2C: %s", exc)
             finally:
                 self._bus: Any = None
+
         self._is_initialized: bool = False
 
     def _setup(self) -> None:
@@ -174,18 +176,24 @@ class IMUSensor(GyroscopeProtocol):
 
             return float(raw_val)
 
-        except:
+        except Exception as exc:
+            logger.debug("IMU: Ошибка чтения gyro_z: %s", exc)
             return 0.0
 
     def _update_loop(self) -> None:
         """Фоновый цикл интеграции угловой скорости."""
         while not self._stop_event.is_set():
             now: float = time.monotonic()
-            dt: float = now - self._last_update_time
-            self._last_update_time: float = now
+
+            with self._state_lock:
+                dt: float = now - self._last_update_time
+                self._last_update_time = now
 
             raw_gz: float = self._read_raw_gyro_z()
             actual_gz: float = (raw_gz - self._gyro_z_bias) / self.GYRO_SCALE_FACTOR
-            self._yaw += (self.GYRO_SIGN_Z * actual_gz) * dt
+            yaw_delta: float = (self.GYRO_SIGN_Z * actual_gz) * dt
+
+            with self._state_lock:
+                self._yaw += yaw_delta
 
             time.sleep(self.UPDATE_LOOP_SLEEP_SEC)

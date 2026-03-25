@@ -15,10 +15,10 @@ from src.application.services.drive_controller import (
 class DummyMotorController:
     """Простой тестовый контроллер моторов."""
 
-    def move_forward(self, speed_percent: int) -> None:
+    def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
         return
 
-    def move_backward(self, speed_percent: int) -> None:
+    def move_backward(self, speed_percent: int, steer_percent: int = 0) -> None:
         return
 
     def turn_left(self, speed_percent: int) -> None:
@@ -54,6 +54,9 @@ class DummyGyroscope:
         return 0.0
 
     def reset_yaw(self) -> None:
+        return
+
+    def stop(self) -> None:
         return
 
     def destroy(self) -> None:
@@ -128,7 +131,7 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
         self.controller.update_interval_sec = 0.0
         self.controller.motor_controller = Mock(spec=DummyMotorController)
         self.controller.motor_controller.move_forward.side_effect = (
-            lambda speed_percent: setattr(self.controller, "_is_moving", False)
+            lambda speed_percent, steer_percent=0: setattr(self.controller, "_is_moving", False)
         )
         self.controller.ultrasonic_sensor = Mock(spec=DummyUltrasonicSensor)
         self.controller.ultrasonic_sensor.measure_distance_cm.side_effect = [10.0, 100.0, 100.0, 100.0]

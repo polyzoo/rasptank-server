@@ -28,6 +28,10 @@
     {
       "action": "forward",
       "distance_cm": 40
+    },
+    {
+      "action": "turn_left",
+      "angle_deg": 90
     }
   ]
 }
