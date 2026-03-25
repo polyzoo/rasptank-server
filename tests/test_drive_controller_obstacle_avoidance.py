@@ -4,10 +4,12 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 from src.application.services.drive_controller import (
+    AvoidanceContext,
     AvoidanceResult,
     AvoidanceSide,
     DriveController,
     LinearMoveResult,
+    SideScanResult,
     TurnResult,
 )
 
@@ -90,9 +92,53 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
         self.controller._is_moving = True
         self.controller._stop_event.clear()
 
+    def _make_side_scan_result(
+        self,
+        side: AvoidanceSide,
+        *,
+        clearance_cm: float | None,
+        heading_restored: bool = True,
+        scan_completed: bool = True,
+        used_partial_scan: bool = False,
+        rejection_reason: str | None = None,
+        turned_angle_deg: float = 45.0,
+        limited_confidence: bool | None = None,
+        turn_stop_reason: str | None = None,
+        scan_useful: bool | None = None,
+    ) -> SideScanResult:
+        """Собирает side scan result для тестов выбора направления обхода."""
+        return SideScanResult(
+            side=side,
+            target_angle_deg=45.0,
+            turned_angle_deg=turned_angle_deg,
+            clearance_cm=clearance_cm,
+            heading_restored=heading_restored,
+            scan_completed=scan_completed,
+            used_partial_scan=used_partial_scan,
+            scan_useful=clearance_cm is not None if scan_useful is None else scan_useful,
+            limited_confidence=(
+                (used_partial_scan or not scan_completed)
+                if limited_confidence is None
+                else limited_confidence
+            ),
+            turn_stop_reason=(
+                "target_reached"
+                if turn_stop_reason is None and scan_completed
+                else "timeout" if turn_stop_reason is None else turn_stop_reason
+            ),
+            rejection_reason=rejection_reason,
+        )
+
     def test_select_avoidance_side_prefers_more_open_direction(self) -> None:
         """Выбирается сторона с большим запасом по расстоянию."""
-        with patch.object(self.controller, "_scan_side_clearance", side_effect=[65.0, 30.0]) as scan_mock:
+        with patch.object(
+            self.controller,
+            "_scan_side_observation",
+            side_effect=[
+                self._make_side_scan_result(AvoidanceSide.LEFT, clearance_cm=65.0),
+                self._make_side_scan_result(AvoidanceSide.RIGHT, clearance_cm=30.0),
+            ],
+        ) as scan_mock:
             result: AvoidanceSide | None = self.controller._select_avoidance_side()
 
         self.assertEqual(AvoidanceSide.LEFT, result)
@@ -103,10 +149,80 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
 
     def test_select_avoidance_side_returns_none_when_both_sides_tight(self) -> None:
         """Обход не начинается, если безопасной стороны нет."""
-        with patch.object(self.controller, "_scan_side_clearance", side_effect=[21.0, 22.0]):
+        with patch.object(
+            self.controller,
+            "_scan_side_observation",
+            side_effect=[
+                self._make_side_scan_result(AvoidanceSide.LEFT, clearance_cm=21.0),
+                self._make_side_scan_result(AvoidanceSide.RIGHT, clearance_cm=22.0),
+            ],
+        ):
             result: AvoidanceSide | None = self.controller._select_avoidance_side()
 
         self.assertIsNone(result)
+
+    def test_select_avoidance_side_uses_other_side_when_one_restore_fails(self) -> None:
+        """Отказ restore heading на одной стороне не должен отменять обход целиком."""
+        with patch.object(
+            self.controller,
+            "_scan_side_observation",
+            side_effect=[
+                self._make_side_scan_result(
+                    AvoidanceSide.LEFT,
+                    clearance_cm=None,
+                    heading_restored=False,
+                    rejection_reason="restore failed",
+                ),
+                self._make_side_scan_result(AvoidanceSide.RIGHT, clearance_cm=41.0),
+            ],
+        ):
+            result: AvoidanceSide | None = self.controller._select_avoidance_side()
+
+        self.assertEqual(AvoidanceSide.RIGHT, result)
+
+    def test_select_avoidance_side_accepts_borderline_valid_side(self) -> None:
+        """Пограничное шумное измерение не должно преждевременно запрещать обход."""
+        with patch.object(
+            self.controller,
+            "_scan_side_observation",
+            side_effect=[
+                self._make_side_scan_result(AvoidanceSide.LEFT, clearance_cm=24.0),
+                self._make_side_scan_result(AvoidanceSide.RIGHT, clearance_cm=22.0),
+            ],
+        ):
+            result: AvoidanceSide | None = self.controller._select_avoidance_side()
+
+        self.assertEqual(AvoidanceSide.LEFT, result)
+
+    def test_select_avoidance_side_uses_best_inconclusive_partial_scan(self) -> None:
+        """Неполный scan около 30° не должен сразу приводить к выводу `обход невозможен`."""
+        with patch.object(
+            self.controller,
+            "_scan_side_observation",
+            side_effect=[
+                self._make_side_scan_result(
+                    AvoidanceSide.LEFT,
+                    clearance_cm=18.0,
+                    scan_completed=False,
+                    used_partial_scan=True,
+                    turned_angle_deg=30.0,
+                    limited_confidence=True,
+                    turn_stop_reason="timeout",
+                ),
+                self._make_side_scan_result(
+                    AvoidanceSide.RIGHT,
+                    clearance_cm=16.0,
+                    scan_completed=False,
+                    used_partial_scan=True,
+                    turned_angle_deg=29.0,
+                    limited_confidence=True,
+                    turn_stop_reason="timeout",
+                ),
+            ],
+        ):
+            result: AvoidanceSide | None = self.controller._select_avoidance_side()
+
+        self.assertEqual(AvoidanceSide.LEFT, result)
 
     def test_scan_side_clearance_returns_none_when_heading_restore_fails(self) -> None:
         """После неудачного возврата курса side scan аварийно завершается."""
@@ -124,6 +240,24 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
             result: float | None = self.controller._scan_side_clearance(AvoidanceSide.LEFT)
 
         self.assertIsNone(result)
+        self.assertEqual(2, turn_mock.call_count)
+
+    def test_scan_side_clearance_uses_effective_partial_scan(self) -> None:
+        """Частичный поворот около 30° должен считаться advisory scan, а не пустым."""
+        with (
+            patch.object(
+                self.controller,
+                "_turn_relative",
+                side_effect=[
+                    TurnResult(completed=False, angle_deg=28.0, stop_reason="timeout"),
+                    TurnResult(completed=True, angle_deg=28.0, stop_reason="target_reached"),
+                ],
+            ) as turn_mock,
+            patch.object(self.controller, "_measure_front_distance", return_value=52.0),
+        ):
+            result: float | None = self.controller._scan_side_clearance(AvoidanceSide.LEFT)
+
+        self.assertEqual(52.0, result)
         self.assertEqual(2, turn_mock.call_count)
 
     def test_run_linear_motion_confirms_front_block_before_reporting_blocked(self) -> None:
@@ -263,6 +397,119 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
         self.assertEqual(0.0, result.forward_progress_cm)
         side_step_mock.assert_called_once()
         distance_mock.assert_not_called()
+
+    def test_obstacle_avoidance_stops_on_incomplete_unblocked_side_step(self) -> None:
+        """Abort линейного шага не должен маскироваться под валидный partial side step."""
+        with (
+            patch.object(self.controller, "_select_avoidance_side", return_value=AvoidanceSide.LEFT),
+            patch.object(
+                self.controller,
+                "_perform_side_step",
+                return_value=LinearMoveResult(
+                    completed=False,
+                    traveled_cm=6.0,
+                    blocked=False,
+                    heading_restored=True,
+                ),
+            ) as side_step_mock,
+            patch.object(self.controller, "_measure_front_distance") as distance_mock,
+        ):
+            result: AvoidanceResult = self.controller._run_obstacle_avoidance(
+                remaining_cm=100.0,
+                speed_percent=60,
+            )
+
+        self.assertFalse(result.completed)
+        self.assertEqual(0.0, result.forward_progress_cm)
+        side_step_mock.assert_called_once()
+        distance_mock.assert_not_called()
+
+    def test_obstacle_avoidance_rejoins_before_finishing_segment(self) -> None:
+        """Даже при добранном forward progress робот должен сначала убрать боковое смещение."""
+        with (
+            patch.object(self.controller, "_select_avoidance_side", return_value=AvoidanceSide.LEFT),
+            patch.object(
+                self.controller,
+                "_perform_side_step",
+                return_value=LinearMoveResult(completed=True, traveled_cm=12.0),
+            ) as side_step_mock,
+            patch.object(self.controller, "_is_front_clear_confirmed", return_value=True),
+            patch.object(
+                self.controller,
+                "_perform_forward_step",
+                return_value=LinearMoveResult(completed=True, traveled_cm=10.0),
+            ) as forward_step_mock,
+            patch.object(
+                self.controller,
+                "_attempt_rejoin_step",
+                return_value=LinearMoveResult(completed=True, traveled_cm=12.0),
+            ) as rejoin_mock,
+        ):
+            result: AvoidanceResult = self.controller._run_obstacle_avoidance(
+                remaining_cm=10.0,
+                speed_percent=60,
+            )
+
+        self.assertTrue(result.completed)
+        self.assertEqual(10.0, result.forward_progress_cm)
+        side_step_mock.assert_called_once()
+        forward_step_mock.assert_called_once()
+        rejoin_mock.assert_called_once()
+
+    def test_obstacle_avoidance_stops_on_incomplete_unblocked_rejoin(self) -> None:
+        """Abort во время возврата на маршрут не должен тихо продолжать FSM."""
+        with (
+            patch.object(self.controller, "_select_avoidance_side", return_value=AvoidanceSide.LEFT),
+            patch.object(
+                self.controller,
+                "_perform_side_step",
+                return_value=LinearMoveResult(completed=True, traveled_cm=12.0),
+            ),
+            patch.object(self.controller, "_is_front_clear_confirmed", return_value=True),
+            patch.object(
+                self.controller,
+                "_perform_forward_step",
+                return_value=LinearMoveResult(completed=True, traveled_cm=8.0),
+            ),
+            patch.object(
+                self.controller,
+                "_attempt_rejoin_step",
+                return_value=LinearMoveResult(
+                    completed=False,
+                    traveled_cm=6.0,
+                    blocked=False,
+                    heading_restored=True,
+                ),
+            ) as rejoin_mock,
+        ):
+            result: AvoidanceResult = self.controller._run_obstacle_avoidance(
+                remaining_cm=40.0,
+                speed_percent=60,
+            )
+
+        self.assertFalse(result.completed)
+        self.assertEqual(8.0, result.forward_progress_cm)
+        rejoin_mock.assert_called_once()
+
+    def test_avoidance_limit_stops_at_exact_lateral_offset_boundary(self) -> None:
+        """Боковой лимит должен быть жёстким, без дополнительного лишнего шага."""
+        context = AvoidanceContext(
+            lateral_offset_cm=self.controller.avoidance_max_lateral_offset_cm,
+        )
+
+        result: bool = self.controller._has_exceeded_avoidance_limits(context)
+
+        self.assertTrue(result)
+
+    def test_avoidance_limit_stops_at_exact_bypass_distance_boundary(self) -> None:
+        """Лимит суммарной длины обхода должен срабатывать прямо на границе."""
+        context = AvoidanceContext(
+            bypass_distance_cm=self.controller.avoidance_max_bypass_distance_cm,
+        )
+
+        result: bool = self.controller._has_exceeded_avoidance_limits(context)
+
+        self.assertTrue(result)
 
     def test_forward_segment_resumes_after_successful_avoidance(self) -> None:
         """После обхода контроллер продолжает исходный forward-сегмент."""

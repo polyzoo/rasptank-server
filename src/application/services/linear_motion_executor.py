@@ -183,6 +183,7 @@ class LinearMotionExecutor:
                 move_fn(speed_percent=int(effective_speed), steer_percent=steer)
                 time.sleep(self.update_interval_sec)
 
+            self.motor_controller.stop()
             return LinearMotionExecutionResult(
                 completed=False,
                 traveled_cm=min(traveled_cm, distance_cm),
@@ -191,6 +192,7 @@ class LinearMotionExecutor:
 
         except (OSError, RuntimeError, ConnectionError, ValueError):
             logger.exception("Ошибка в линейном сегменте движения")
+            self.motor_controller.stop()
             return LinearMotionExecutionResult(
                 completed=False,
                 traveled_cm=min(traveled_cm, distance_cm),

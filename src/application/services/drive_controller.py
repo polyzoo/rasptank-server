@@ -71,6 +71,7 @@ class TurnResult:
 
     completed: bool
     angle_deg: float
+    stop_reason: str = "unknown"
 
 
 @dataclass(slots=True)
@@ -93,6 +94,28 @@ class AvoidanceContext:
     attempts: int = 0
 
 
+@dataclass(slots=True)
+class SideScanResult:
+    """Результат сканирования одной стороны перед началом обхода."""
+
+    side: AvoidanceSide
+    target_angle_deg: float
+    turned_angle_deg: float
+    clearance_cm: float | None
+    heading_restored: bool
+    scan_completed: bool
+    used_partial_scan: bool = False
+    scan_useful: bool = False
+    limited_confidence: bool = False
+    turn_stop_reason: str = "unknown"
+    rejection_reason: str | None = None
+
+    @property
+    def is_selectable(self) -> bool:
+        """Можно ли использовать сторону для выбора направления обхода."""
+        return self.heading_restored and self.scan_useful and self.clearance_cm is not None
+
+
 @final
 class DriveController(DriveControllerProtocol):
     """Контроллер движения поверх модульных executors с obstacle avoidance."""
@@ -101,6 +124,11 @@ class DriveController(DriveControllerProtocol):
     BLOCK_CONFIRMATION_SAMPLES_MIN: int = 3
     CLEAR_CONFIRMATION_CHECKS: int = 2
     CLEARANCE_HYSTERESIS_CM: float = 3.0
+    SIDE_SCAN_MIN_ADVISORY_ANGLE_DEG: float = 18.0
+    SIDE_SCAN_MIN_ADVISORY_RATIO: float = 0.50
+    SIDE_SCAN_THRESHOLD_RELAXATION_CM: float = 3.0
+    SIDE_SCAN_MIN_EFFECTIVE_ANGLE_DEG: float = 20.0
+    SIDE_SCAN_MIN_EFFECTIVE_RATIO: float = 0.65
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
 
     def __init__(
@@ -355,6 +383,7 @@ class DriveController(DriveControllerProtocol):
 
         except (OSError, RuntimeError, ConnectionError, ValueError) as exc:
             logger.exception("Ошибка в сегменте движения вперед: %s", exc)
+            self.motor_controller.stop()
             return False
 
     def _run_backward_segment(self, distance_cm: float, speed_percent: int) -> bool:
@@ -406,7 +435,12 @@ class DriveController(DriveControllerProtocol):
 
         while self.lifecycle.should_keep_running():
             if self._has_reached_target_distance(remaining_cm - context.forward_progress_cm):
-                return AvoidanceResult(completed=True, forward_progress_cm=context.forward_progress_cm)
+                if self._has_reached_target_distance(context.lateral_offset_cm):
+                    return AvoidanceResult(
+                        completed=True,
+                        forward_progress_cm=context.forward_progress_cm,
+                    )
+                context.state = AvoidanceState.TRY_REJOIN
 
             if self._has_exceeded_avoidance_limits(context):
                 break
@@ -431,9 +465,18 @@ class DriveController(DriveControllerProtocol):
                 )
                 context.lateral_offset_cm += side_step.traveled_cm
 
-                if not side_step.completed and side_step.traveled_cm <= self.DISTANCE_TOLERANCE_CM:
-                    logger.warning("Обход остановлен: боковой шаг не удался.")
-                    break
+                if not side_step.completed:
+                    if not side_step.blocked:
+                        logger.warning(
+                            "Обход остановлен: боковой шаг прерван без obstacle-stop "
+                            "(traveled=%.1f см).",
+                            side_step.traveled_cm,
+                        )
+                        break
+
+                    if side_step.traveled_cm <= self.DISTANCE_TOLERANCE_CM:
+                        logger.warning("Обход остановлен: боковой шаг не удался.")
+                        break
 
                 context.state = AvoidanceState.CHECK_FRONT
                 continue
@@ -462,7 +505,13 @@ class DriveController(DriveControllerProtocol):
                 context.forward_progress_cm += forward_step.traveled_cm
 
                 if self._has_reached_target_distance(remaining_cm - context.forward_progress_cm):
-                    return AvoidanceResult(completed=True, forward_progress_cm=context.forward_progress_cm)
+                    if self._has_reached_target_distance(context.lateral_offset_cm):
+                        return AvoidanceResult(
+                            completed=True,
+                            forward_progress_cm=context.forward_progress_cm,
+                        )
+                    context.state = AvoidanceState.TRY_REJOIN
+                    continue
 
                 if not forward_step.completed:
                     if forward_step.blocked:
@@ -495,9 +544,18 @@ class DriveController(DriveControllerProtocol):
                 )
                 context.lateral_offset_cm = max(0.0, context.lateral_offset_cm - rejoin_step.traveled_cm)
 
-                if not rejoin_step.completed and rejoin_step.traveled_cm <= self.DISTANCE_TOLERANCE_CM:
-                    context.state = AvoidanceState.CHECK_FRONT
-                    continue
+                if not rejoin_step.completed:
+                    if not rejoin_step.blocked:
+                        logger.warning(
+                            "Обход остановлен: попытка возврата прервана без obstacle-stop "
+                            "(traveled=%.1f см).",
+                            rejoin_step.traveled_cm,
+                        )
+                        break
+
+                    if rejoin_step.traveled_cm <= self.DISTANCE_TOLERANCE_CM:
+                        context.state = AvoidanceState.CHECK_FRONT
+                        continue
 
                 if self._has_reached_target_distance(context.lateral_offset_cm):
                     if not self._is_front_clear_confirmed():
@@ -513,41 +571,141 @@ class DriveController(DriveControllerProtocol):
 
     def _select_avoidance_side(self) -> AvoidanceSide | None:
         """Выбор стороны обхода по данным короткого сканирования."""
-        left_clearance: float | None = self._scan_side_clearance(AvoidanceSide.LEFT)
-        if left_clearance is None:
-            logger.warning("Выбор стороны отменён: после сканирования влево курс не восстановлен.")
-            return None
+        scan_results: list[SideScanResult] = [
+            self._scan_side_observation(AvoidanceSide.LEFT),
+            self._scan_side_observation(AvoidanceSide.RIGHT),
+        ]
+        preferred_threshold_cm: float = self.avoidance_min_side_clearance_cm
+        exploratory_threshold_cm: float = self._exploratory_side_clearance_threshold()
+        for result in scan_results:
+            self._log_side_selection_assessment(
+                result=result,
+                preferred_threshold_cm=preferred_threshold_cm,
+                exploratory_threshold_cm=exploratory_threshold_cm,
+            )
 
-        right_clearance: float | None = self._scan_side_clearance(AvoidanceSide.RIGHT)
-        if right_clearance is None:
-            logger.warning("Выбор стороны отменён: после сканирования вправо курс не восстановлен.")
-            return None
+        preferred_candidates: list[SideScanResult] = [
+            result
+            for result in scan_results
+            if result.is_selectable and (result.clearance_cm or 0.0) >= preferred_threshold_cm
+        ]
+        if preferred_candidates:
+            selected: SideScanResult = max(
+                preferred_candidates,
+                key=lambda result: result.clearance_cm or 0.0,
+            )
+            logger.info(
+                "Обход: выбрана сторона %s. left=%s right=%s threshold=%.1f exploratory=%.1f",
+                selected.side.value,
+                self._scan_clearance_for_log(scan_results, AvoidanceSide.LEFT),
+                self._scan_clearance_for_log(scan_results, AvoidanceSide.RIGHT),
+                preferred_threshold_cm,
+                exploratory_threshold_cm,
+            )
+            return selected.side
 
-        best_clearance: float = max(left_clearance, right_clearance)
-        if best_clearance < self.avoidance_min_side_clearance_cm:
-            return None
+        exploratory_candidates: list[SideScanResult] = [
+            result
+            for result in scan_results
+            if result.is_selectable and (result.clearance_cm or 0.0) >= exploratory_threshold_cm
+        ]
+        if exploratory_candidates:
+            selected = max(
+                exploratory_candidates,
+                key=lambda result: result.clearance_cm or 0.0,
+            )
+            logger.warning(
+                "Обход: используем пограничный side scan для стороны %s. "
+                "clearance=%.1f preferred_threshold=%.1f exploratory_threshold=%.1f",
+                selected.side.value,
+                selected.clearance_cm,
+                preferred_threshold_cm,
+                exploratory_threshold_cm,
+            )
+            return selected.side
 
-        if left_clearance >= right_clearance:
-            return AvoidanceSide.LEFT
-        return AvoidanceSide.RIGHT
+        inconclusive_usable_candidates: list[SideScanResult] = [
+            result
+            for result in scan_results
+            if result.is_selectable and (
+                result.limited_confidence or result.turn_stop_reason != "target_reached"
+            )
+        ]
+        if inconclusive_usable_candidates:
+            selected = max(
+                inconclusive_usable_candidates,
+                key=lambda result: result.clearance_cm or 0.0,
+            )
+            logger.warning(
+                "Обход: side scan неполный/неуверенный, но usable. "
+                "Выбираем сторону %s как exploratory candidate. clearance=%.1f "
+                "turn_stop_reason=%s limited_confidence=%s",
+                selected.side.value,
+                selected.clearance_cm,
+                selected.turn_stop_reason,
+                selected.limited_confidence,
+            )
+            return selected.side
 
-    def _scan_side_clearance(self, side: AvoidanceSide) -> float | None:
-        """Короткий поворот в сторону для оценки свободного пространства."""
+        logger.warning(
+            "Обход невозможен по результатам side scan. final_reason=%s threshold=%.1f "
+            "exploratory_threshold=%.1f "
+            "left={%s} right={%s}",
+            self._describe_side_selection_failure(
+                scan_results=scan_results,
+                exploratory_threshold_cm=exploratory_threshold_cm,
+            ),
+            preferred_threshold_cm,
+            exploratory_threshold_cm,
+            self._format_side_scan_result(scan_results[0]),
+            self._format_side_scan_result(scan_results[1]),
+        )
+        return None
+
+    def _scan_side_observation(self, side: AvoidanceSide) -> SideScanResult:
+        """Сканирует одну сторону и возвращает расширенный результат для диагностики."""
         target_angle: float = max(0.0, min(90.0, self.avoidance_scan_angle_deg))
         if self._has_reached_target_distance(target_angle):
-            return self._measure_front_distance()
+            clearance: float = self._measure_front_distance()
+            result = SideScanResult(
+                side=side,
+                target_angle_deg=target_angle,
+                turned_angle_deg=0.0,
+                clearance_cm=clearance,
+                heading_restored=True,
+                scan_completed=True,
+                scan_useful=True,
+                turn_stop_reason="not_needed",
+            )
+            self._log_side_scan_result(result)
+            return result
 
         turn_result: TurnResult = self._turn_relative(
             turn_left=side.turn_left,
             target_angle=target_angle,
             stop_on_front_obstacle=False,
         )
-        clearance: float = 0.0
+        useful_partial_scan: bool = (
+            not turn_result.completed
+            and self._is_useful_partial_side_scan(
+                target_angle_deg=target_angle,
+                turned_angle_deg=turn_result.angle_deg,
+            )
+        )
+        used_partial_scan: bool = useful_partial_scan
+        clearance: float | None = None
         heading_restored: bool = True
+        rejection_reason: str | None = None
 
         try:
-            if turn_result.completed:
+            if turn_result.completed or useful_partial_scan:
                 clearance = self._measure_front_distance()
+            else:
+                rejection_reason = (
+                    "недостаточный угол сканирования "
+                    f"({turn_result.angle_deg:.1f}/{target_angle:.1f}°, "
+                    f"min_useful={self._side_scan_useful_angle_threshold(target_angle):.1f}°)"
+                )
         finally:
             if turn_result.angle_deg > self.DISTANCE_TOLERANCE_CM:
                 restore_result: TurnResult = self._turn_relative(
@@ -556,12 +714,34 @@ class DriveController(DriveControllerProtocol):
                     stop_on_front_obstacle=False,
                 )
                 if not restore_result.completed:
-                    logger.warning("Сканирование стороны прервано: исходный курс не восстановлен.")
                     heading_restored = False
+                    rejection_reason = (
+                        "не удалось восстановить курс "
+                        f"(restore_angle={restore_result.angle_deg:.1f}/{turn_result.angle_deg:.1f}°)"
+                    )
 
-        if not heading_restored:
+        result = SideScanResult(
+            side=side,
+            target_angle_deg=target_angle,
+            turned_angle_deg=turn_result.angle_deg,
+            clearance_cm=clearance,
+            heading_restored=heading_restored,
+            scan_completed=turn_result.completed,
+            used_partial_scan=used_partial_scan,
+            scan_useful=clearance is not None,
+            limited_confidence=clearance is not None and not turn_result.completed,
+            turn_stop_reason=turn_result.stop_reason,
+            rejection_reason=rejection_reason,
+        )
+        self._log_side_scan_result(result)
+        return result
+
+    def _scan_side_clearance(self, side: AvoidanceSide) -> float | None:
+        """Короткий поворот в сторону для оценки свободного пространства."""
+        result: SideScanResult = self._scan_side_observation(side)
+        if not result.is_selectable:
             return None
-        return clearance
+        return result.clearance_cm
 
     def _perform_side_step(self, side: AvoidanceSide, speed_percent: int) -> LinearMoveResult:
         """Один осторожный шаг в выбранную сторону."""
@@ -654,7 +834,11 @@ class DriveController(DriveControllerProtocol):
             turn_left=turn_left,
             stop_on_front_obstacle=stop_on_front_obstacle,
         )
-        return TurnResult(completed=turn_result.completed, angle_deg=turn_result.angle_deg)
+        return TurnResult(
+            completed=turn_result.completed,
+            angle_deg=turn_result.angle_deg,
+            stop_reason=turn_result.stop_reason,
+        )
 
     def _measure_front_distance(self, samples: int | None = None) -> float:
         """Измерение фронтальной дистанции с подавлением одиночных шумовых чтений."""
@@ -702,16 +886,16 @@ class DriveController(DriveControllerProtocol):
             logger.warning("Обход остановлен: превышено число попыток (%d).", context.attempts)
             return True
 
-        if context.lateral_offset_cm > self.avoidance_max_lateral_offset_cm:
+        if context.lateral_offset_cm >= self.avoidance_max_lateral_offset_cm:
             logger.warning(
-                "Обход остановлен: превышено боковое смещение (%.1f см).",
+                "Обход остановлен: достигнуто/превышено боковое смещение (%.1f см).",
                 context.lateral_offset_cm,
             )
             return True
 
-        if context.bypass_distance_cm > self.avoidance_max_bypass_distance_cm:
+        if context.bypass_distance_cm >= self.avoidance_max_bypass_distance_cm:
             logger.warning(
-                "Обход остановлен: превышена суммарная длина обхода (%.1f см).",
+                "Обход остановлен: достигнута/превышена суммарная длина обхода (%.1f см).",
                 context.bypass_distance_cm,
             )
             return True
@@ -753,6 +937,204 @@ class DriveController(DriveControllerProtocol):
         self.avoidance_min_side_clearance_cm: float = self.config.avoidance_min_side_clearance_cm
         self.avoidance_max_lateral_offset_cm: float = self.config.avoidance_max_lateral_offset_cm
         self.avoidance_max_bypass_distance_cm: float = self.config.avoidance_max_bypass_distance_cm
+
+    def _exploratory_side_clearance_threshold(self) -> float:
+        """Ослабленный порог для шумных пограничных scan-измерений."""
+        return max(
+            self.min_obstacle_distance_cm + self.CLEARANCE_HYSTERESIS_CM,
+            self.avoidance_min_side_clearance_cm - self.SIDE_SCAN_THRESHOLD_RELAXATION_CM,
+        )
+
+    def _side_scan_useful_angle_threshold(self, target_angle_deg: float) -> float:
+        """Минимальный угол для advisory side scan на реальном железе."""
+        return min(
+            target_angle_deg,
+            max(
+                self.SIDE_SCAN_MIN_ADVISORY_ANGLE_DEG,
+                target_angle_deg * self.SIDE_SCAN_MIN_ADVISORY_RATIO,
+            ),
+        )
+
+    def _side_scan_effective_angle_threshold(self, target_angle_deg: float) -> float:
+        """Минимальный угол для достаточно уверенного side scan."""
+        return min(
+            target_angle_deg,
+            max(
+                self.SIDE_SCAN_MIN_EFFECTIVE_ANGLE_DEG,
+                target_angle_deg * self.SIDE_SCAN_MIN_EFFECTIVE_RATIO,
+            ),
+        )
+
+    def _is_useful_partial_side_scan(
+        self,
+        *,
+        target_angle_deg: float,
+        turned_angle_deg: float,
+    ) -> bool:
+        """Проверяет, даёт ли частичный поворот уже хоть сколько-то полезный обзор."""
+        return turned_angle_deg >= self._side_scan_useful_angle_threshold(target_angle_deg)
+
+    def _is_effective_side_scan_angle(
+        self,
+        *,
+        target_angle_deg: float,
+        turned_angle_deg: float,
+    ) -> bool:
+        """Определяет, достаточно ли фактического угла для полезного side scan."""
+        return turned_angle_deg >= self._side_scan_effective_angle_threshold(target_angle_deg)
+
+    def _scan_clearance_for_log(
+        self,
+        scan_results: list[SideScanResult],
+        side: AvoidanceSide,
+    ) -> str:
+        """Возвращает clearance для логов или `n/a`, если измерение недоступно."""
+        for result in scan_results:
+            if result.side is side:
+                if result.clearance_cm is None:
+                    return "n/a"
+                return f"{result.clearance_cm:.1f}"
+        return "n/a"
+
+    def _format_side_scan_result(self, result: SideScanResult) -> str:
+        """Форматирует результат side scan для диагностического сообщения."""
+        clearance_repr: str = (
+            f"{result.clearance_cm:.1f}см" if result.clearance_cm is not None else "n/a"
+        )
+        reason: str = result.rejection_reason or "ok"
+        return (
+            f"side={result.side.value}, clearance={clearance_repr}, "
+            f"target={result.target_angle_deg:.1f}°, turned={result.turned_angle_deg:.1f}°, "
+            f"completed={result.scan_completed}, partial={result.used_partial_scan}, "
+            f"useful={result.scan_useful}, limited_confidence={result.limited_confidence}, "
+            f"restored={result.heading_restored}, "
+            f"turn_stop_reason={result.turn_stop_reason}, reason={reason}"
+        )
+
+    def _log_side_scan_result(self, result: SideScanResult) -> None:
+        """Пишет подробный лог по side scan и причине возможного отклонения стороны."""
+        clearance_repr: str = (
+            f"{result.clearance_cm:.1f}" if result.clearance_cm is not None else "n/a"
+        )
+        logger.info(
+            "Обход: side scan side=%s clearance_cm=%s threshold=%.1f exploratory_threshold=%.1f "
+            "target_angle_deg=%.1f turned_angle_deg=%.1f scan_completed=%s partial_scan=%s "
+            "scan_useful=%s limited_confidence=%s heading_restored=%s turn_stop_reason=%s "
+            "useful_angle_min_deg=%.1f confident_angle_min_deg=%.1f",
+            result.side.value,
+            clearance_repr,
+            self.avoidance_min_side_clearance_cm,
+            self._exploratory_side_clearance_threshold(),
+            result.target_angle_deg,
+            result.turned_angle_deg,
+            result.scan_completed,
+            result.used_partial_scan,
+            result.scan_useful,
+            result.limited_confidence,
+            result.heading_restored,
+            result.turn_stop_reason,
+            self._side_scan_useful_angle_threshold(result.target_angle_deg),
+            self._side_scan_effective_angle_threshold(result.target_angle_deg),
+        )
+        if result.rejection_reason is not None:
+            logger.warning(
+                "Обход: сторона %s отклонена. reason=%s clearance_cm=%s threshold=%.1f "
+                "heading_restored=%s turn_stop_reason=%s",
+                result.side.value,
+                result.rejection_reason,
+                clearance_repr,
+                self.avoidance_min_side_clearance_cm,
+                result.heading_restored,
+                result.turn_stop_reason,
+            )
+
+    def _log_side_selection_assessment(
+        self,
+        *,
+        result: SideScanResult,
+        preferred_threshold_cm: float,
+        exploratory_threshold_cm: float,
+    ) -> None:
+        """Логирует, как именно side scan был интерпретирован на этапе выбора стороны."""
+        selection_status, reason = self._side_selection_assessment(
+            result=result,
+            preferred_threshold_cm=preferred_threshold_cm,
+            exploratory_threshold_cm=exploratory_threshold_cm,
+        )
+        clearance_repr: str = (
+            f"{result.clearance_cm:.1f}" if result.clearance_cm is not None else "n/a"
+        )
+        logger.info(
+            "Обход: оценка стороны side=%s status=%s clearance_cm=%s "
+            "preferred_threshold=%.1f exploratory_threshold=%.1f reason=%s",
+            result.side.value,
+            selection_status,
+            clearance_repr,
+            preferred_threshold_cm,
+            exploratory_threshold_cm,
+            reason,
+        )
+
+    def _side_selection_assessment(
+        self,
+        *,
+        result: SideScanResult,
+        preferred_threshold_cm: float,
+        exploratory_threshold_cm: float,
+    ) -> tuple[str, str]:
+        """Классифицирует результат side scan для диагностики выбора стороны."""
+        if not result.is_selectable:
+            return (
+                "rejected",
+                result.rejection_reason or "scan unusable or heading not restored",
+            )
+
+        clearance_cm: float = result.clearance_cm or 0.0
+        if clearance_cm >= preferred_threshold_cm:
+            return (
+                "preferred",
+                f"clearance {clearance_cm:.1f} >= preferred threshold {preferred_threshold_cm:.1f}",
+            )
+
+        if clearance_cm >= exploratory_threshold_cm:
+            return (
+                "borderline",
+                "clearance is below preferred threshold but above exploratory threshold",
+            )
+
+        if result.limited_confidence or result.turn_stop_reason != "target_reached":
+            return (
+                "inconclusive",
+                "partial scan stayed below thresholds; measurement kept only as advisory signal",
+            )
+
+        return (
+            "rejected",
+            f"clearance {clearance_cm:.1f} < exploratory threshold {exploratory_threshold_cm:.1f}",
+        )
+
+    def _describe_side_selection_failure(
+        self,
+        *,
+        scan_results: list[SideScanResult],
+        exploratory_threshold_cm: float,
+    ) -> str:
+        """Сводная причина, почему выбор стороны не состоялся."""
+        if all(not result.heading_restored for result in scan_results):
+            return "restore heading failed after both side scans"
+
+        if all(not result.scan_useful for result in scan_results):
+            return "both side scans were rejected as not useful by actual turned angle"
+
+        if all(
+            result.is_selectable
+            and not result.limited_confidence
+            and (result.clearance_cm or 0.0) < exploratory_threshold_cm
+            for result in scan_results
+        ):
+            return "both confident side scans measured clearance below exploratory threshold"
+
+        return "no usable side scan produced a selectable avoidance side"
 
     def _stop_motion(self) -> None:
         """Остановить движение и дождаться фонового потока при необходимости."""

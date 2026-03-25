@@ -20,6 +20,7 @@ class TurnExecutionResult:
 
     completed: bool
     angle_deg: float
+    stop_reason: str = "unknown"
 
 
 class TurnExecutor:
@@ -120,29 +121,41 @@ class TurnExecutor:
 
         start_time: float = time.monotonic()
         last_obstacle_check_t: float = start_time - self.turn_obstacle_check_interval_sec
-
-        while self.lifecycle.should_keep_running():
-            current_yaw: float = self.gyroscope.get_yaw()
-            if abs(current_yaw) >= target_angle or (time.monotonic() - start_time) >= timeout_sec:
-                break
-
-            now: float = time.monotonic()
-            if stop_on_front_obstacle and (now - last_obstacle_check_t) >= self.turn_obstacle_check_interval_sec:
-                if self.ultrasonic_sensor.measure_distance_cm() <= self.min_obstacle_distance_cm:
+        stop_reason: str = "movement_stopped"
+        try:
+            while self.lifecycle.should_keep_running():
+                current_yaw: float = self.gyroscope.get_yaw()
+                if abs(current_yaw) >= target_angle:
+                    stop_reason = "target_reached"
                     break
-                last_obstacle_check_t = now
 
-            sp: int = self._turn_motor_speed_percent(target_angle, abs(current_yaw))
-            if turn_left:
-                self.motor_controller.turn_left(speed_percent=sp)
-            else:
-                self.motor_controller.turn_right(speed_percent=sp)
+                if (time.monotonic() - start_time) >= timeout_sec:
+                    stop_reason = "timeout"
+                    break
 
-            time.sleep(self.turn_check_interval_sec)
+                now: float = time.monotonic()
+                if stop_on_front_obstacle and (now - last_obstacle_check_t) >= self.turn_obstacle_check_interval_sec:
+                    if self.ultrasonic_sensor.measure_distance_cm() <= self.min_obstacle_distance_cm:
+                        stop_reason = "front_obstacle"
+                        break
+                    last_obstacle_check_t = now
 
-        self.motor_controller.stop()
-        turned_angle: float = abs(self.gyroscope.get_yaw())
-        return TurnExecutionResult(completed=turned_angle >= target_angle, angle_deg=turned_angle)
+                sp: int = self._turn_motor_speed_percent(target_angle, abs(current_yaw))
+                if turn_left:
+                    self.motor_controller.turn_left(speed_percent=sp)
+                else:
+                    self.motor_controller.turn_right(speed_percent=sp)
+
+                time.sleep(self.turn_check_interval_sec)
+
+            turned_angle: float = abs(self.gyroscope.get_yaw())
+            return TurnExecutionResult(
+                completed=turned_angle >= target_angle,
+                angle_deg=turned_angle,
+                stop_reason=stop_reason,
+            )
+        finally:
+            self.motor_controller.stop()
 
     def _route_turn_target_angle(
         self,
