@@ -97,20 +97,26 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
         side: AvoidanceSide,
         *,
         clearance_cm: float | None,
+        target_angle_deg: float = 45.0,
         heading_restored: bool = True,
         scan_completed: bool = True,
         used_partial_scan: bool = False,
         rejection_reason: str | None = None,
-        turned_angle_deg: float = 45.0,
+        turned_angle_deg: float | None = None,
         limited_confidence: bool | None = None,
         turn_stop_reason: str | None = None,
         scan_useful: bool | None = None,
+        selection_blocked: bool = False,
+        selection_reason: str | None = None,
     ) -> SideScanResult:
         """Собирает side scan result для тестов выбора направления обхода."""
+        effective_turned_angle_deg: float = (
+            target_angle_deg if turned_angle_deg is None else turned_angle_deg
+        )
         return SideScanResult(
             side=side,
-            target_angle_deg=45.0,
-            turned_angle_deg=turned_angle_deg,
+            target_angle_deg=target_angle_deg,
+            turned_angle_deg=effective_turned_angle_deg,
             clearance_cm=clearance_cm,
             heading_restored=heading_restored,
             scan_completed=scan_completed,
@@ -127,6 +133,8 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
                 else "timeout" if turn_stop_reason is None else turn_stop_reason
             ),
             rejection_reason=rejection_reason,
+            selection_blocked=selection_blocked,
+            selection_reason=selection_reason,
         )
 
     def test_select_avoidance_side_prefers_more_open_direction(self) -> None:
@@ -223,6 +231,74 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
             result: AvoidanceSide | None = self.controller._select_avoidance_side()
 
         self.assertEqual(AvoidanceSide.LEFT, result)
+
+    def test_scan_side_observation_uses_60_degree_fallback_when_45_is_tight(self) -> None:
+        """Если 45° tight, контроллер должен проверить 60° перед отклонением стороны."""
+        with patch.object(
+            self.controller,
+            "_scan_side_observation_at_angle",
+            side_effect=[
+                self._make_side_scan_result(
+                    AvoidanceSide.LEFT,
+                    clearance_cm=18.0,
+                    target_angle_deg=45.0,
+                ),
+                self._make_side_scan_result(
+                    AvoidanceSide.LEFT,
+                    clearance_cm=27.0,
+                    target_angle_deg=60.0,
+                ),
+            ],
+        ) as scan_mock:
+            result: SideScanResult = self.controller._scan_side_observation(AvoidanceSide.LEFT)
+
+        self.assertTrue(result.is_selectable)
+        self.assertEqual(27.0, result.clearance_cm)
+        self.assertEqual(45.0, result.primary_target_angle_deg)
+        self.assertEqual(18.0, result.primary_clearance_cm)
+        self.assertEqual(60.0, result.secondary_target_angle_deg)
+        self.assertEqual(27.0, result.secondary_clearance_cm)
+        self.assertIn("60° fallback scan", result.selection_reason or "")
+        self.assertEqual(
+            [
+                call(side=AvoidanceSide.LEFT, target_angle=45.0),
+                call(side=AvoidanceSide.LEFT, target_angle=60.0),
+            ],
+            scan_mock.call_args_list,
+        )
+
+    def test_scan_side_observation_rejects_side_when_45_and_60_are_both_tight(self) -> None:
+        """Сторона отклоняется только после двух tight-измерений на 45° и 60°."""
+        with patch.object(
+            self.controller,
+            "_scan_side_observation_at_angle",
+            side_effect=[
+                self._make_side_scan_result(
+                    AvoidanceSide.RIGHT,
+                    clearance_cm=18.0,
+                    target_angle_deg=45.0,
+                ),
+                self._make_side_scan_result(
+                    AvoidanceSide.RIGHT,
+                    clearance_cm=22.0,
+                    target_angle_deg=60.0,
+                ),
+            ],
+        ) as scan_mock:
+            result = self.controller._scan_side_observation(AvoidanceSide.RIGHT)
+
+        self.assertFalse(result.is_selectable)
+        self.assertTrue(result.selection_blocked)
+        self.assertEqual(18.0, result.primary_clearance_cm)
+        self.assertEqual(22.0, result.secondary_clearance_cm)
+        self.assertIn("both 45° and 60°", result.selection_reason or "")
+        self.assertEqual(
+            [
+                call(side=AvoidanceSide.RIGHT, target_angle=45.0),
+                call(side=AvoidanceSide.RIGHT, target_angle=60.0),
+            ],
+            scan_mock.call_args_list,
+        )
 
     def test_scan_side_clearance_returns_none_when_heading_restore_fails(self) -> None:
         """После неудачного возврата курса side scan аварийно завершается."""

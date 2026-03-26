@@ -109,11 +109,25 @@ class SideScanResult:
     limited_confidence: bool = False
     turn_stop_reason: str = "unknown"
     rejection_reason: str | None = None
+    selection_blocked: bool = False
+    primary_target_angle_deg: float | None = None
+    primary_turned_angle_deg: float | None = None
+    primary_clearance_cm: float | None = None
+    secondary_target_angle_deg: float | None = None
+    secondary_turned_angle_deg: float | None = None
+    secondary_clearance_cm: float | None = None
+    secondary_rejection_reason: str | None = None
+    selection_reason: str | None = None
 
     @property
     def is_selectable(self) -> bool:
         """Можно ли использовать сторону для выбора направления обхода."""
-        return self.heading_restored and self.scan_useful and self.clearance_cm is not None
+        return (
+            not self.selection_blocked
+            and self.heading_restored
+            and self.scan_useful
+            and self.clearance_cm is not None
+        )
 
 
 @final
@@ -127,6 +141,7 @@ class DriveController(DriveControllerProtocol):
     SIDE_SCAN_MIN_ADVISORY_ANGLE_DEG: float = 18.0
     SIDE_SCAN_MIN_ADVISORY_RATIO: float = 0.50
     SIDE_SCAN_THRESHOLD_RELAXATION_CM: float = 3.0
+    SIDE_SCAN_SECONDARY_ANGLE_DEG: float = 60.0
     SIDE_SCAN_MIN_EFFECTIVE_ANGLE_DEG: float = 20.0
     SIDE_SCAN_MIN_EFFECTIVE_RATIO: float = 0.65
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
@@ -383,7 +398,6 @@ class DriveController(DriveControllerProtocol):
 
         except (OSError, RuntimeError, ConnectionError, ValueError) as exc:
             logger.exception("Ошибка в сегменте движения вперед: %s", exc)
-            self.motor_controller.stop()
             return False
 
     def _run_backward_segment(self, distance_cm: float, speed_percent: int) -> bool:
@@ -440,7 +454,9 @@ class DriveController(DriveControllerProtocol):
                         completed=True,
                         forward_progress_cm=context.forward_progress_cm,
                     )
-                context.state = AvoidanceState.TRY_REJOIN
+                if context.state is not AvoidanceState.TRY_REJOIN:
+                    context.state = AvoidanceState.TRY_REJOIN
+                    continue
 
             if self._has_exceeded_avoidance_limits(context):
                 break
@@ -663,8 +679,96 @@ class DriveController(DriveControllerProtocol):
         return None
 
     def _scan_side_observation(self, side: AvoidanceSide) -> SideScanResult:
-        """Сканирует одну сторону и возвращает расширенный результат для диагностики."""
-        target_angle: float = max(0.0, min(90.0, self.avoidance_scan_angle_deg))
+        """Сканирует сторону ступенчато: сначала обычный угол, затем более широкий fallback."""
+        exploratory_threshold_cm: float = self._exploratory_side_clearance_threshold()
+        primary_result: SideScanResult = self._scan_side_observation_at_angle(
+            side=side,
+            target_angle=self.avoidance_scan_angle_deg,
+        )
+        self._annotate_side_scan_result(
+            result=primary_result,
+            primary_result=primary_result,
+            selection_reason=self._default_side_scan_selection_reason(
+                result=primary_result,
+                exploratory_threshold_cm=exploratory_threshold_cm,
+            ),
+        )
+
+        secondary_angle: float | None = self._secondary_side_scan_target_angle(
+            primary_target_angle_deg=primary_result.target_angle_deg,
+        )
+        if (
+            secondary_angle is None
+            or not primary_result.is_selectable
+            or (primary_result.clearance_cm or 0.0) >= exploratory_threshold_cm
+        ):
+            self._log_side_scan_result(primary_result)
+            return primary_result
+
+        secondary_result: SideScanResult = self._scan_side_observation_at_angle(
+            side=side,
+            target_angle=secondary_angle,
+        )
+        secondary_clearance: float = secondary_result.clearance_cm or 0.0
+        primary_clearance: float = primary_result.clearance_cm or 0.0
+
+        if not secondary_result.is_selectable:
+            final_result: SideScanResult = self._annotate_side_scan_result(
+                result=primary_result,
+                primary_result=primary_result,
+                secondary_result=secondary_result,
+                selection_blocked=True,
+                selection_reason=(
+                    "45° clearance below exploratory threshold; "
+                    "60° fallback scan unusable"
+                ),
+                rejection_reason=(
+                    "45° scan insufficient "
+                    f"({primary_clearance:.1f} < {exploratory_threshold_cm:.1f}), "
+                    "а 60° scan unusable: "
+                    f"{secondary_result.rejection_reason or 'scan unusable or heading not restored'}"
+                ),
+            )
+            self._log_side_scan_result(final_result)
+            return final_result
+
+        if secondary_clearance < exploratory_threshold_cm:
+            final_result = self._annotate_side_scan_result(
+                result=secondary_result,
+                primary_result=primary_result,
+                secondary_result=secondary_result,
+                selection_blocked=True,
+                selection_reason=(
+                    "both 45° and 60° clearances stayed below exploratory threshold"
+                ),
+                rejection_reason=(
+                    "45° clearance="
+                    f"{primary_clearance:.1f}, 60° clearance={secondary_clearance:.1f}, "
+                    f"оба ниже exploratory threshold {exploratory_threshold_cm:.1f}"
+                ),
+            )
+            self._log_side_scan_result(final_result)
+            return final_result
+
+        final_result = self._annotate_side_scan_result(
+            result=secondary_result,
+            primary_result=primary_result,
+            secondary_result=secondary_result,
+            selection_reason=(
+                "accepted after 60° fallback scan because 45° clearance was below exploratory threshold"
+            ),
+        )
+        self._log_side_scan_result(final_result)
+        return final_result
+
+    def _scan_side_observation_at_angle(
+        self,
+        *,
+        side: AvoidanceSide,
+        target_angle: float,
+    ) -> SideScanResult:
+        """Сканирует одну сторону на конкретном угле и возвращает одиночный результат."""
+        target_angle = max(0.0, min(90.0, target_angle))
         if self._has_reached_target_distance(target_angle):
             clearance: float = self._measure_front_distance()
             result = SideScanResult(
@@ -733,7 +837,62 @@ class DriveController(DriveControllerProtocol):
             turn_stop_reason=turn_result.stop_reason,
             rejection_reason=rejection_reason,
         )
-        self._log_side_scan_result(result)
+        return result
+
+    def _secondary_side_scan_target_angle(self, primary_target_angle_deg: float) -> float | None:
+        """Возвращает угол fallback side scan или `None`, если дополнительный scan не нужен."""
+        secondary_angle: float = max(primary_target_angle_deg, self.SIDE_SCAN_SECONDARY_ANGLE_DEG)
+        if self._has_reached_target_distance(secondary_angle - primary_target_angle_deg):
+            return None
+        return min(90.0, secondary_angle)
+
+    def _default_side_scan_selection_reason(
+        self,
+        *,
+        result: SideScanResult,
+        exploratory_threshold_cm: float,
+    ) -> str:
+        """Объясняет базовое решение после первого side scan до возможного fallback scan."""
+        if not result.is_selectable:
+            return result.rejection_reason or "primary side scan unusable"
+
+        clearance_cm: float = result.clearance_cm or 0.0
+        if clearance_cm >= exploratory_threshold_cm:
+            return (
+                "accepted on primary side scan "
+                f"(clearance {clearance_cm:.1f} >= exploratory threshold {exploratory_threshold_cm:.1f})"
+            )
+
+        return (
+            "primary side scan below exploratory threshold; "
+            "will try 60° fallback scan before rejecting the side"
+        )
+
+    def _annotate_side_scan_result(
+        self,
+        *,
+        result: SideScanResult,
+        primary_result: SideScanResult,
+        secondary_result: SideScanResult | None = None,
+        selection_blocked: bool = False,
+        selection_reason: str | None = None,
+        rejection_reason: str | None = None,
+    ) -> SideScanResult:
+        """Добавляет в итог side scan данные по первому и fallback-скану для логов и выбора."""
+        result.primary_target_angle_deg = primary_result.target_angle_deg
+        result.primary_turned_angle_deg = primary_result.turned_angle_deg
+        result.primary_clearance_cm = primary_result.clearance_cm
+        if secondary_result is not None:
+            result.secondary_target_angle_deg = secondary_result.target_angle_deg
+            result.secondary_turned_angle_deg = secondary_result.turned_angle_deg
+            result.secondary_clearance_cm = secondary_result.clearance_cm
+            result.secondary_rejection_reason = secondary_result.rejection_reason
+        result.selection_blocked = selection_blocked
+        result.selection_reason = selection_reason
+        if rejection_reason is not None:
+            result.rejection_reason = rejection_reason
+        elif selection_blocked and selection_reason is not None:
+            result.rejection_reason = selection_reason
         return result
 
     def _scan_side_clearance(self, side: AvoidanceSide) -> float | None:
@@ -1001,14 +1160,33 @@ class DriveController(DriveControllerProtocol):
         clearance_repr: str = (
             f"{result.clearance_cm:.1f}см" if result.clearance_cm is not None else "n/a"
         )
+        primary_clearance_repr: str = (
+            f"{result.primary_clearance_cm:.1f}см"
+            if result.primary_clearance_cm is not None
+            else clearance_repr
+        )
+        secondary_clearance_repr: str = (
+            f"{result.secondary_clearance_cm:.1f}см"
+            if result.secondary_clearance_cm is not None
+            else "n/a"
+        )
         reason: str = result.rejection_reason or "ok"
+        selection_reason: str = result.selection_reason or "n/a"
         return (
             f"side={result.side.value}, clearance={clearance_repr}, "
             f"target={result.target_angle_deg:.1f}°, turned={result.turned_angle_deg:.1f}°, "
+            f"primary_target={((result.primary_target_angle_deg or result.target_angle_deg)):.1f}°, "
+            f"primary_turned={((result.primary_turned_angle_deg or result.turned_angle_deg)):.1f}°, "
+            f"primary_clearance={primary_clearance_repr}, "
+            f"secondary_target={f'{result.secondary_target_angle_deg:.1f}°' if result.secondary_target_angle_deg is not None else 'n/a'}, "
+            f"secondary_turned={f'{result.secondary_turned_angle_deg:.1f}°' if result.secondary_turned_angle_deg is not None else 'n/a'}, "
+            f"secondary_clearance={secondary_clearance_repr}, "
             f"completed={result.scan_completed}, partial={result.used_partial_scan}, "
             f"useful={result.scan_useful}, limited_confidence={result.limited_confidence}, "
             f"restored={result.heading_restored}, "
-            f"turn_stop_reason={result.turn_stop_reason}, reason={reason}"
+            f"turn_stop_reason={result.turn_stop_reason}, "
+            f"selection_blocked={result.selection_blocked}, selection_reason={selection_reason}, "
+            f"reason={reason}"
         )
 
     def _log_side_scan_result(self, result: SideScanResult) -> None:
@@ -1016,10 +1194,23 @@ class DriveController(DriveControllerProtocol):
         clearance_repr: str = (
             f"{result.clearance_cm:.1f}" if result.clearance_cm is not None else "n/a"
         )
+        primary_clearance_repr: str = (
+            f"{result.primary_clearance_cm:.1f}"
+            if result.primary_clearance_cm is not None
+            else clearance_repr
+        )
+        secondary_clearance_repr: str = (
+            f"{result.secondary_clearance_cm:.1f}"
+            if result.secondary_clearance_cm is not None
+            else "n/a"
+        )
         logger.info(
             "Обход: side scan side=%s clearance_cm=%s threshold=%.1f exploratory_threshold=%.1f "
-            "target_angle_deg=%.1f turned_angle_deg=%.1f scan_completed=%s partial_scan=%s "
-            "scan_useful=%s limited_confidence=%s heading_restored=%s turn_stop_reason=%s "
+            "target_angle_deg=%.1f turned_angle_deg=%.1f primary_angle_deg=%.1f "
+            "primary_turned_angle_deg=%.1f primary_clearance_cm=%s secondary_angle_deg=%s "
+            "secondary_turned_angle_deg=%s secondary_clearance_cm=%s scan_completed=%s "
+            "partial_scan=%s scan_useful=%s limited_confidence=%s heading_restored=%s "
+            "turn_stop_reason=%s selection_blocked=%s selection_reason=%s "
             "useful_angle_min_deg=%.1f confident_angle_min_deg=%.1f",
             result.side.value,
             clearance_repr,
@@ -1027,25 +1218,41 @@ class DriveController(DriveControllerProtocol):
             self._exploratory_side_clearance_threshold(),
             result.target_angle_deg,
             result.turned_angle_deg,
+            result.primary_target_angle_deg or result.target_angle_deg,
+            result.primary_turned_angle_deg or result.turned_angle_deg,
+            primary_clearance_repr,
+            f"{result.secondary_target_angle_deg:.1f}" if result.secondary_target_angle_deg is not None else "n/a",
+            (
+                f"{result.secondary_turned_angle_deg:.1f}"
+                if result.secondary_turned_angle_deg is not None
+                else "n/a"
+            ),
+            secondary_clearance_repr,
             result.scan_completed,
             result.used_partial_scan,
             result.scan_useful,
             result.limited_confidence,
             result.heading_restored,
             result.turn_stop_reason,
+            result.selection_blocked,
+            result.selection_reason or "n/a",
             self._side_scan_useful_angle_threshold(result.target_angle_deg),
             self._side_scan_effective_angle_threshold(result.target_angle_deg),
         )
         if result.rejection_reason is not None:
             logger.warning(
-                "Обход: сторона %s отклонена. reason=%s clearance_cm=%s threshold=%.1f "
-                "heading_restored=%s turn_stop_reason=%s",
+                "Обход: сторона %s отклонена. reason=%s clearance_cm=%s primary_clearance_cm=%s "
+                "secondary_clearance_cm=%s threshold=%.1f heading_restored=%s "
+                "turn_stop_reason=%s selection_reason=%s",
                 result.side.value,
                 result.rejection_reason,
                 clearance_repr,
+                primary_clearance_repr,
+                secondary_clearance_repr,
                 self.avoidance_min_side_clearance_cm,
                 result.heading_restored,
                 result.turn_stop_reason,
+                result.selection_reason or "n/a",
             )
 
     def _log_side_selection_assessment(
@@ -1086,7 +1293,9 @@ class DriveController(DriveControllerProtocol):
         if not result.is_selectable:
             return (
                 "rejected",
-                result.rejection_reason or "scan unusable or heading not restored",
+                result.selection_reason
+                or result.rejection_reason
+                or "scan unusable or heading not restored",
             )
 
         clearance_cm: float = result.clearance_cm or 0.0
@@ -1125,6 +1334,12 @@ class DriveController(DriveControllerProtocol):
 
         if all(not result.scan_useful for result in scan_results):
             return "both side scans were rejected as not useful by actual turned angle"
+
+        if all(
+            result.selection_blocked and result.secondary_target_angle_deg is not None
+            for result in scan_results
+        ):
+            return "both sides stayed blocked after primary and 60° fallback side scans"
 
         if all(
             result.is_selectable
