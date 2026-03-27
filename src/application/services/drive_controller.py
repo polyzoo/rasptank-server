@@ -162,6 +162,7 @@ class DriveController(DriveControllerProtocol):
     SIDE_SCAN_MIN_EFFECTIVE_RATIO: float = 0.65
     SIDE_SCAN_MEASUREMENT_MAX_SPREAD_CM: float = 8.0
     SIDE_SCAN_SENSOR_SETTLE_SEC: float = 0.07
+    REJOIN_FINAL_LATERAL_RECOVERY_RATIO: float = 0.95
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
 
     def __init__(
@@ -468,6 +469,10 @@ class DriveController(DriveControllerProtocol):
         while self.lifecycle.should_keep_running():
             if self._has_reached_target_distance(remaining_cm - context.forward_progress_cm):
                 if self._has_reached_target_distance(context.lateral_offset_cm):
+                    self._log_lateral_offset_recovery(
+                        reason="remaining segment exhausted and lateral offset already within tolerance",
+                        lateral_offset_cm=context.lateral_offset_cm,
+                    )
                     return AvoidanceResult(
                         completed=True,
                         forward_progress_cm=context.forward_progress_cm,
@@ -497,7 +502,17 @@ class DriveController(DriveControllerProtocol):
                     traveled_cm=side_step.traveled_cm,
                     attempts_delta=1,
                 )
+                offset_before_cm: float = context.lateral_offset_cm
                 context.lateral_offset_cm += side_step.traveled_cm
+                logger.info(
+                    "Обход: lateral offset after side step. before=%.1f added=%.1f after=%.1f "
+                    "completed=%s blocked=%s",
+                    offset_before_cm,
+                    side_step.traveled_cm,
+                    context.lateral_offset_cm,
+                    side_step.completed,
+                    side_step.blocked,
+                )
 
                 if not side_step.completed:
                     if not side_step.blocked:
@@ -521,6 +536,10 @@ class DriveController(DriveControllerProtocol):
                     continue
 
                 if self._has_reached_target_distance(context.lateral_offset_cm):
+                    self._log_lateral_offset_recovery(
+                        reason="front is clear after side step and lateral offset is within tolerance",
+                        lateral_offset_cm=context.lateral_offset_cm,
+                    )
                     return AvoidanceResult(completed=True, forward_progress_cm=context.forward_progress_cm)
 
                 context.state = AvoidanceState.ADVANCE_ALONG_OBSTACLE
@@ -540,6 +559,10 @@ class DriveController(DriveControllerProtocol):
 
                 if self._has_reached_target_distance(remaining_cm - context.forward_progress_cm):
                     if self._has_reached_target_distance(context.lateral_offset_cm):
+                        self._log_lateral_offset_recovery(
+                            reason="forward progress completed and lateral offset is within tolerance",
+                            lateral_offset_cm=context.lateral_offset_cm,
+                        )
                         return AvoidanceResult(
                             completed=True,
                             forward_progress_cm=context.forward_progress_cm,
@@ -555,6 +578,10 @@ class DriveController(DriveControllerProtocol):
                     break
 
                 if self._has_reached_target_distance(context.lateral_offset_cm):
+                    self._log_lateral_offset_recovery(
+                        reason="forward step completed and lateral offset is within tolerance",
+                        lateral_offset_cm=context.lateral_offset_cm,
+                    )
                     return AvoidanceResult(completed=True, forward_progress_cm=context.forward_progress_cm)
 
                 context.state = AvoidanceState.TRY_REJOIN
@@ -576,7 +603,27 @@ class DriveController(DriveControllerProtocol):
                     traveled_cm=rejoin_step.traveled_cm,
                     attempts_delta=1,
                 )
-                context.lateral_offset_cm = max(0.0, context.lateral_offset_cm - rejoin_step.traveled_cm)
+                offset_before_cm = context.lateral_offset_cm
+                effective_recovery_cm: float = self._effective_rejoin_lateral_recovery_cm(
+                    traveled_cm=rejoin_step.traveled_cm,
+                    lateral_offset_before_cm=offset_before_cm,
+                )
+                context.lateral_offset_cm = max(0.0, context.lateral_offset_cm - effective_recovery_cm)
+                logger.info(
+                    "Обход: lateral offset after rejoin. before=%.1f raw_rejoin=%.1f "
+                    "effective_recovery=%.1f ratio=%.2f after=%.1f completed=%s blocked=%s",
+                    offset_before_cm,
+                    rejoin_step.traveled_cm,
+                    effective_recovery_cm,
+                    (
+                        self.REJOIN_FINAL_LATERAL_RECOVERY_RATIO
+                        if offset_before_cm <= self.avoidance_rejoin_step_cm
+                        else 1.0
+                    ),
+                    context.lateral_offset_cm,
+                    rejoin_step.completed,
+                    rejoin_step.blocked,
+                )
 
                 if not rejoin_step.completed:
                     if not rejoin_step.blocked:
@@ -595,7 +642,23 @@ class DriveController(DriveControllerProtocol):
                     if not self._is_front_clear_confirmed():
                         context.state = AvoidanceState.SIDE_STEP
                         continue
+                    self._log_lateral_offset_recovery(
+                        reason="rejoin reduced lateral offset to tolerance and front is clear",
+                        lateral_offset_cm=context.lateral_offset_cm,
+                    )
                     return AvoidanceResult(completed=True, forward_progress_cm=context.forward_progress_cm)
+
+                if self._should_retry_final_rejoin_immediately(
+                    lateral_offset_cm=context.lateral_offset_cm,
+                ):
+                    logger.info(
+                        "Обход: immediate final rejoin retry requested. lateral_offset_cm=%.1f "
+                        "retry_window_cm=%.1f",
+                        context.lateral_offset_cm,
+                        self._final_rejoin_retry_window_cm(),
+                    )
+                    context.state = AvoidanceState.TRY_REJOIN
+                    continue
 
                 context.state = AvoidanceState.CHECK_FRONT
                 continue
@@ -1096,6 +1159,47 @@ class DriveController(DriveControllerProtocol):
         if settle_sec <= 0.0:
             return
         time.sleep(settle_sec)
+
+    def _effective_rejoin_lateral_recovery_cm(
+        self,
+        *,
+        traveled_cm: float,
+        lateral_offset_before_cm: float,
+    ) -> float:
+        """Консервативно оценивает, сколько бокового смещения действительно снял final rejoin."""
+        if traveled_cm <= 0.0:
+            return 0.0
+        if lateral_offset_before_cm > self.avoidance_rejoin_step_cm:
+            return traveled_cm
+        return traveled_cm * self.REJOIN_FINAL_LATERAL_RECOVERY_RATIO
+
+    def _final_rejoin_retry_window_cm(self) -> float:
+        """Окно остаточного offset, при котором лучше сразу добить rejoin без нового advance."""
+        return (
+            self.avoidance_rejoin_step_cm * (1.0 - self.REJOIN_FINAL_LATERAL_RECOVERY_RATIO)
+        ) + self.DISTANCE_TOLERANCE_CM
+
+    def _should_retry_final_rejoin_immediately(self, *, lateral_offset_cm: float) -> bool:
+        """Определяет, стоит ли сделать ещё один короткий rejoin сразу после почти успешного возврата."""
+        return (
+            lateral_offset_cm > self.DISTANCE_TOLERANCE_CM
+            and lateral_offset_cm <= self._final_rejoin_retry_window_cm()
+        )
+
+    def _log_lateral_offset_recovery(
+        self,
+        *,
+        reason: str,
+        lateral_offset_cm: float,
+    ) -> None:
+        """Логирует, почему FSM считает боковое смещение уже достаточно скомпенсированным."""
+        logger.info(
+            "Обход: lateral offset considered recovered. lateral_offset_cm=%.1f "
+            "tolerance=%.1f reason=%s",
+            lateral_offset_cm,
+            self.DISTANCE_TOLERANCE_CM,
+            reason,
+        )
 
     def _is_front_clear_confirmed(self) -> bool:
         """Проверка, что фронт стабильно свободен с небольшим запасом."""

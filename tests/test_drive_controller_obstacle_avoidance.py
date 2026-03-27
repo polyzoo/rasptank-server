@@ -492,6 +492,7 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
                 side_effect=[
                     LinearMoveResult(completed=True, traveled_cm=12.0),
                     LinearMoveResult(completed=True, traveled_cm=12.0),
+                    LinearMoveResult(completed=True, traveled_cm=0.6),
                 ],
             ) as rejoin_mock,
         ):
@@ -504,7 +505,7 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
         self.assertEqual(30.0, result.forward_progress_cm)
         self.assertEqual(2, side_step_mock.call_count)
         self.assertEqual(2, forward_step_mock.call_count)
-        self.assertEqual(2, rejoin_mock.call_count)
+        self.assertEqual(3, rejoin_mock.call_count)
         self.assertEqual(7, distance_mock.call_count)
 
     def test_obstacle_avoidance_stops_when_attempt_limit_is_reached(self) -> None:
@@ -598,7 +599,10 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
             patch.object(
                 self.controller,
                 "_attempt_rejoin_step",
-                return_value=LinearMoveResult(completed=True, traveled_cm=12.0),
+                side_effect=[
+                    LinearMoveResult(completed=True, traveled_cm=12.0),
+                    LinearMoveResult(completed=True, traveled_cm=0.6),
+                ],
             ) as rejoin_mock,
         ):
             result: AvoidanceResult = self.controller._run_obstacle_avoidance(
@@ -610,7 +614,7 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
         self.assertEqual(10.0, result.forward_progress_cm)
         side_step_mock.assert_called_once()
         forward_step_mock.assert_called_once()
-        rejoin_mock.assert_called_once()
+        self.assertEqual(2, rejoin_mock.call_count)
 
     def test_obstacle_avoidance_stops_on_incomplete_unblocked_rejoin(self) -> None:
         """Abort во время возврата на маршрут не должен тихо продолжать FSM."""
