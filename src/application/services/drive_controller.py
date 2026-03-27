@@ -94,6 +94,21 @@ class AvoidanceContext:
     attempts: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class DistanceMeasurementSummary:
+    """Сводка серии измерений фронтальной дистанции."""
+
+    median_cm: float
+    raw_samples_cm: tuple[float, ...]
+    min_cm: float
+    max_cm: float
+    spread_cm: float
+    no_echo_count: int = 0
+    fallback_count: int = 0
+    reliable: bool = True
+    reliability_reason: str = "stable"
+
+
 @dataclass(slots=True)
 class SideScanResult:
     """Результат сканирования одной стороны перед началом обхода."""
@@ -118,6 +133,7 @@ class SideScanResult:
     secondary_clearance_cm: float | None = None
     secondary_rejection_reason: str | None = None
     selection_reason: str | None = None
+    measurement_summary: DistanceMeasurementSummary | None = None
 
     @property
     def is_selectable(self) -> bool:
@@ -144,6 +160,8 @@ class DriveController(DriveControllerProtocol):
     SIDE_SCAN_SECONDARY_ANGLE_DEG: float = 60.0
     SIDE_SCAN_MIN_EFFECTIVE_ANGLE_DEG: float = 20.0
     SIDE_SCAN_MIN_EFFECTIVE_RATIO: float = 0.65
+    SIDE_SCAN_MEASUREMENT_MAX_SPREAD_CM: float = 8.0
+    SIDE_SCAN_SENSOR_SETTLE_SEC: float = 0.07
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
 
     def __init__(
@@ -770,7 +788,8 @@ class DriveController(DriveControllerProtocol):
         """Сканирует одну сторону на конкретном угле и возвращает одиночный результат."""
         target_angle = max(0.0, min(90.0, target_angle))
         if self._has_reached_target_distance(target_angle):
-            clearance: float = self._measure_front_distance()
+            measurement_summary: DistanceMeasurementSummary = self._measure_front_distance_summary()
+            clearance: float = measurement_summary.median_cm
             result = SideScanResult(
                 side=side,
                 target_angle_deg=target_angle,
@@ -780,6 +799,7 @@ class DriveController(DriveControllerProtocol):
                 scan_completed=True,
                 scan_useful=True,
                 turn_stop_reason="not_needed",
+                measurement_summary=measurement_summary,
             )
             self._log_side_scan_result(result)
             return result
@@ -798,12 +818,15 @@ class DriveController(DriveControllerProtocol):
         )
         used_partial_scan: bool = useful_partial_scan
         clearance: float | None = None
+        measurement_summary: DistanceMeasurementSummary | None = None
         heading_restored: bool = True
         rejection_reason: str | None = None
 
         try:
             if turn_result.completed or useful_partial_scan:
-                clearance = self._measure_front_distance()
+                self._wait_for_side_scan_sensor_settle()
+                measurement_summary = self._measure_front_distance_summary()
+                clearance = measurement_summary.median_cm
             else:
                 rejection_reason = (
                     "недостаточный угол сканирования "
@@ -836,6 +859,7 @@ class DriveController(DriveControllerProtocol):
             limited_confidence=clearance is not None and not turn_result.completed,
             turn_stop_reason=turn_result.stop_reason,
             rejection_reason=rejection_reason,
+            measurement_summary=measurement_summary,
         )
         return result
 
@@ -1001,16 +1025,77 @@ class DriveController(DriveControllerProtocol):
 
     def _measure_front_distance(self, samples: int | None = None) -> float:
         """Измерение фронтальной дистанции с подавлением одиночных шумовых чтений."""
+        return self._measure_front_distance_summary(samples=samples).median_cm
+
+    def _measure_front_distance_summary(
+        self,
+        samples: int | None = None,
+    ) -> DistanceMeasurementSummary:
+        """Серия измерений фронтальной дистанции с диагностикой качества сигнала."""
         sample_count: int = max(
             self.BLOCK_CONFIRMATION_SAMPLES_MIN,
             samples or self.avoidance_confirm_readings,
         )
-        measurements: list[float] = [
-            self.ultrasonic_sensor.measure_distance_cm()
-            for _ in range(sample_count)
-        ]
+        measurements: list[float] = []
+        no_echo_count: int = 0
+        fallback_count: int = 0
+
+        for _ in range(sample_count):
+            distance_cm: float = self.ultrasonic_sensor.measure_distance_cm()
+            measurements.append(distance_cm)
+            diagnostics = self._get_ultrasonic_measurement_diagnostics()
+            if diagnostics is None:
+                continue
+            no_echo_count += int(bool(getattr(diagnostics, "no_echo", False)))
+            fallback_count += int(bool(getattr(diagnostics, "used_fallback_distance", False)))
+
         measurements.sort()
-        return measurements[len(measurements) // 2]
+        min_cm: float = measurements[0]
+        max_cm: float = measurements[-1]
+        spread_cm: float = max_cm - min_cm
+        reliability_issues: list[str] = []
+        if no_echo_count > 0:
+            reliability_issues.append(f"no_echo_samples={no_echo_count}/{sample_count}")
+        if fallback_count > 0:
+            reliability_issues.append(f"fallback_samples={fallback_count}/{sample_count}")
+        if spread_cm > self.SIDE_SCAN_MEASUREMENT_MAX_SPREAD_CM:
+            reliability_issues.append(
+                "wide_sample_spread="
+                f"{spread_cm:.1f}cm>{self.SIDE_SCAN_MEASUREMENT_MAX_SPREAD_CM:.1f}cm"
+            )
+        reliable: bool = not reliability_issues
+        return DistanceMeasurementSummary(
+            median_cm=measurements[len(measurements) // 2],
+            raw_samples_cm=tuple(measurements),
+            min_cm=min_cm,
+            max_cm=max_cm,
+            spread_cm=spread_cm,
+            no_echo_count=no_echo_count,
+            fallback_count=fallback_count,
+            reliable=reliable,
+            reliability_reason=(
+                "stable median sample set"
+                if reliable
+                else ", ".join(reliability_issues)
+            ),
+        )
+
+    def _get_ultrasonic_measurement_diagnostics(self) -> object | None:
+        """Пытается получить диагностику последнего чтения от драйвера ультразвука."""
+        getter = getattr(self.ultrasonic_sensor, "get_last_measurement_diagnostics", None)
+        if not callable(getter):
+            return None
+        try:
+            return getter()
+        except (OSError, RuntimeError, ConnectionError, ValueError):
+            return None
+
+    def _wait_for_side_scan_sensor_settle(self) -> None:
+        """Даёт ультразвуковому сенсору время обновить чтение после поворота корпуса."""
+        settle_sec: float = max(self.update_interval_sec, self.SIDE_SCAN_SENSOR_SETTLE_SEC)
+        if settle_sec <= 0.0:
+            return
+        time.sleep(settle_sec)
 
     def _is_front_clear_confirmed(self) -> bool:
         """Проверка, что фронт стабильно свободен с небольшим запасом."""
@@ -1099,6 +1184,11 @@ class DriveController(DriveControllerProtocol):
 
     def _exploratory_side_clearance_threshold(self) -> float:
         """Ослабленный порог для шумных пограничных scan-измерений."""
+        relaxed_threshold: float = self._raw_exploratory_side_clearance_threshold()
+        return min(self.avoidance_min_side_clearance_cm, relaxed_threshold)
+
+    def _raw_exploratory_side_clearance_threshold(self) -> float:
+        """Возвращает неограниченный exploratory threshold до защиты от ужесточения."""
         return max(
             self.min_obstacle_distance_cm + self.CLEARANCE_HYSTERESIS_CM,
             self.avoidance_min_side_clearance_cm - self.SIDE_SCAN_THRESHOLD_RELAXATION_CM,
@@ -1172,6 +1262,7 @@ class DriveController(DriveControllerProtocol):
         )
         reason: str = result.rejection_reason or "ok"
         selection_reason: str = result.selection_reason or "n/a"
+        measurement_repr: str = self._format_measurement_summary(result.measurement_summary)
         return (
             f"side={result.side.value}, clearance={clearance_repr}, "
             f"target={result.target_angle_deg:.1f}°, turned={result.turned_angle_deg:.1f}°, "
@@ -1185,6 +1276,7 @@ class DriveController(DriveControllerProtocol):
             f"useful={result.scan_useful}, limited_confidence={result.limited_confidence}, "
             f"restored={result.heading_restored}, "
             f"turn_stop_reason={result.turn_stop_reason}, "
+            f"measurement={measurement_repr}, "
             f"selection_blocked={result.selection_blocked}, selection_reason={selection_reason}, "
             f"reason={reason}"
         )
@@ -1204,18 +1296,23 @@ class DriveController(DriveControllerProtocol):
             if result.secondary_clearance_cm is not None
             else "n/a"
         )
+        measurement_summary: DistanceMeasurementSummary | None = result.measurement_summary
         logger.info(
             "Обход: side scan side=%s clearance_cm=%s threshold=%.1f exploratory_threshold=%.1f "
+            "raw_exploratory_threshold=%.1f "
             "target_angle_deg=%.1f turned_angle_deg=%.1f primary_angle_deg=%.1f "
             "primary_turned_angle_deg=%.1f primary_clearance_cm=%s secondary_angle_deg=%s "
             "secondary_turned_angle_deg=%s secondary_clearance_cm=%s scan_completed=%s "
             "partial_scan=%s scan_useful=%s limited_confidence=%s heading_restored=%s "
-            "turn_stop_reason=%s selection_blocked=%s selection_reason=%s "
+            "turn_stop_reason=%s measurement_samples=%s measurement_spread_cm=%s "
+            "measurement_no_echo=%d measurement_fallback=%d measurement_reliable=%s "
+            "measurement_reason=%s selection_blocked=%s selection_reason=%s "
             "useful_angle_min_deg=%.1f confident_angle_min_deg=%.1f",
             result.side.value,
             clearance_repr,
             self.avoidance_min_side_clearance_cm,
             self._exploratory_side_clearance_threshold(),
+            self._raw_exploratory_side_clearance_threshold(),
             result.target_angle_deg,
             result.turned_angle_deg,
             result.primary_target_angle_deg or result.target_angle_deg,
@@ -1234,6 +1331,20 @@ class DriveController(DriveControllerProtocol):
             result.limited_confidence,
             result.heading_restored,
             result.turn_stop_reason,
+            (
+                list(measurement_summary.raw_samples_cm)
+                if measurement_summary is not None
+                else "n/a"
+            ),
+            (
+                f"{measurement_summary.spread_cm:.1f}"
+                if measurement_summary is not None
+                else "n/a"
+            ),
+            measurement_summary.no_echo_count if measurement_summary is not None else 0,
+            measurement_summary.fallback_count if measurement_summary is not None else 0,
+            measurement_summary.reliable if measurement_summary is not None else True,
+            measurement_summary.reliability_reason if measurement_summary is not None else "n/a",
             result.selection_blocked,
             result.selection_reason or "n/a",
             self._side_scan_useful_angle_threshold(result.target_angle_deg),
@@ -1242,16 +1353,24 @@ class DriveController(DriveControllerProtocol):
         if result.rejection_reason is not None:
             logger.warning(
                 "Обход: сторона %s отклонена. reason=%s clearance_cm=%s primary_clearance_cm=%s "
-                "secondary_clearance_cm=%s threshold=%.1f heading_restored=%s "
-                "turn_stop_reason=%s selection_reason=%s",
+                "secondary_clearance_cm=%s threshold=%.1f exploratory_threshold=%.1f "
+                "raw_exploratory_threshold=%.1f heading_restored=%s "
+                "turn_stop_reason=%s measurement_reliable=%s no_echo_samples=%d "
+                "fallback_samples=%d measurement_reason=%s selection_reason=%s",
                 result.side.value,
                 result.rejection_reason,
                 clearance_repr,
                 primary_clearance_repr,
                 secondary_clearance_repr,
                 self.avoidance_min_side_clearance_cm,
+                self._exploratory_side_clearance_threshold(),
+                self._raw_exploratory_side_clearance_threshold(),
                 result.heading_restored,
                 result.turn_stop_reason,
+                measurement_summary.reliable if measurement_summary is not None else True,
+                measurement_summary.no_echo_count if measurement_summary is not None else 0,
+                measurement_summary.fallback_count if measurement_summary is not None else 0,
+                measurement_summary.reliability_reason if measurement_summary is not None else "n/a",
                 result.selection_reason or "n/a",
             )
 
@@ -1273,12 +1392,13 @@ class DriveController(DriveControllerProtocol):
         )
         logger.info(
             "Обход: оценка стороны side=%s status=%s clearance_cm=%s "
-            "preferred_threshold=%.1f exploratory_threshold=%.1f reason=%s",
+            "preferred_threshold=%.1f exploratory_threshold=%.1f raw_exploratory_threshold=%.1f reason=%s",
             result.side.value,
             selection_status,
             clearance_repr,
             preferred_threshold_cm,
             exploratory_threshold_cm,
+            self._raw_exploratory_side_clearance_threshold(),
             reason,
         )
 
@@ -1320,6 +1440,21 @@ class DriveController(DriveControllerProtocol):
         return (
             "rejected",
             f"clearance {clearance_cm:.1f} < exploratory threshold {exploratory_threshold_cm:.1f}",
+        )
+
+    def _format_measurement_summary(
+        self,
+        summary: DistanceMeasurementSummary | None,
+    ) -> str:
+        """Коротко форматирует диагностическую сводку серии измерений."""
+        if summary is None:
+            return "n/a"
+        return (
+            f"samples={list(summary.raw_samples_cm)}, median={summary.median_cm:.1f}см, "
+            f"range=[{summary.min_cm:.1f},{summary.max_cm:.1f}]см, "
+            f"spread={summary.spread_cm:.1f}см, no_echo={summary.no_echo_count}, "
+            f"fallback={summary.fallback_count}, reliable={summary.reliable}, "
+            f"reason={summary.reliability_reason}"
         )
 
     def _describe_side_selection_failure(

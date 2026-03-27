@@ -7,6 +7,7 @@ from src.application.services.drive_controller import (
     AvoidanceContext,
     AvoidanceResult,
     AvoidanceSide,
+    DistanceMeasurementSummary,
     DriveController,
     LinearMoveResult,
     SideScanResult,
@@ -300,6 +301,33 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
             scan_mock.call_args_list,
         )
 
+    def test_scan_side_observation_caps_exploratory_threshold_to_preferred_threshold(self) -> None:
+        """Exploratory threshold не должен быть строже preferred threshold."""
+        self.controller.min_obstacle_distance_cm = 35.0
+
+        with patch.object(
+            self.controller,
+            "_scan_side_observation_at_angle",
+            side_effect=[
+                self._make_side_scan_result(
+                    AvoidanceSide.LEFT,
+                    clearance_cm=24.0,
+                    target_angle_deg=45.0,
+                ),
+                self._make_side_scan_result(
+                    AvoidanceSide.LEFT,
+                    clearance_cm=26.0,
+                    target_angle_deg=60.0,
+                ),
+            ],
+        ):
+            result = self.controller._scan_side_observation(AvoidanceSide.LEFT)
+
+        self.assertTrue(result.is_selectable)
+        self.assertEqual(25.0, self.controller._exploratory_side_clearance_threshold())
+        self.assertEqual(38.0, self.controller._raw_exploratory_side_clearance_threshold())
+        self.assertEqual(26.0, result.clearance_cm)
+
     def test_scan_side_clearance_returns_none_when_heading_restore_fails(self) -> None:
         """После неудачного возврата курса side scan аварийно завершается."""
         with (
@@ -311,7 +339,17 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
                     TurnResult(completed=False, angle_deg=30.0),
                 ],
             ) as turn_mock,
-            patch.object(self.controller, "_measure_front_distance", return_value=55.0),
+            patch.object(
+                self.controller,
+                "_measure_front_distance_summary",
+                return_value=DistanceMeasurementSummary(
+                    median_cm=55.0,
+                    raw_samples_cm=(55.0, 55.0, 55.0),
+                    min_cm=55.0,
+                    max_cm=55.0,
+                    spread_cm=0.0,
+                ),
+            ),
         ):
             result: float | None = self.controller._scan_side_clearance(AvoidanceSide.LEFT)
 
@@ -329,12 +367,54 @@ class DriveControllerObstacleAvoidanceTests(unittest.TestCase):
                     TurnResult(completed=True, angle_deg=28.0, stop_reason="target_reached"),
                 ],
             ) as turn_mock,
-            patch.object(self.controller, "_measure_front_distance", return_value=52.0),
+            patch.object(
+                self.controller,
+                "_measure_front_distance_summary",
+                return_value=DistanceMeasurementSummary(
+                    median_cm=52.0,
+                    raw_samples_cm=(52.0, 52.0, 52.0),
+                    min_cm=52.0,
+                    max_cm=52.0,
+                    spread_cm=0.0,
+                ),
+            ),
         ):
             result: float | None = self.controller._scan_side_clearance(AvoidanceSide.LEFT)
 
         self.assertEqual(52.0, result)
         self.assertEqual(2, turn_mock.call_count)
+
+    def test_scan_side_observation_waits_for_sensor_settle_before_measurement(self) -> None:
+        """После поворота side scan должен дождаться обновления датчика перед чтением."""
+        with (
+            patch.object(
+                self.controller,
+                "_turn_relative",
+                side_effect=[
+                    TurnResult(completed=True, angle_deg=45.0, stop_reason="target_reached"),
+                    TurnResult(completed=True, angle_deg=45.0, stop_reason="target_reached"),
+                ],
+            ),
+            patch.object(
+                self.controller,
+                "_measure_front_distance_summary",
+                return_value=DistanceMeasurementSummary(
+                    median_cm=40.0,
+                    raw_samples_cm=(40.0, 40.0, 40.0),
+                    min_cm=40.0,
+                    max_cm=40.0,
+                    spread_cm=0.0,
+                ),
+            ),
+            patch("src.application.services.drive_controller.time.sleep") as sleep_mock,
+        ):
+            result = self.controller._scan_side_observation_at_angle(
+                side=AvoidanceSide.LEFT,
+                target_angle=45.0,
+            )
+
+        self.assertEqual(40.0, result.clearance_cm)
+        sleep_mock.assert_called_once_with(self.controller.SIDE_SCAN_SENSOR_SETTLE_SEC)
 
     def test_run_linear_motion_confirms_front_block_before_reporting_blocked(self) -> None:
         """Одиночный шумный low reading не должен переводить в obstacle avoidance."""
