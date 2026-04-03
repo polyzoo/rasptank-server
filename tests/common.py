@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import csv
 import json
+import time
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from statistics import fmean
+from typing import TYPE_CHECKING, Any
 
-from src.application.factories import create_drive_controller as create_app_drive_controller
 from src.application.models.route import (
     BackwardSegment,
     ForwardSegment,
@@ -12,9 +15,12 @@ from src.application.models.route import (
     TurnLeftSegment,
     TurnRightSegment,
 )
-from src.config.settings import Settings
-from src.application.services.drive_controller import DriveController
-from src.infrastructures.motor import MotorController
+
+if TYPE_CHECKING:
+    from src.application.services.drive_controller import DriveController
+    from src.config.settings import Settings
+    from src.infrastructures.imu import IMUSensor
+    from src.infrastructures.motor import MotorController
 
 ENCODING_UTF8: str = "utf-8"
 PROMPT_YES_VALUES: tuple[str, ...] = ("y", "yes", "д", "да")
@@ -22,21 +28,108 @@ PROMPT_NO_VALUES: tuple[str, ...] = ("n", "no", "н", "нет")
 PROMPT_YES_NO_ERROR: str = "Введите y или n"
 PROMPT_FLOAT_ERROR: str = "Введите число"
 DEFAULT_TURN_ANGLE_DEG: float = 90.0
+DEFAULT_RESULTS_DIR_NAME: str = "results"
+TIMESTAMP_FORMAT: str = "%Y%m%d_%H%M%S"
 
 
-def create_drive_controller(settings: Settings | None = None) -> DriveController:
+def create_drive_controller(settings: "Settings | None" = None) -> "DriveController":
     """Создаёт экземпляр контроллера движения."""
+    from src.application.factories import create_drive_controller as create_app_drive_controller
+    from src.config.settings import Settings
+
     s: Settings = settings or Settings()
     return create_app_drive_controller(s)
 
 
-def create_motor_controller(settings: Settings | None = None) -> MotorController:
+def create_motor_controller(settings: "Settings | None" = None) -> "MotorController":
     """Создаёт контроллер моторов без высокоуровневой логики движения."""
+    from src.config.settings import Settings
+    from src.infrastructures.motor import MotorController
+
     s: Settings = settings or Settings()
     return MotorController(
         tl_left_offset=s.tl_left_offset,
         tl_right_offset=s.tl_right_offset,
     )
+
+
+def create_imu_sensor(settings: "Settings | None" = None) -> "IMUSensor":
+    """Создаёт IMU-сенсор для низкоуровневых аппаратных экспериментов."""
+    from src.config.settings import Settings
+    from src.infrastructures.imu import IMUSensor
+
+    _ = settings or Settings()
+    return IMUSensor()
+
+
+def create_results_dir(experiment_name: str) -> Path:
+    """Создаёт уникальную директорию результатов эксперимента."""
+    timestamp: str = datetime.now().strftime(TIMESTAMP_FORMAT)
+    results_dir: Path = (
+        Path(__file__).resolve().parent
+        / DEFAULT_RESULTS_DIR_NAME
+        / f"{timestamp}_{experiment_name}"
+    )
+    results_dir.mkdir(parents=True, exist_ok=True)
+    return results_dir
+
+
+def write_csv_rows(path: Path, fieldnames: list[str], rows: list[dict[str, Any]]) -> None:
+    """Сохраняет список словарей в CSV-файл."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding=ENCODING_UTF8, newline="") as file_obj:
+        writer = csv.DictWriter(file_obj, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Сохраняет JSON с читаемым форматированием."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding=ENCODING_UTF8,
+    )
+
+
+def utc_now_iso() -> str:
+    """Текущее время UTC в ISO-формате."""
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def collect_timed_samples(
+    duration_sec: float,
+    sample_interval_sec: float,
+    read_fn: Any,
+) -> list[tuple[float, float]]:
+    """Собирает значения датчика по таймеру и возвращает пары (t, value)."""
+    if duration_sec < 0.0:
+        raise ValueError("duration_sec не может быть отрицательным")
+    if sample_interval_sec <= 0.0:
+        raise ValueError("sample_interval_sec должен быть положительным")
+
+    total_steps: int = int(duration_sec / sample_interval_sec)
+    sample_indices: list[int] = list(range(total_steps + 1))
+    if (total_steps * sample_interval_sec) < duration_sec:
+        sample_indices.append(total_steps + 1)
+
+    start_t: float = time.monotonic()
+    samples: list[tuple[float, float]] = []
+    for sample_idx in sample_indices:
+        target_t: float = start_t + min(duration_sec, sample_idx * sample_interval_sec)
+        sleep_sec: float = target_t - time.monotonic()
+        if sleep_sec > 0.0:
+            time.sleep(sleep_sec)
+        elapsed_sec: float = time.monotonic() - start_t
+        samples.append((elapsed_sec, float(read_fn())))
+    return samples
+
+
+def mean_sample_value(samples: list[tuple[float, float]]) -> float:
+    """Среднее по собранным значениям датчика."""
+    if not samples:
+        return 0.0
+    return float(fmean(value for _, value in samples))
 
 def parse_route_from_json(path: Path) -> Route:
     """Загрузка маршрута из JSON-файла."""

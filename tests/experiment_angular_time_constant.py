@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -17,30 +16,28 @@ from tests.common import (
     write_json,
 )
 
-DESCRIPTION: str = "Эксперимент 2.1: линейный разгон для оценки Tv"
-PROMPT_START: str = "Запустить ступеньку управления?"
-PROMPT_READY_TEMPLATE: str = "Машинка готова к линейному разгону на U={u}%?"
+DESCRIPTION: str = "Эксперимент 2.2: угловой разгон для оценки Tω"
+PROMPT_START: str = "Запустить эксперимент углового разгона?"
+PROMPT_READY_TEMPLATE: str = "Машинка готова к угловому разгону на U={u}%?"
 DEFAULT_SPEEDS: tuple[int, ...] = (20, 40, 60)
 DEFAULT_DURATION_SEC: float = 5.0
 DEFAULT_SAMPLE_INTERVAL_SEC: float = 0.1
 DEFAULT_BASELINE_DURATION_SEC: float = 0.8
 DEFAULT_POST_RUN_PAUSE_SEC: float = 1.5
-DEFAULT_ACCEL_AXIS: str = "x"
-SUMMARY_CSV_FILE_NAME: str = "linear_time_constant_runs.csv"
-SUMMARY_JSON_FILE_NAME: str = "linear_time_constant_runs.json"
+SUMMARY_CSV_FILE_NAME: str = "angular_time_constant_runs.csv"
+SUMMARY_JSON_FILE_NAME: str = "angular_time_constant_runs.json"
 
 
 def _print_instructions() -> None:
     print("\n=== " + DESCRIPTION + " ===\n")
     print("Что требуется:")
     print("1. Машинка стоит неподвижно на ровной поверхности.")
-    print("2. Скрипт сам снимет baseline акселерометра перед каждым разгоном.")
-    print("3. Затем подаст одинаковое U на обе гусеницы: 20%, 40%, 60%.")
-    print("4. Акселерометр пишется каждые 0.1 с в течение 5 секунд.")
+    print("2. Скрипт сам снимет baseline гироскопа перед каждым разгоном.")
+    print("3. Затем подаст противоположные напряжения: UR = -UL = 20%, 40%, 60%.")
+    print("4. Угловая скорость пишется каждые 0.1 с в течение 5 секунд.")
     print()
-    print("По умолчанию пишется ось accel_x с вычитанием baseline.")
-    print("Если у вас продольная ось другая, поменяйте DEFAULT_ACCEL_AXIS.")
-    print("CSV каждого прогона: time_s, acceleration_m_s2")
+    print("Угловая скорость сохраняется в deg/s.")
+    print("CSV каждого прогона: time_s, angular_velocity_deg_s")
     print()
 
 
@@ -50,75 +47,75 @@ def _write_run_csv(
     speed_percent: int,
     rows: list[dict[str, float]],
 ) -> str:
-    """Сохранить CSV одного разгона и вернуть имя файла."""
-    file_name: str = f"linear_u{speed_percent}.csv"
+    """Сохранить CSV одного углового разгона."""
+    file_name: str = f"angular_u{speed_percent}.csv"
     write_csv_rows(
         results_dir / file_name,
-        fieldnames=["time_s", "acceleration_m_s2"],
+        fieldnames=["time_s", "angular_velocity_deg_s"],
         rows=rows,
     )
     return file_name
 
 
-def _collect_linear_run(
+def _collect_angular_run(
     *,
     motor: Any,
     imu: Any,
     speed_percent: int,
 ) -> tuple[list[dict[str, float]], dict[str, float]]:
-    """Собрать baseline и шаговый отклик линейного ускорения."""
+    """Собрать baseline и step-response угловой скорости."""
     baseline_samples = collect_timed_samples(
         duration_sec=DEFAULT_BASELINE_DURATION_SEC,
         sample_interval_sec=DEFAULT_SAMPLE_INTERVAL_SEC,
-        read_fn=lambda: imu.get_accel_axis_m_s2(DEFAULT_ACCEL_AXIS),
+        read_fn=imu.get_gyro_z_deg_per_sec,
     )
-    baseline_m_s2: float = mean_sample_value(baseline_samples)
+    baseline_deg_s: float = mean_sample_value(baseline_samples)
     start_iso: str = utc_now_iso()
     motor.drive_tracks(
-        left_speed_percent=speed_percent,
+        left_speed_percent=-speed_percent,
         right_speed_percent=speed_percent,
     )
     samples = collect_timed_samples(
         duration_sec=DEFAULT_DURATION_SEC,
         sample_interval_sec=DEFAULT_SAMPLE_INTERVAL_SEC,
-        read_fn=lambda: imu.get_accel_axis_m_s2(DEFAULT_ACCEL_AXIS),
+        read_fn=imu.get_gyro_z_deg_per_sec,
     )
     motor.stop()
     rows: list[dict[str, float]] = [
         {
             "time_s": round(elapsed_sec, 3),
-            "acceleration_m_s2": round(raw_value - baseline_m_s2, 6),
+            "angular_velocity_deg_s": round(raw_value - baseline_deg_s, 6),
         }
         for elapsed_sec, raw_value in samples
     ]
     metadata: dict[str, float] = {
         "speed_percent": float(speed_percent),
-        "baseline_m_s2": round(baseline_m_s2, 6),
+        "baseline_deg_s": round(baseline_deg_s, 6),
         "sample_count": float(len(rows)),
         "start_iso": start_iso,
     }
     return rows, metadata
 
 
-def _print_linear_run_summary(
+def _print_angular_run_summary(
     *,
     speed_percent: int,
-    baseline_m_s2: float,
+    baseline_deg_s: float,
     sample_count: int,
     csv_path: Path,
 ) -> None:
-    """Вывести краткую сводку по линейному разгону."""
+    """Вывести краткую сводку по угловому разгону."""
     print(
         "  Результат: "
         f"U={speed_percent}%, "
-        f"baseline={baseline_m_s2:.5f} м/с^2, "
+        f"baseline={baseline_deg_s:.5f} deg/s, "
         f"samples={sample_count}, "
         f"csv={csv_path}",
     )
 
 
 def run() -> int:
-    """Запуск линейного step-response эксперимента для оценки Tv."""
+    """Запуск углового step-response эксперимента для оценки Tω."""
     from src.config.settings import Settings
 
     _print_instructions()
@@ -127,7 +124,7 @@ def run() -> int:
         return 0
 
     settings: Settings = Settings()
-    results_dir: Path = create_results_dir("linear_time_constant")
+    results_dir: Path = create_results_dir("angular_time_constant")
     motor = create_motor_controller(settings)
     imu = create_imu_sensor(settings)
     summary_rows: list[dict[str, object]] = []
@@ -139,7 +136,7 @@ def run() -> int:
             if not prompt_yes_no(PROMPT_READY_TEMPLATE.format(u=speed_percent)):
                 continue
             motor.stop()
-            rows, metadata = _collect_linear_run(
+            rows, metadata = _collect_angular_run(
                 motor=motor,
                 imu=imu,
                 speed_percent=speed_percent,
@@ -152,17 +149,18 @@ def run() -> int:
             summary_rows.append(
                 {
                     "speed_percent": speed_percent,
-                    "accel_axis": DEFAULT_ACCEL_AXIS,
-                    "baseline_m_s2": metadata["baseline_m_s2"],
+                    "left_track_percent": -speed_percent,
+                    "right_track_percent": speed_percent,
+                    "baseline_deg_s": metadata["baseline_deg_s"],
                     "sample_count": int(metadata["sample_count"]),
                     "csv_file": csv_file_name,
                     "started_at": metadata["start_iso"],
                 },
             )
             time.sleep(DEFAULT_POST_RUN_PAUSE_SEC)
-            _print_linear_run_summary(
+            _print_angular_run_summary(
                 speed_percent=speed_percent,
-                baseline_m_s2=float(metadata["baseline_m_s2"]),
+                baseline_deg_s=float(metadata["baseline_deg_s"]),
                 sample_count=int(metadata["sample_count"]),
                 csv_path=results_dir / csv_file_name,
             )
@@ -173,15 +171,16 @@ def run() -> int:
         imu.destroy()
 
     if not summary_rows:
-        print("Не удалось собрать ни одного линейного прогона.")
+        print("Не удалось собрать ни одного углового прогона.")
         return 1
 
     write_csv_rows(
         results_dir / SUMMARY_CSV_FILE_NAME,
         fieldnames=[
             "speed_percent",
-            "accel_axis",
-            "baseline_m_s2",
+            "left_track_percent",
+            "right_track_percent",
+            "baseline_deg_s",
             "sample_count",
             "csv_file",
             "started_at",
@@ -191,12 +190,11 @@ def run() -> int:
     write_json(
         results_dir / SUMMARY_JSON_FILE_NAME,
         {
-            "experiment": "linear_time_constant",
+            "experiment": "angular_time_constant",
             "created_at": utc_now_iso(),
             "duration_sec": DEFAULT_DURATION_SEC,
             "sample_interval_sec": DEFAULT_SAMPLE_INTERVAL_SEC,
             "baseline_duration_sec": DEFAULT_BASELINE_DURATION_SEC,
-            "accel_axis": DEFAULT_ACCEL_AXIS,
             "runs": summary_rows,
         },
     )
@@ -208,4 +206,4 @@ def run() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    raise SystemExit(run())

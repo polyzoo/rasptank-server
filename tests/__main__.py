@@ -14,6 +14,7 @@ CMD_ROUTE: str = "route"
 CMD_CALIBRATE_SPEED: str = "calibrate-speed"
 CMD_STATIC_VELOCITY: str = "static-velocity"
 CMD_TIME_CONSTANT: str = "time-constant"
+CMD_ANGULAR_TIME_CONSTANT: str = "angular-time-constant"
 CMD_KL_KR_TURN: str = "kl-kr-turn"
 
 # Значения по умолчанию
@@ -26,6 +27,8 @@ EXAMPLE_ROUTE_FILE: str = "tests/routes/square_40.json"
 EPILOG: str = """Команды:
   route <файл.json> [%]      тест выполнения маршрута (опц.: ограничение скорости)
   calibrate-speed [сек]      калибровка скорости
+  time-constant              линейный разгон Tv
+  angular-time-constant      угловой разгон Tω
   list                       список всех тестов
 """
 
@@ -33,8 +36,9 @@ TESTS: dict[str, tuple[str, str]] = {
     CMD_ROUTE: ("tests.test_route", "Выполнение маршрута"),
     CMD_CALIBRATE_SPEED: ("tests.calibrate_speed", "Калибровка скорости (см/с)"),
     CMD_STATIC_VELOCITY: ("tests.experiment_static_velocity", "Эксперимент v(U)"),
-    CMD_TIME_CONSTANT: ("tests.experiment_time_constant", "Эксперимент T"),
-    CMD_KL_KR_TURN: ("tests.experiment_kl_kr_turn_in_place", "Эксперимент k_l/k_r"),
+    CMD_TIME_CONSTANT: ("tests.experiment_time_constant", "Эксперимент Tv"),
+    CMD_ANGULAR_TIME_CONSTANT: ("tests.experiment_angular_time_constant", "Эксперимент Tω"),
+    CMD_KL_KR_TURN: ("tests.experiment_kl_kr_turn_in_place", "Эксперимент kR/kL"),
 }
 
 
@@ -49,7 +53,8 @@ def run_list() -> int:
     print(f"  python -m tests {CMD_ROUTE} {EXAMPLE_ROUTE_FILE}")
     print(f"  python -m tests {CMD_CALIBRATE_SPEED} {int(DEFAULT_CALIBRATE_SPEED_DURATION_SEC)}")
     print(f"  python -m tests {CMD_STATIC_VELOCITY} 50 5")
-    print(f"  python -m tests {CMD_TIME_CONSTANT} 60 5")
+    print(f"  python -m tests {CMD_TIME_CONSTANT}")
+    print(f"  python -m tests {CMD_ANGULAR_TIME_CONSTANT}")
     print(f"  python -m tests {CMD_KL_KR_TURN}")
     return EXIT_SUCCESS
 
@@ -114,9 +119,10 @@ def _run_command(command: str, args: list[Any], run_fn: Any) -> int:
         return run_fn(speed_percent=speed_percent, duration_sec=duration_sec)
 
     if command == CMD_TIME_CONSTANT:
-        speed_percent: int = int(args[0]) if args else 60
-        duration_sec: float = float(args[1]) if len(args) > 1 else 5.0
-        return run_fn(speed_percent=speed_percent, duration_sec=duration_sec)
+        return run_fn()
+
+    if command == CMD_ANGULAR_TIME_CONSTANT:
+        return run_fn()
 
     if command == CMD_KL_KR_TURN:
         return run_fn()

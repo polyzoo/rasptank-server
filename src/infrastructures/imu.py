@@ -31,15 +31,19 @@ class IMUSensor(GyroscopeProtocol):
 
     # Регистры MPU6050
     REG_PWR_MGMT_1: int = 0x6B
+    REG_ACCEL_XOUT_H: int = 0x3B
     REG_GYRO_ZOUT_H: int = 0x47
 
     # Технические коэффициенты
     GYRO_SCALE_FACTOR: float = 131.0
+    ACCEL_SCALE_FACTOR: float = 16384.0
+    STANDARD_GRAVITY_M_S2: float = 9.80665
     INT16_LIMIT: int = 32767
     INT16_OFFSET: int = 65536
 
     # Кол-во байт для чтения одного значения
     BYTES_PER_VALUE: int = 2
+    ACCEL_BYTES_COUNT: int = 6
 
     # Сдвиг для склеивания байтов
     BYTE_SHIFT: int = 8
@@ -50,6 +54,11 @@ class IMUSensor(GyroscopeProtocol):
 
     # Параметры навигации
     UPDATE_LOOP_SLEEP_SEC: float = 0.01
+
+    # Ориентация платы по осям акселерометра
+    ACCEL_SIGN_X: float = 1.0
+    ACCEL_SIGN_Y: float = 1.0
+    ACCEL_SIGN_Z: float = 1.0
 
     # Пауза после пробуждения чипа (с)
     WAKEUP_DELAY_SEC: float = 0.1
@@ -65,6 +74,10 @@ class IMUSensor(GyroscopeProtocol):
 
         self._yaw: float = 0.0
         self._gyro_z_bias: float = 0.0
+        self._gyro_z_deg_per_sec: float = 0.0
+        self._accel_x_m_s2: float = 0.0
+        self._accel_y_m_s2: float = 0.0
+        self._accel_z_m_s2: float = 0.0
         self._state_lock: Lock = Lock()
 
         self._stop_event: Event = Event()
@@ -86,6 +99,10 @@ class IMUSensor(GyroscopeProtocol):
 
         with self._state_lock:
             self._yaw: float = 0.0
+            self._gyro_z_deg_per_sec = 0.0
+            self._accel_x_m_s2 = 0.0
+            self._accel_y_m_s2 = 0.0
+            self._accel_z_m_s2 = 0.0
             self._last_update_time: float = time.monotonic()
 
         self._stop_event.clear()
@@ -128,6 +145,23 @@ class IMUSensor(GyroscopeProtocol):
         """Сброс текущего значения угла в ноль."""
         with self._state_lock:
             self._yaw = 0.0
+
+    def get_gyro_z_deg_per_sec(self) -> float:
+        """Возврат текущей угловой скорости вокруг оси Z в град/с."""
+        with self._state_lock:
+            return self._gyro_z_deg_per_sec
+
+    def get_accel_axis_m_s2(self, axis: str = "x") -> float:
+        """Возврат текущего ускорения по выбранной оси в м/с^2."""
+        normalized_axis: str = axis.strip().lower()
+        with self._state_lock:
+            if normalized_axis == "x":
+                return self._accel_x_m_s2
+            if normalized_axis == "y":
+                return self._accel_y_m_s2
+            if normalized_axis == "z":
+                return self._accel_z_m_s2
+        raise ValueError(f"Неподдерживаемая ось акселерометра: {axis}")
 
     def destroy(self) -> None:
         """Освобождение ресурсов."""
@@ -180,6 +214,33 @@ class IMUSensor(GyroscopeProtocol):
             logger.debug("IMU: Ошибка чтения gyro_z: %s", exc)
             return 0.0
 
+    def _read_raw_accel_xyz(self) -> tuple[float, float, float]:
+        """Чтение сырых данных акселерометра по трём осям."""
+        if not self._is_initialized:
+            return (0.0, 0.0, 0.0)
+
+        try:
+            data: Any = self._bus.read_i2c_block_data(
+                self.I2C_ADDRESS,
+                self.REG_ACCEL_XOUT_H,
+                self.ACCEL_BYTES_COUNT,
+            )
+        except Exception as exc:
+            logger.debug("IMU: Ошибка чтения accelerometer: %s", exc)
+            return (0.0, 0.0, 0.0)
+
+        accel_x: float = self._decode_int16(data[0], data[1])
+        accel_y: float = self._decode_int16(data[2], data[3])
+        accel_z: float = self._decode_int16(data[4], data[5])
+        return (accel_x, accel_y, accel_z)
+
+    def _decode_int16(self, high_byte: int, low_byte: int) -> float:
+        """Склеить два байта в signed int16."""
+        raw_val: int = (high_byte << self.BYTE_SHIFT) | low_byte
+        if raw_val > self.INT16_LIMIT:
+            raw_val -= self.INT16_OFFSET
+        return float(raw_val)
+
     def _update_loop(self) -> None:
         """Фоновый цикл интеграции угловой скорости."""
         while not self._stop_event.is_set():
@@ -190,10 +251,30 @@ class IMUSensor(GyroscopeProtocol):
                 self._last_update_time = now
 
             raw_gz: float = self._read_raw_gyro_z()
+            raw_ax, raw_ay, raw_az = self._read_raw_accel_xyz()
             actual_gz: float = (raw_gz - self._gyro_z_bias) / self.GYRO_SCALE_FACTOR
             yaw_delta: float = (self.GYRO_SIGN_Z * actual_gz) * dt
+            accel_x_m_s2: float = (
+                self.ACCEL_SIGN_X
+                * (raw_ax / self.ACCEL_SCALE_FACTOR)
+                * self.STANDARD_GRAVITY_M_S2
+            )
+            accel_y_m_s2: float = (
+                self.ACCEL_SIGN_Y
+                * (raw_ay / self.ACCEL_SCALE_FACTOR)
+                * self.STANDARD_GRAVITY_M_S2
+            )
+            accel_z_m_s2: float = (
+                self.ACCEL_SIGN_Z
+                * (raw_az / self.ACCEL_SCALE_FACTOR)
+                * self.STANDARD_GRAVITY_M_S2
+            )
 
             with self._state_lock:
                 self._yaw += yaw_delta
+                self._gyro_z_deg_per_sec = self.GYRO_SIGN_Z * actual_gz
+                self._accel_x_m_s2 = accel_x_m_s2
+                self._accel_y_m_s2 = accel_y_m_s2
+                self._accel_z_m_s2 = accel_z_m_s2
 
             time.sleep(self.UPDATE_LOOP_SLEEP_SEC)

@@ -51,7 +51,10 @@ class MotorController(MotorControllerProtocol):
 
     SPEED_PERCENT_MIN: int = 0
     SPEED_PERCENT_MAX: int = 100
+    SPEED_PERCENT_SIGNED_MIN: int = -100
+    SPEED_PERCENT_SIGNED_MAX: int = 100
     THROTTLE_STOP: float = 0.0
+    THROTTLE_REVERSE_MIN: float = -1.0
     THROTTLE_MIN: float = 0.0
     THROTTLE_MAX: float = 1.0
 
@@ -92,6 +95,22 @@ class MotorController(MotorControllerProtocol):
 
         if self._motor2 is not None:
             self._motor2.throttle = self.THROTTLE_STOP
+
+    def drive_tracks(self, left_speed_percent: float, right_speed_percent: float) -> None:
+        """Независимое управление левой и правой гусеницей signed-процентами."""
+        if not _HARDWARE_AVAILABLE:
+            return
+
+        self._setup()
+        if self._motor1 is None or self._motor2 is None:
+            return
+
+        self._motor1.throttle = self._signed_percent_to_throttle(
+            right_speed_percent,
+        ) * self.M1_DIRECTION
+        self._motor2.throttle = self._signed_percent_to_throttle(
+            left_speed_percent,
+        ) * self.M2_DIRECTION
 
     def destroy(self) -> None:
         """Освобождение ресурсов I2C и PCA9685."""
@@ -163,6 +182,15 @@ class MotorController(MotorControllerProtocol):
         else:
             self._motor1.throttle = throttle * self.M1_DIRECTION
             self._motor2.throttle = -throttle * self.M2_DIRECTION
+
+    def _signed_percent_to_throttle(self, speed_percent: float) -> float:
+        """Преобразовать signed-процент в throttle диапазона [-1.0; 1.0]."""
+        clamped_percent: float = max(
+            self.SPEED_PERCENT_SIGNED_MIN,
+            min(self.SPEED_PERCENT_SIGNED_MAX, float(speed_percent)),
+        )
+        throttle: float = clamped_percent / float(self.SPEED_PERCENT_MAX)
+        return max(self.THROTTLE_REVERSE_MIN, min(self.THROTTLE_MAX, throttle))
 
     def _setup(self) -> None:
         """Однократная инициализация PCA9685 и DC-моторов."""
