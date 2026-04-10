@@ -20,6 +20,20 @@ class Settings(BaseSettings):
         validation_alias="APP_PORT",
         description="Порт сервера.",
     )
+    head_servo_channel: int = Field(
+        default=4,
+        ge=0,
+        le=15,
+        validation_alias="HEAD_SERVO_CHANNEL",
+        description="PCA9685-канал серво головы/датчика.",
+    )
+    head_servo_home_angle_deg: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=180.0,
+        validation_alias="HEAD_SERVO_HOME_ANGLE_DEG",
+        description="Угол фиксации головы перед стартом движения.",
+    )
     min_obstacle_distance_cm: float = Field(
         default=20.0,
         ge=0,
