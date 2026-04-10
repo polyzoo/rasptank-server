@@ -3,10 +3,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from src.application.factories import create_drive_controller
+from src.application.services.motion_events import MotionEventHub
 from src.config.settings import Settings
 from src.presentation.api.exception_handlers import setup_exception_handlers
 from src.presentation.api.v1.routers import router as v1_router
@@ -31,15 +32,24 @@ def create_app(settings: Settings) -> FastAPI:
     )
 
     app.state.settings = settings
-    app.state.drive_controller = create_drive_controller(settings)
+    app.state.motion_events = MotionEventHub()
+    app.state.drive_controller = create_drive_controller(settings, app.state.motion_events)
 
     setup_exception_handlers(app)
     app.include_router(v1_router)
+    app.mount(
+        path="/demo",
+        app=StaticFiles(directory="src/presentation/static", html=True),
+        name="demo",
+    )
+
     return app
 
 
 settings: Settings = Settings()
 app: FastAPI = create_app(settings=settings)
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
+    import uvicorn
+
     uvicorn.run("src.main:app", host=settings.app_host, port=settings.app_port, reload=True)

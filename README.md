@@ -40,23 +40,11 @@ uvicorn src.main:app --host 0.0.0.0 --port 8010
 
 5. Откройте `http://localhost:8010/docs` для Swagger UI.
 
-## API
-
-| Метод | Endpoint          | Описание              |
-|-------|-------------------|-----------------------|
-| POST  | `/v1/drive/route` | Выполнение маршрута   |
-| POST  | `/v1/drive/stop`  | Немедленная остановка |
-
-### Пример
+6. Для запуска тестов используйте команду.
 
 ```bash
-curl -X POST http://localhost:8010/v1/drive/route \
-  -H "Content-Type: application/json" \
-  -d '{"segments": [
-    {"action": "forward", "distance_cm": 100},
-    {"action": "turn_left", "angle_deg": 90},
-    {"action": "forward", "distance_cm": 100}
-  ]}'
+make test
+make coverage
 ```
 
 ## Конфигурация

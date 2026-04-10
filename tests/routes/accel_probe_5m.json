@@ -1,9 +1,0 @@
-{
-  "description": "Прямая 5 м для логирования разгона и оценки T.",
-  "segments": [
-    {
-      "action": "forward",
-      "distance_cm": 500
-    }
-  ]
-}

@@ -19,7 +19,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         """Обработчик для валидационных ошибок."""
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={"detail": exc.errors()},
         )
 
@@ -29,6 +29,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
         exc: Exception,
     ) -> JSONResponse:
         """Обработчик для всех ошибок."""
+        logger.exception("Внутреняя ошибка сервера: %s", exc)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"message": "Internal server error"},

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>RaspTank WebSocket demo</title>
+    <link rel="stylesheet" href="/demo/styles.css"/>
+</head>
+<body>
+<main>
+    <section class="toolbar" aria-label="Управление маршрутом">
+        <div>
+            <p class="eyebrow">RaspTank</p>
+            <h1>Маршрут и события</h1>
+        </div>
+        <div class="actions">
+            <button id="startSquare" type="button">Квадрат 30 см</button>
+            <button id="startLine" type="button">Вперед 35 см</button>
+            <button id="stop" class="secondary" type="button">Стоп</button>
+        </div>
+    </section>
+
+    <section class="workspace" aria-label="Карта движения">
+        <canvas id="routeCanvas" width="760" height="520"></canvas>
+        <aside class="panel">
+            <p class="eyebrow">Состояние</p>
+            <strong id="status">подключение...</strong>
+            <dl>
+                <div>
+                    <dt>X</dt>
+                    <dd id="x">0 см</dd>
+                </div>
+                <div>
+                    <dt>Y</dt>
+                    <dd id="y">0 см</dd>
+                </div>
+                <div>
+                    <dt>Курс</dt>
+                    <dd id="heading">0°</dd>
+                </div>
+                <div>
+                    <dt>Датчик</dt>
+                    <dd id="obstacle">нет данных</dd>
+                </div>
+            </dl>
+            <p id="message" class="message">Ожидание событий</p>
+        </aside>
+    </section>
+</main>
+
+<script src="/demo/app.js"></script>
+</body>
+</html>
