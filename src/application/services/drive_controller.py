@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -11,6 +12,7 @@ from src.application.models.route import Route
 from src.application.protocols import (
     DriveControllerProtocol,
     GyroscopeProtocol,
+    HeadServoProtocol,
     MotorControllerProtocol,
     UltrasonicSensorProtocol,
 )
@@ -19,6 +21,12 @@ from src.application.services.linear_motion_executor import (
     LinearMotionExecutor,
 )
 from src.application.services.motion_config import MotionConfig
+from src.application.services.motion_events import (
+    MotionEvent,
+    MotionEventHub,
+    MotionEventType,
+    MotionStatus,
+)
 from src.application.services.motion_lifecycle import MotionLifecycle
 from src.application.services.route_executor import RouteExecutor
 from src.application.services.route_runner import RouteRunner
@@ -103,8 +111,6 @@ class DistanceMeasurementSummary:
     min_cm: float
     max_cm: float
     spread_cm: float
-    no_echo_count: int = 0
-    fallback_count: int = 0
     reliable: bool = True
     reliability_reason: str = "stable"
 
@@ -164,6 +170,7 @@ class DriveController(DriveControllerProtocol):
     SIDE_SCAN_SENSOR_SETTLE_SEC: float = 0.07
     REJOIN_FINAL_LATERAL_RECOVERY_RATIO: float = 0.95
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
+    DEFAULT_WORKSPACE_LIMIT_CM: float = 40.0
 
     def __init__(
         self,
@@ -205,6 +212,10 @@ class DriveController(DriveControllerProtocol):
         turn_obstacle_check_interval_sec: float = 0.20,
         turn_timeout_per_deg: float = 0.05,
         turn_timeout_min: float = 1.0,
+        motion_events: MotionEventHub | None = None,
+        workspace_limit_cm: float = DEFAULT_WORKSPACE_LIMIT_CM,
+        head_servo: HeadServoProtocol | None = None,
+        head_servo_home_angle_deg: float = 0.0,
     ) -> None:
         """Инициализация контроллера движения."""
         self.motor_controller: MotorControllerProtocol = motor_controller
@@ -247,6 +258,14 @@ class DriveController(DriveControllerProtocol):
         )
         self.lifecycle: MotionLifecycle = MotionLifecycle()
         self._stop_event: Event = self.lifecycle.stop_event
+        self._motion_events: MotionEventHub | None = motion_events
+        self._head_servo: HeadServoProtocol | None = head_servo
+        self._head_servo_home_angle_deg: float = head_servo_home_angle_deg
+        self._workspace_limit_cm: float = workspace_limit_cm
+        self._position_x_cm: float = 0.0
+        self._position_y_cm: float = 0.0
+        self._heading_deg: float = 0.0
+        self._motion_error_reported: bool = False
         self._sync_runtime_settings_from_config()
 
         self._linear_motion: LinearMotionExecutor = LinearMotionExecutor(
@@ -296,12 +315,15 @@ class DriveController(DriveControllerProtocol):
             lifecycle=self.lifecycle,
             base_speed_percent=self.base_speed_percent,
             forward_segment_runner=self._run_forward_segment,
+            backward_segment_runner=self._run_backward_segment,
+            turn_completed_callback=self._handle_turn_completed,
         )
 
         self._route_executor: RouteExecutor = RouteExecutor(
             route_runner=self._route_runner,
             motor_controller=motor_controller,
             lifecycle=self.lifecycle,
+            on_finished=self._handle_route_finished,
         )
 
     @property
@@ -331,6 +353,7 @@ class DriveController(DriveControllerProtocol):
     def forward_cm_sync(self, distance_cm: float, max_speed_percent: int | None = None) -> None:
         """Проехать заданную дистанцию в текущем потоке."""
         self._stop_motion()
+        self._fix_head_forward()
         self.lifecycle.set_running(is_route_running=False)
         self.gyroscope.start(calibrate=True)
 
@@ -347,6 +370,9 @@ class DriveController(DriveControllerProtocol):
     def execute_route(self, route: Route) -> None:
         """Запустить выполнение маршрута в фоновом потоке."""
         self._stop_motion()
+        self._fix_head_forward()
+        self._reset_motion_state()
+        self._publish_motion_event(status="moving", event_type="status", message="Маршрут запущен")
         self._route_runner.base_speed_percent = self.base_speed_percent
         self.lifecycle.set_running(is_route_running=True)
         self._route_executor.execute(route)
@@ -354,6 +380,9 @@ class DriveController(DriveControllerProtocol):
     def execute_route_sync(self, route: Route) -> None:
         """Запустить выполнение маршрута в текущем потоке."""
         self._stop_motion()
+        self._fix_head_forward()
+        self._reset_motion_state()
+        self._publish_motion_event(status="moving", event_type="status", message="Маршрут запущен")
         self._route_runner.base_speed_percent = self.base_speed_percent
         self.lifecycle.set_running(is_route_running=True)
 
@@ -362,11 +391,13 @@ class DriveController(DriveControllerProtocol):
         finally:
             self.motor_controller.stop()
             self.lifecycle.set_stopped()
+            self._publish_motion_event(status="stopped", event_type="status", message="Маршрут завершен")
 
     def stop(self) -> None:
         """Остановить текущее движение."""
         self._route_executor.stop()
         self._stop_motion()
+        self._publish_motion_event(status="stopped", event_type="status", message="Движение остановлено")
 
     def destroy(self) -> None:
         """Освободить все ресурсы, связанные с движением."""
@@ -374,6 +405,8 @@ class DriveController(DriveControllerProtocol):
         self.motor_controller.destroy()
         self.ultrasonic_sensor.destroy()
         self.gyroscope.destroy()
+        if self._head_servo is not None:
+            self._head_servo.destroy()
 
     def _run_forward_segment(self, distance_cm: float, speed_percent: int) -> bool:
         """Запустить forward-сегмент с obstacle avoidance поверх linear executor."""
@@ -455,11 +488,144 @@ class DriveController(DriveControllerProtocol):
             obstacle_distance_provider=(
                 self._measure_motion_obstacle_distance if obstacle_aware else None
             ),
+            progress_callback=self._handle_linear_motion_progress,
+            progress_direction=1 if move_forward else -1,
         )
         return LinearMoveResult(
             completed=result.completed,
             traveled_cm=result.traveled_cm,
             blocked=result.blocked,
+        )
+
+    def _reset_motion_state(self) -> None:
+        """Сбросить расчетную позицию маршрута."""
+        self._position_x_cm = 0.0
+        self._position_y_cm = 0.0
+        self._heading_deg = 0.0
+        self._motion_error_reported = False
+
+    def _fix_head_forward(self) -> None:
+        """Зафиксировать голову/датчик перед началом движения."""
+        if self._head_servo is None:
+            return
+
+        try:
+            self._head_servo.set_angle(self._head_servo_home_angle_deg)
+        except (OSError, RuntimeError, ConnectionError, ValueError) as exc:
+            logger.warning("Не удалось зафиксировать голову перед движением: %s", exc)
+
+    def _handle_linear_motion_progress(
+        self,
+        traveled_cm: float,
+        delta_cm: float,
+        direction: int,
+        obstacle_cm: float | None,
+    ) -> None:
+        """Обновить расчетную позицию по прогрессу линейного движения."""
+        if delta_cm != 0.0:
+            heading_rad: float = math.radians(self._heading_deg)
+            self._position_x_cm += math.sin(heading_rad) * delta_cm
+            self._position_y_cm += math.cos(heading_rad) * delta_cm
+
+        status: MotionStatus = "moving"
+        message: str | None = None
+        if obstacle_cm is not None and obstacle_cm <= self.min_obstacle_distance_cm:
+            status = "blocked"
+            message = f"Препятствие ближе {self.min_obstacle_distance_cm:.0f} см"
+
+        self._publish_motion_event(
+            status=status,
+            event_type="position",
+            message=message,
+            obstacle_cm=obstacle_cm,
+        )
+        if status == "blocked" and obstacle_cm is not None:
+            self._publish_obstacle_event(obstacle_cm)
+        self._stop_if_workspace_limit_exceeded()
+
+    def _handle_turn_completed(self, angle_deg: float, turn_left: bool) -> None:
+        """Обновить расчетный курс после маршрутного поворота."""
+        signed_angle: float = -angle_deg if turn_left else angle_deg
+        self._heading_deg = (self._heading_deg + signed_angle) % 360.0
+        self._publish_motion_event(
+            status="turning",
+            event_type="position",
+            message=f"Поворот {'налево' if turn_left else 'направо'}: {angle_deg:.0f}°",
+        )
+
+    def _handle_route_finished(self) -> None:
+        """Опубликовать финальное событие фонового маршрута."""
+        if not self._motion_error_reported:
+            self._publish_motion_event(
+                status="stopped",
+                event_type="status",
+                message="Маршрут завершен",
+            )
+
+    def _publish_motion_event(
+        self,
+        *,
+        status: MotionStatus,
+        event_type: MotionEventType,
+        message: str | None = None,
+        obstacle_cm: float | None = None,
+    ) -> None:
+        """Опубликовать событие движения, если подключен event hub."""
+        if self._motion_events is None:
+            return
+
+        self._motion_events.publish(
+            MotionEvent(
+                type=event_type,
+                status=status,
+                x_cm=self._position_x_cm,
+                y_cm=self._position_y_cm,
+                heading_deg=self._heading_deg,
+                message=message,
+                obstacle_cm=obstacle_cm,
+            )
+        )
+
+    def _publish_obstacle_event(self, obstacle_cm: float) -> None:
+        """Опубликовать расчетные координаты обнаруженного препятствия."""
+        if self._motion_events is None:
+            return
+
+        heading_rad: float = math.radians(self._heading_deg)
+        obstacle_x_cm: float = self._position_x_cm + math.sin(heading_rad) * obstacle_cm
+        obstacle_y_cm: float = self._position_y_cm + math.cos(heading_rad) * obstacle_cm
+        self._motion_events.publish(
+            MotionEvent(
+                type="obstacle",
+                status="blocked",
+                x_cm=self._position_x_cm,
+                y_cm=self._position_y_cm,
+                heading_deg=self._heading_deg,
+                message="Обнаружено препятствие",
+                obstacle_cm=obstacle_cm,
+                obstacle_x_cm=obstacle_x_cm,
+                obstacle_y_cm=obstacle_y_cm,
+            )
+        )
+
+    def _stop_if_workspace_limit_exceeded(self) -> None:
+        """Остановить движение и уведомить UI при выходе из зоны 40 см."""
+        if self._motion_error_reported:
+            return
+
+        if (
+            abs(self._position_x_cm) <= self._workspace_limit_cm
+            and abs(self._position_y_cm) <= self._workspace_limit_cm
+        ):
+            return
+
+        self._motion_error_reported = True
+        self.motor_controller.stop()
+        self.lifecycle.set_stopped()
+        self._publish_motion_event(
+            status="error",
+            event_type="error",
+            message=f"Машинка вышла за пределы зоны {self._workspace_limit_cm:.0f} см",
         )
 
     def _run_obstacle_avoidance(self, remaining_cm: float, speed_percent: int) -> AvoidanceResult:
@@ -1080,6 +1246,7 @@ class DriveController(DriveControllerProtocol):
             turn_left=turn_left,
             stop_on_front_obstacle=stop_on_front_obstacle,
         )
+        self._handle_turn_completed(turn_result.angle_deg, turn_left)
         return TurnResult(
             completed=turn_result.completed,
             angle_deg=turn_result.angle_deg,
@@ -1094,33 +1261,22 @@ class DriveController(DriveControllerProtocol):
         self,
         samples: int | None = None,
     ) -> DistanceMeasurementSummary:
-        """Серия измерений фронтальной дистанции с диагностикой качества сигнала."""
+        """Серия измерений фронтальной дистанции с оценкой стабильности."""
         sample_count: int = max(
             self.BLOCK_CONFIRMATION_SAMPLES_MIN,
             samples or self.avoidance_confirm_readings,
         )
         measurements: list[float] = []
-        no_echo_count: int = 0
-        fallback_count: int = 0
 
         for _ in range(sample_count):
             distance_cm: float = self.ultrasonic_sensor.measure_distance_cm()
             measurements.append(distance_cm)
-            diagnostics = self._get_ultrasonic_measurement_diagnostics()
-            if diagnostics is None:
-                continue
-            no_echo_count += int(bool(getattr(diagnostics, "no_echo", False)))
-            fallback_count += int(bool(getattr(diagnostics, "used_fallback_distance", False)))
 
         measurements.sort()
         min_cm: float = measurements[0]
         max_cm: float = measurements[-1]
         spread_cm: float = max_cm - min_cm
         reliability_issues: list[str] = []
-        if no_echo_count > 0:
-            reliability_issues.append(f"no_echo_samples={no_echo_count}/{sample_count}")
-        if fallback_count > 0:
-            reliability_issues.append(f"fallback_samples={fallback_count}/{sample_count}")
         if spread_cm > self.SIDE_SCAN_MEASUREMENT_MAX_SPREAD_CM:
             reliability_issues.append(
                 "wide_sample_spread="
@@ -1133,8 +1289,6 @@ class DriveController(DriveControllerProtocol):
             min_cm=min_cm,
             max_cm=max_cm,
             spread_cm=spread_cm,
-            no_echo_count=no_echo_count,
-            fallback_count=fallback_count,
             reliable=reliable,
             reliability_reason=(
                 "stable median sample set"
@@ -1142,16 +1296,6 @@ class DriveController(DriveControllerProtocol):
                 else ", ".join(reliability_issues)
             ),
         )
-
-    def _get_ultrasonic_measurement_diagnostics(self) -> object | None:
-        """Пытается получить диагностику последнего чтения от драйвера ультразвука."""
-        getter = getattr(self.ultrasonic_sensor, "get_last_measurement_diagnostics", None)
-        if not callable(getter):
-            return None
-        try:
-            return getter()
-        except (OSError, RuntimeError, ConnectionError, ValueError):
-            return None
 
     def _wait_for_side_scan_sensor_settle(self) -> None:
         """Даёт ультразвуковому сенсору время обновить чтение после поворота корпуса."""
@@ -1409,8 +1553,7 @@ class DriveController(DriveControllerProtocol):
             "secondary_turned_angle_deg=%s secondary_clearance_cm=%s scan_completed=%s "
             "partial_scan=%s scan_useful=%s limited_confidence=%s heading_restored=%s "
             "turn_stop_reason=%s measurement_samples=%s measurement_spread_cm=%s "
-            "measurement_no_echo=%d measurement_fallback=%d measurement_reliable=%s "
-            "measurement_reason=%s selection_blocked=%s selection_reason=%s "
+            "measurement_reliable=%s measurement_reason=%s selection_blocked=%s selection_reason=%s "
             "useful_angle_min_deg=%.1f confident_angle_min_deg=%.1f",
             result.side.value,
             clearance_repr,
@@ -1445,8 +1588,6 @@ class DriveController(DriveControllerProtocol):
                 if measurement_summary is not None
                 else "n/a"
             ),
-            measurement_summary.no_echo_count if measurement_summary is not None else 0,
-            measurement_summary.fallback_count if measurement_summary is not None else 0,
             measurement_summary.reliable if measurement_summary is not None else True,
             measurement_summary.reliability_reason if measurement_summary is not None else "n/a",
             result.selection_blocked,
@@ -1459,8 +1600,8 @@ class DriveController(DriveControllerProtocol):
                 "Обход: сторона %s отклонена. reason=%s clearance_cm=%s primary_clearance_cm=%s "
                 "secondary_clearance_cm=%s threshold=%.1f exploratory_threshold=%.1f "
                 "raw_exploratory_threshold=%.1f heading_restored=%s "
-                "turn_stop_reason=%s measurement_reliable=%s no_echo_samples=%d "
-                "fallback_samples=%d measurement_reason=%s selection_reason=%s",
+                "turn_stop_reason=%s measurement_reliable=%s measurement_reason=%s "
+                "selection_reason=%s",
                 result.side.value,
                 result.rejection_reason,
                 clearance_repr,
@@ -1472,8 +1613,6 @@ class DriveController(DriveControllerProtocol):
                 result.heading_restored,
                 result.turn_stop_reason,
                 measurement_summary.reliable if measurement_summary is not None else True,
-                measurement_summary.no_echo_count if measurement_summary is not None else 0,
-                measurement_summary.fallback_count if measurement_summary is not None else 0,
                 measurement_summary.reliability_reason if measurement_summary is not None else "n/a",
                 result.selection_reason or "n/a",
             )
@@ -1556,8 +1695,7 @@ class DriveController(DriveControllerProtocol):
         return (
             f"samples={list(summary.raw_samples_cm)}, median={summary.median_cm:.1f}см, "
             f"range=[{summary.min_cm:.1f},{summary.max_cm:.1f}]см, "
-            f"spread={summary.spread_cm:.1f}см, no_echo={summary.no_echo_count}, "
-            f"fallback={summary.fallback_count}, reliable={summary.reliable}, "
+            f"spread={summary.spread_cm:.1f}см, reliable={summary.reliable}, "
             f"reason={summary.reliability_reason}"
         )
 

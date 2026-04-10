@@ -73,7 +73,7 @@ class TurnExecutor:
         turn_left: bool,
         segment_index: int,
         total_segments: int,
-    ) -> None:
+    ) -> TurnExecutionResult:
         """Выполнить поворот маршрута с учетом поправки угла и последнего сегмента."""
         target_angle: float = self._route_turn_target_angle(
             requested_angle_deg=requested_angle_deg,
@@ -81,7 +81,7 @@ class TurnExecutor:
             total_segments=total_segments,
         )
         timeout_sec: float = max(self.turn_timeout_min, target_angle * self.turn_timeout_per_deg)
-        self._execute_turn(
+        return self._execute_turn(
             turn_left=turn_left,
             target_angle=target_angle,
             timeout_sec=timeout_sec,

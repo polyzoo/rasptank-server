@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Protocol
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from src.application.models.route import Route
 
 
@@ -65,6 +65,18 @@ class GyroscopeProtocol(Protocol):
     @abstractmethod
     def reset_yaw(self) -> None:
         """Сброс угла."""
+
+    @abstractmethod
+    def destroy(self) -> None:
+        """Освобождение ресурсов."""
+
+
+class HeadServoProtocol(Protocol):
+    """Протокол фиксации головы/датчика."""
+
+    @abstractmethod
+    def set_angle(self, angle_deg: float) -> None:
+        """Установить угол головы."""
 
     @abstractmethod
     def destroy(self) -> None:

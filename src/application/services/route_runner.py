@@ -19,6 +19,8 @@ from src.application.services.motion_lifecycle import MotionLifecycle
 from src.application.services.turn_executor import TurnExecutor
 
 ForwardSegmentRunner = Callable[[float, int], bool]
+BackwardSegmentRunner = Callable[[float, int], bool]
+TurnCompletedCallback = Callable[[float, bool], None]
 
 
 class RouteRunner:
@@ -34,6 +36,8 @@ class RouteRunner:
         lifecycle: MotionLifecycle,
         base_speed_percent: int,
         forward_segment_runner: ForwardSegmentRunner | None = None,
+        backward_segment_runner: BackwardSegmentRunner | None = None,
+        turn_completed_callback: TurnCompletedCallback | None = None,
     ) -> None:
         """Инициализация исполнителя маршрута."""
         self._linear_motion: LinearMotionExecutor = linear_motion
@@ -44,6 +48,8 @@ class RouteRunner:
         self._lifecycle: MotionLifecycle = lifecycle
         self.base_speed_percent: int = base_speed_percent
         self._forward_segment_runner: ForwardSegmentRunner | None = forward_segment_runner
+        self._backward_segment_runner: BackwardSegmentRunner | None = backward_segment_runner
+        self._turn_completed_callback: TurnCompletedCallback | None = turn_completed_callback
 
     def run(self, segments: list[RouteSegment]) -> None:
         """Выполнить все сегменты маршрута по порядку."""
@@ -91,6 +97,9 @@ class RouteRunner:
 
     def _run_backward_segment(self, segment: BackwardSegment) -> bool:
         """Выполнить обратный сегмент маршрута."""
+        if self._backward_segment_runner is not None:
+            return self._backward_segment_runner(segment.distance_cm, self.base_speed_percent)
+
         return self._linear_motion.run(
             distance_cm=segment.distance_cm,
             speed_percent=self.base_speed_percent,
@@ -105,12 +114,14 @@ class RouteRunner:
         total_segments: int,
     ) -> None:
         """Выполнить поворот налево."""
-        self._turn_executor.run(
+        result = self._turn_executor.run(
             requested_angle_deg=segment.angle_deg,
             turn_left=True,
             segment_index=segment_index,
             total_segments=total_segments,
         )
+        if self._turn_completed_callback is not None:
+            self._turn_completed_callback(result.angle_deg, True)
 
     def _run_turn_right_segment(
         self,
@@ -119,9 +130,11 @@ class RouteRunner:
         total_segments: int,
     ) -> None:
         """Выполнить поворот направо."""
-        self._turn_executor.run(
+        result = self._turn_executor.run(
             requested_angle_deg=segment.angle_deg,
             turn_left=False,
             segment_index=segment_index,
             total_segments=total_segments,
         )
+        if self._turn_completed_callback is not None:
+            self._turn_completed_callback(result.angle_deg, False)

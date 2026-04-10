@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from threading import Thread
 
 from src.application.models.route import Route
@@ -19,11 +20,13 @@ class RouteExecutor:
         route_runner: RouteRunner,
         motor_controller: MotorControllerProtocol,
         lifecycle: MotionLifecycle,
+        on_finished: Callable[[], None] | None = None,
     ) -> None:
         """Инициализация исполнителя маршрута."""
         self._route_runner: RouteRunner = route_runner
         self._motor_controller: MotorControllerProtocol = motor_controller
         self._lifecycle: MotionLifecycle = lifecycle
+        self._on_finished: Callable[[], None] | None = on_finished
 
     def execute(self, route: Route) -> None:
         """Запустить маршрут в фоновом потоке."""
@@ -52,6 +55,8 @@ class RouteExecutor:
         finally:
             self._motor_controller.stop()
             self._lifecycle.set_stopped()
+            if self._on_finished is not None:
+                self._on_finished()
             self._lifecycle.clear_thread_if_current()
 
     def _run_route_segments(self, segments: list) -> None:

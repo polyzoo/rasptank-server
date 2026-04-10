@@ -2,16 +2,25 @@ from __future__ import annotations
 
 from src.application.services.drive_controller import DriveController
 from src.application.services.motion_config import MotionConfig
+from src.application.services.motion_events import MotionEventHub
 from src.config.settings import Settings
 from src.infrastructures.imu import IMUSensor
+from src.infrastructures.head_servo import HeadServoController
 from src.infrastructures.motor import MotorController
 from src.infrastructures.ultrasonic import UltrasonicSensor
 
 
-def create_drive_controller(settings: Settings) -> DriveController:
+def create_drive_controller(
+    settings: Settings,
+    motion_events: MotionEventHub | None = None,
+) -> DriveController:
     """Собирает контроллер движения со всеми инфраструктурными зависимостями."""
     imu_sensor: IMUSensor = IMUSensor()
     ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
+    head_servo: HeadServoController = HeadServoController(
+        channel=settings.head_servo_channel,
+        home_angle_deg=settings.head_servo_home_angle_deg,
+    )
     motor_controller: MotorController = MotorController(
         tl_left_offset=settings.tl_left_offset,
         tl_right_offset=settings.tl_right_offset,
@@ -58,4 +67,7 @@ def create_drive_controller(settings: Settings) -> DriveController:
         gyroscope=imu_sensor,
         ultrasonic_sensor=ultrasonic_sensor,
         config=config,
+        motion_events=motion_events,
+        head_servo=head_servo,
+        head_servo_home_angle_deg=settings.head_servo_home_angle_deg,
     )

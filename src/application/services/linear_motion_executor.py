@@ -16,6 +16,7 @@ from src.application.services.motion_lifecycle import MotionLifecycle
 logger: logging.Logger = logging.getLogger(__name__)
 
 ObstacleDistanceProvider = Callable[[], float]
+MotionProgressCallback = Callable[[float, float, int, float | None], None]
 
 
 @dataclass(slots=True)
@@ -95,6 +96,8 @@ class LinearMotionExecutor:
         *,
         obstacle_aware: bool = True,
         obstacle_distance_provider: ObstacleDistanceProvider | None = None,
+        progress_callback: MotionProgressCallback | None = None,
+        progress_direction: int = 1,
     ) -> bool:
         """Пройти заданную дистанцию с учетом препятствий и коррекции курса."""
         return self.run_with_result(
@@ -103,6 +106,8 @@ class LinearMotionExecutor:
             move_fn=move_fn,
             obstacle_aware=obstacle_aware,
             obstacle_distance_provider=obstacle_distance_provider,
+            progress_callback=progress_callback,
+            progress_direction=progress_direction,
         ).completed
 
     def run_with_result(
@@ -113,6 +118,8 @@ class LinearMotionExecutor:
         *,
         obstacle_aware: bool = True,
         obstacle_distance_provider: ObstacleDistanceProvider | None = None,
+        progress_callback: MotionProgressCallback | None = None,
+        progress_direction: int = 1,
     ) -> LinearMotionExecutionResult:
         """Пройти заданную дистанцию и вернуть расширенный результат исполнения."""
         if distance_cm <= 0.0:
@@ -120,6 +127,7 @@ class LinearMotionExecutor:
             return LinearMotionExecutionResult(completed=True, traveled_cm=0.0)
 
         traveled_cm: float = 0.0
+        reported_traveled_cm: float = 0.0
         last_effective_speed: float = 0.0
         last_cmd_speed: float = 0.0
 
@@ -141,6 +149,13 @@ class LinearMotionExecutor:
 
                 last_time = now
                 traveled_cm += self._estimate_traveled_distance(last_effective_speed, dt)
+                reported_traveled_cm = self._publish_progress(
+                    progress_callback=progress_callback,
+                    traveled_cm=traveled_cm,
+                    reported_traveled_cm=reported_traveled_cm,
+                    direction=progress_direction,
+                    obstacle_cm=obstacle_cm,
+                )
 
                 remaining_dist: float = max(0.0, distance_cm - traveled_cm)
                 if remaining_dist <= 0.0:
@@ -160,6 +175,13 @@ class LinearMotionExecutor:
                     )
                     if current_speed <= 0.0:
                         self.motor_controller.stop()
+                        self._publish_progress(
+                            progress_callback=progress_callback,
+                            traveled_cm=traveled_cm,
+                            reported_traveled_cm=reported_traveled_cm,
+                            direction=progress_direction,
+                            obstacle_cm=obstacle_cm,
+                        )
                         time.sleep(self.update_interval_sec)
                         return LinearMotionExecutionResult(
                             completed=False,
@@ -210,14 +232,31 @@ class LinearMotionExecutor:
         speed: float = float(max_speed)
         if obstacle_cm <= self.deceleration_distance_cm:
             decel_range: float = self.deceleration_distance_cm - self.min_obstacle_distance_cm
-            if decel_range <= 0.0:
-                return 0.0
-
             dist_above_min: float = obstacle_cm - self.min_obstacle_distance_cm
             speed *= max(0.0, dist_above_min / decel_range)
 
         speed *= self._calculate_distance_speed_factor(remaining_cm)
         return max(0.0, speed)
+
+    def _publish_progress(
+        self,
+        *,
+        progress_callback: MotionProgressCallback | None,
+        traveled_cm: float,
+        reported_traveled_cm: float,
+        direction: int,
+        obstacle_cm: float | None,
+    ) -> float:
+        """Отправить наружу приращение пройденной дистанции."""
+        if progress_callback is None:
+            return reported_traveled_cm
+
+        delta_cm: float = traveled_cm - reported_traveled_cm
+        if delta_cm <= 0.0 and obstacle_cm is None:
+            return reported_traveled_cm
+
+        progress_callback(traveled_cm, delta_cm * direction, direction, obstacle_cm)
+        return traveled_cm
 
     def _calculate_distance_speed_factor(self, remaining_cm: float) -> float:
         """Коэффициент замедления при приближении к целевой точке."""
