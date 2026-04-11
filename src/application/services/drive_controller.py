@@ -170,7 +170,7 @@ class DriveController(DriveControllerProtocol):
     SIDE_SCAN_SENSOR_SETTLE_SEC: float = 0.07
     REJOIN_FINAL_LATERAL_RECOVERY_RATIO: float = 0.95
     STOP_JOIN_TIMEOUT_SEC: float = 1.0
-    DEFAULT_WORKSPACE_LIMIT_CM: float = 40.0
+    DEFAULT_WORKSPACE_LIMIT_CM: float = 100.0
 
     def __init__(
         self,
