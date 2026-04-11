@@ -4,6 +4,15 @@ const state = {
     points: [{x: 0, y: 0}],
     obstacles: [],
     current: {x: 0, y: 0, heading: 0, status: "idle"},
+    view: {
+        scale: 5,
+        offsetX: 0,
+        offsetY: 0,
+        dragging: false,
+        pointerId: null,
+        lastPointerX: 0,
+        lastPointerY: 0,
+    },
 };
 
 const els = {
@@ -92,6 +101,12 @@ function update(event) {
     draw();
 }
 
+function resetView() {
+    state.view.offsetX = 0;
+    state.view.offsetY = 0;
+    draw();
+}
+
 function addObstacle(x, y) {
     const exists = state.obstacles.some((obstacle) => Math.hypot(obstacle.x - x, obstacle.y - y) < 2);
     if (!exists) {
@@ -113,9 +128,9 @@ function statusLabel(status) {
 function draw() {
     const width = canvas.width;
     const height = canvas.height;
-    const scale = 5;
-    const originX = width / 2;
-    const originY = height / 2;
+    const {scale, offsetX, offsetY} = state.view;
+    const originX = width / 2 + offsetX;
+    const originY = height / 2 + offsetY;
 
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = "#ffffff";
@@ -172,9 +187,48 @@ function draw() {
     ctx.restore();
 }
 
+function startDrag(event) {
+    state.view.dragging = true;
+    state.view.pointerId = event.pointerId;
+    state.view.lastPointerX = event.clientX;
+    state.view.lastPointerY = event.clientY;
+    canvas.classList.add("dragging");
+    canvas.setPointerCapture(event.pointerId);
+}
+
+function drag(event) {
+    if (!state.view.dragging || state.view.pointerId !== event.pointerId) {
+        return;
+    }
+
+    const deltaX = event.clientX - state.view.lastPointerX;
+    const deltaY = event.clientY - state.view.lastPointerY;
+    state.view.offsetX += deltaX;
+    state.view.offsetY += deltaY;
+    state.view.lastPointerX = event.clientX;
+    state.view.lastPointerY = event.clientY;
+    draw();
+}
+
+function stopDrag(event) {
+    if (state.view.pointerId !== null && event.pointerId !== state.view.pointerId) {
+        return;
+    }
+
+    state.view.dragging = false;
+    state.view.pointerId = null;
+    canvas.classList.remove("dragging");
+}
+
 document.querySelector("#startSquare").addEventListener("click", () => sendRoute("square"));
 document.querySelector("#startLine").addEventListener("click", () => sendRoute("line"));
+document.querySelector("#resetView").addEventListener("click", resetView);
 document.querySelector("#stop").addEventListener("click", stopRoute);
+canvas.addEventListener("pointerdown", startDrag);
+canvas.addEventListener("pointermove", drag);
+canvas.addEventListener("pointerup", stopDrag);
+canvas.addEventListener("pointercancel", stopDrag);
+canvas.addEventListener("pointerleave", stopDrag);
 
 draw();
 connect();

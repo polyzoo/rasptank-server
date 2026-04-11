@@ -72,12 +72,29 @@ button.secondary {
     align-items: stretch;
 }
 
+.map-shell {
+    display: grid;
+    gap: 10px;
+}
+
 canvas {
     width: 100%;
     min-height: 440px;
     border: 1px solid #d5dde5;
     border-radius: 8px;
     background: #ffffff;
+    cursor: grab;
+    touch-action: none;
+}
+
+canvas.dragging {
+    cursor: grabbing;
+}
+
+.map-hint {
+    margin: 0;
+    color: #52606d;
+    font-size: 14px;
 }
 
 .panel {

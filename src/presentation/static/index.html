@@ -16,12 +16,16 @@
         <div class="actions">
             <button id="startSquare" type="button">Квадрат 30 см</button>
             <button id="startLine" type="button">Вперед 100 см</button>
+            <button id="resetView" type="button">Сбросить вид</button>
             <button id="stop" class="secondary" type="button">Стоп</button>
         </div>
     </section>
 
     <section class="workspace" aria-label="Карта движения">
-        <canvas id="routeCanvas" width="760" height="520"></canvas>
+        <div class="map-shell">
+            <canvas id="routeCanvas" width="760" height="520"></canvas>
+            <p class="map-hint">Тяни карту мышью или пальцем, чтобы сдвинуть поле.</p>
+        </div>
         <aside class="panel">
             <p class="eyebrow">Состояние</p>
             <strong id="status">подключение...</strong>
