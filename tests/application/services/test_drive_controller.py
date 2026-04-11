@@ -551,14 +551,32 @@ def test_measure_motion_obstacle_distance_confirms_blocked_reading() -> None:
 
 
 def test_avoidance_limit_and_progress_helpers() -> None:
-    """Лимиты и прогресс FSM обхода считают attempts/offset/distance."""
-    controller: DriveController = _controller()
+    """Лимиты обхода публикуют ошибки и прогресс считает attempts/offset/distance."""
+    hub: MotionEventHub = MotionEventHub()
+    queue = hub.subscribe()
+    queue.get_nowait()
+    controller: DriveController = _controller(motion_events=hub)
     context: AvoidanceContext = AvoidanceContext(attempts=3)
     assert controller._has_exceeded_avoidance_limits(context) is True
+    attempt_event: MotionEvent = queue.get_nowait()
+    assert attempt_event.type == "error"
+    assert "превышено число попыток" in (attempt_event.message or "")
+
+    controller._motion_error_reported = False
     context = AvoidanceContext(lateral_offset_cm=30.0)
     assert controller._has_exceeded_avoidance_limits(context) is True
+    lateral_event: MotionEvent = queue.get_nowait()
+    assert lateral_event.type == "error"
+    assert "боковое смещение" in (lateral_event.message or "")
+
+    controller._motion_error_reported = False
     context = AvoidanceContext(bypass_distance_cm=50.0)
     assert controller._has_exceeded_avoidance_limits(context) is True
+    bypass_event: MotionEvent = queue.get_nowait()
+    assert bypass_event.type == "error"
+    assert "суммарная длина обхода" in (bypass_event.message or "")
+
+    controller._motion_error_reported = False
     context = AvoidanceContext()
     assert controller._has_exceeded_avoidance_limits(context) is False
 

@@ -48,6 +48,14 @@ function normalizeAngle(angle) {
     return ((angle % 360) + 360) % 360;
 }
 
+function serverHeadingToDisplay(serverHeading) {
+    return normalizeAngle(360 - serverHeading);
+}
+
+function displayHeadingToServer(displayHeading) {
+    return normalizeAngle(360 - displayHeading);
+}
+
 function roundToCardinal(angle) {
     const normalized = normalizeAngle(angle);
     return CARDINAL_ANGLES.reduce((closest, candidate) => {
@@ -58,7 +66,7 @@ function roundToCardinal(angle) {
 }
 
 function buildTurnSegments(targetHeading) {
-    const currentHeading = roundToCardinal(state.current.heading);
+    const currentHeading = roundToCardinal(state.current.rawHeading);
     const desiredHeading = normalizeAngle(targetHeading);
     const rightDelta = normalizeAngle(desiredHeading - currentHeading);
     const leftDelta = normalizeAngle(currentHeading - desiredHeading);
@@ -81,7 +89,8 @@ function movementPayload(direction) {
         return {segments: [{action: "backward", distance_cm: distance}]};
     }
 
-    const targetHeading = direction === "right" ? 90 : 270;
+    const targetDisplayHeading = direction === "right" ? 90 : 270;
+    const targetHeading = displayHeadingToServer(targetDisplayHeading);
     return {
         segments: [
             ...buildTurnSegments(targetHeading),
@@ -129,6 +138,7 @@ function connect() {
 
 function update(event) {
     const displayX = -event.x_cm;
+    const displayHeading = serverHeadingToDisplay(event.heading_deg);
     const displayObstacleX =
         event.obstacle_x_cm === null || event.obstacle_x_cm === undefined
             ? null
@@ -137,7 +147,8 @@ function update(event) {
     state.current = {
         x: displayX,
         y: event.y_cm,
-        heading: event.heading_deg,
+        heading: displayHeading,
+        rawHeading: event.heading_deg,
         status: event.status,
     };
 
@@ -154,7 +165,7 @@ function update(event) {
     els.status.textContent = statusLabel(event.status);
     els.x.textContent = `${displayX.toFixed(1)} см`;
     els.y.textContent = `${event.y_cm.toFixed(1)} см`;
-    els.heading.textContent = `${event.heading_deg.toFixed(0)}°`;
+    els.heading.textContent = `${displayHeading.toFixed(0)}°`;
     els.obstacle.textContent =
         event.obstacle_cm === null || event.obstacle_cm === undefined
             ? "нет данных"

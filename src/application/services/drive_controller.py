@@ -599,6 +599,20 @@ class DriveController(DriveControllerProtocol):
             )
         )
 
+    def _report_motion_error(self, message: str) -> None:
+        """Остановить движение и отправить в UI ошибку движения."""
+        if self._motion_error_reported:
+            return
+
+        self._motion_error_reported = True
+        self.motor_controller.stop()
+        self.lifecycle.set_stopped()
+        self._publish_motion_event(
+            status="error",
+            event_type="error",
+            message=message,
+        )
+
     def _publish_obstacle_event(self, obstacle_cm: float) -> None:
         """Опубликовать расчетные координаты обнаруженного препятствия."""
         if self._motion_events is None:
@@ -635,12 +649,7 @@ class DriveController(DriveControllerProtocol):
         ):
             return
 
-        self._motion_error_reported = True
-        self.motor_controller.stop()
-        self.lifecycle.set_stopped()
-        self._publish_motion_event(
-            status="error",
-            event_type="error",
+        self._report_motion_error(
             message=f"Машинка вышла за пределы зоны {self._workspace_limit_cm:.0f} см",
         )
 
@@ -1421,21 +1430,27 @@ class DriveController(DriveControllerProtocol):
     def _has_exceeded_avoidance_limits(self, context: AvoidanceContext) -> bool:
         """Проверка жёстких лимитов на безопасный обход препятствия."""
         if context.attempts >= self.avoidance_max_attempts:
-            logger.warning("Обход остановлен: превышено число попыток (%d).", context.attempts)
+            message = f"Обход остановлен: превышено число попыток ({context.attempts})."
+            logger.warning(message)
+            self._report_motion_error(message)
             return True
 
         if context.lateral_offset_cm >= self.avoidance_max_lateral_offset_cm:
-            logger.warning(
-                "Обход остановлен: достигнуто/превышено боковое смещение (%.1f см).",
-                context.lateral_offset_cm,
+            message = (
+                "Обход остановлен: достигнуто/превышено боковое смещение "
+                f"({context.lateral_offset_cm:.1f} см)."
             )
+            logger.warning(message)
+            self._report_motion_error(message)
             return True
 
         if context.bypass_distance_cm >= self.avoidance_max_bypass_distance_cm:
-            logger.warning(
-                "Обход остановлен: достигнута/превышена суммарная длина обхода (%.1f см).",
-                context.bypass_distance_cm,
+            message = (
+                "Обход остановлен: достигнута/превышена суммарная длина обхода "
+                f"({context.bypass_distance_cm:.1f} см)."
             )
+            logger.warning(message)
+            self._report_motion_error(message)
             return True
 
         return False
