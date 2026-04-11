@@ -6,7 +6,6 @@ from queue import Empty, Full, Queue
 from threading import Lock
 from typing import Literal, TypeAlias
 
-
 MotionStatus: TypeAlias = Literal["idle", "moving", "turning", "blocked", "error", "stopped"]
 MotionEventType: TypeAlias = Literal["position", "status", "error", "obstacle"]
 

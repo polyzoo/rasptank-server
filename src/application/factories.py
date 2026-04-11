@@ -4,8 +4,8 @@ from src.application.services.drive_controller import DriveController
 from src.application.services.motion_config import MotionConfig
 from src.application.services.motion_events import MotionEventHub
 from src.config.settings import Settings
-from src.infrastructures.imu import IMUSensor
 from src.infrastructures.head_servo import HeadServoController
+from src.infrastructures.imu import IMUSensor
 from src.infrastructures.motor import MotorController
 from src.infrastructures.ultrasonic import UltrasonicSensor
 

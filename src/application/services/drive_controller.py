@@ -391,13 +391,21 @@ class DriveController(DriveControllerProtocol):
         finally:
             self.motor_controller.stop()
             self.lifecycle.set_stopped()
-            self._publish_motion_event(status="stopped", event_type="status", message="Маршрут завершен")
+            self._publish_motion_event(
+                status="stopped",
+                event_type="status",
+                message="Маршрут завершен",
+            )
 
     def stop(self) -> None:
         """Остановить текущее движение."""
         self._route_executor.stop()
         self._stop_motion()
-        self._publish_motion_event(status="stopped", event_type="status", message="Движение остановлено")
+        self._publish_motion_event(
+            status="stopped",
+            event_type="status",
+            message="Движение остановлено",
+        )
 
     def destroy(self) -> None:
         """Освободить все ресурсы, связанные с движением."""
@@ -479,7 +487,11 @@ class DriveController(DriveControllerProtocol):
         self._linear_motion.max_speed_cm_per_sec = self.max_speed_cm_per_sec
         self._linear_motion.update_interval_sec = self.update_interval_sec
 
-        move_fn = self.motor_controller.move_forward if move_forward else self.motor_controller.move_backward
+        move_fn = (
+            self.motor_controller.move_forward
+            if move_forward
+            else self.motor_controller.move_backward
+        )
         result: LinearMotionExecutionResult = self._linear_motion.run_with_result(
             distance_cm=distance_cm,
             speed_percent=speed_percent,
@@ -636,7 +648,10 @@ class DriveController(DriveControllerProtocol):
             if self._has_reached_target_distance(remaining_cm - context.forward_progress_cm):
                 if self._has_reached_target_distance(context.lateral_offset_cm):
                     self._log_lateral_offset_recovery(
-                        reason="remaining segment exhausted and lateral offset already within tolerance",
+                        reason=(
+                            "remaining segment exhausted and lateral offset "
+                            "already within tolerance"
+                        ),
                         lateral_offset_cm=context.lateral_offset_cm,
                     )
                     return AvoidanceResult(
@@ -661,7 +676,10 @@ class DriveController(DriveControllerProtocol):
             if context.state is AvoidanceState.SIDE_STEP:
                 side_step: LinearMoveResult = self._perform_side_step(context.side, speed_percent)
                 if not side_step.heading_restored:
-                    logger.warning("Обход остановлен: после бокового шага не удалось восстановить курс.")
+                    logger.warning(
+                        "Обход остановлен: после бокового шага "
+                        "не удалось восстановить курс."
+                    )
                     break
                 self._update_avoidance_progress(
                     context=context,
@@ -703,10 +721,16 @@ class DriveController(DriveControllerProtocol):
 
                 if self._has_reached_target_distance(context.lateral_offset_cm):
                     self._log_lateral_offset_recovery(
-                        reason="front is clear after side step and lateral offset is within tolerance",
+                        reason=(
+                            "front is clear after side step and lateral offset "
+                            "is within tolerance"
+                        ),
                         lateral_offset_cm=context.lateral_offset_cm,
                     )
-                    return AvoidanceResult(completed=True, forward_progress_cm=context.forward_progress_cm)
+                    return AvoidanceResult(
+                        completed=True,
+                        forward_progress_cm=context.forward_progress_cm,
+                    )
 
                 context.state = AvoidanceState.ADVANCE_ALONG_OBSTACLE
                 continue
@@ -726,7 +750,10 @@ class DriveController(DriveControllerProtocol):
                 if self._has_reached_target_distance(remaining_cm - context.forward_progress_cm):
                     if self._has_reached_target_distance(context.lateral_offset_cm):
                         self._log_lateral_offset_recovery(
-                            reason="forward progress completed and lateral offset is within tolerance",
+                            reason=(
+                                "forward progress completed and lateral offset "
+                                "is within tolerance"
+                            ),
                             lateral_offset_cm=context.lateral_offset_cm,
                         )
                         return AvoidanceResult(
@@ -748,7 +775,10 @@ class DriveController(DriveControllerProtocol):
                         reason="forward step completed and lateral offset is within tolerance",
                         lateral_offset_cm=context.lateral_offset_cm,
                     )
-                    return AvoidanceResult(completed=True, forward_progress_cm=context.forward_progress_cm)
+                    return AvoidanceResult(
+                        completed=True,
+                        forward_progress_cm=context.forward_progress_cm,
+                    )
 
                 context.state = AvoidanceState.TRY_REJOIN
                 continue
@@ -774,7 +804,10 @@ class DriveController(DriveControllerProtocol):
                     traveled_cm=rejoin_step.traveled_cm,
                     lateral_offset_before_cm=offset_before_cm,
                 )
-                context.lateral_offset_cm = max(0.0, context.lateral_offset_cm - effective_recovery_cm)
+                context.lateral_offset_cm = max(
+                    0.0,
+                    context.lateral_offset_cm - effective_recovery_cm,
+                )
                 logger.info(
                     "Обход: lateral offset after rejoin. before=%.1f raw_rejoin=%.1f "
                     "effective_recovery=%.1f ratio=%.2f after=%.1f completed=%s blocked=%s",
@@ -812,7 +845,10 @@ class DriveController(DriveControllerProtocol):
                         reason="rejoin reduced lateral offset to tolerance and front is clear",
                         lateral_offset_cm=context.lateral_offset_cm,
                     )
-                    return AvoidanceResult(completed=True, forward_progress_cm=context.forward_progress_cm)
+                    return AvoidanceResult(
+                        completed=True,
+                        forward_progress_cm=context.forward_progress_cm,
+                    )
 
                 if self._should_retry_final_rejoin_immediately(
                     lateral_offset_cm=context.lateral_offset_cm,
@@ -960,6 +996,10 @@ class DriveController(DriveControllerProtocol):
         primary_clearance: float = primary_result.clearance_cm or 0.0
 
         if not secondary_result.is_selectable:
+            secondary_rejection_reason: str = (
+                secondary_result.rejection_reason
+                or "scan unusable or heading not restored"
+            )
             final_result: SideScanResult = self._annotate_side_scan_result(
                 result=primary_result,
                 primary_result=primary_result,
@@ -973,7 +1013,7 @@ class DriveController(DriveControllerProtocol):
                     "45° scan insufficient "
                     f"({primary_clearance:.1f} < {exploratory_threshold_cm:.1f}), "
                     "а 60° scan unusable: "
-                    f"{secondary_result.rejection_reason or 'scan unusable or heading not restored'}"
+                    f"{secondary_rejection_reason}"
                 ),
             )
             self._log_side_scan_result(final_result)
@@ -1002,7 +1042,8 @@ class DriveController(DriveControllerProtocol):
             primary_result=primary_result,
             secondary_result=secondary_result,
             selection_reason=(
-                "accepted after 60° fallback scan because 45° clearance was below exploratory threshold"
+                "accepted after 60° fallback scan because 45° clearance "
+                "was below exploratory threshold"
             ),
         )
         self._log_side_scan_result(final_result)
@@ -1113,7 +1154,8 @@ class DriveController(DriveControllerProtocol):
         if clearance_cm >= exploratory_threshold_cm:
             return (
                 "accepted on primary side scan "
-                f"(clearance {clearance_cm:.1f} >= exploratory threshold {exploratory_threshold_cm:.1f})"
+                f"(clearance {clearance_cm:.1f} >= exploratory threshold "
+                f"{exploratory_threshold_cm:.1f})"
             )
 
         return (
@@ -1324,7 +1366,7 @@ class DriveController(DriveControllerProtocol):
         ) + self.DISTANCE_TOLERANCE_CM
 
     def _should_retry_final_rejoin_immediately(self, *, lateral_offset_cm: float) -> bool:
-        """Определяет, стоит ли сделать ещё один короткий rejoin сразу после почти успешного возврата."""
+        """Определяет, нужен ли ещё один короткий rejoin после почти успешного возврата."""
         return (
             lateral_offset_cm > self.DISTANCE_TOLERANCE_CM
             and lateral_offset_cm <= self._final_rejoin_retry_window_cm()
@@ -1511,14 +1553,30 @@ class DriveController(DriveControllerProtocol):
         reason: str = result.rejection_reason or "ok"
         selection_reason: str = result.selection_reason or "n/a"
         measurement_repr: str = self._format_measurement_summary(result.measurement_summary)
+        primary_target_deg: float = (
+            result.primary_target_angle_deg or result.target_angle_deg
+        )
+        primary_turned_deg: float = (
+            result.primary_turned_angle_deg or result.turned_angle_deg
+        )
+        secondary_target_repr: str = (
+            f"{result.secondary_target_angle_deg:.1f}°"
+            if result.secondary_target_angle_deg is not None
+            else "n/a"
+        )
+        secondary_turned_repr: str = (
+            f"{result.secondary_turned_angle_deg:.1f}°"
+            if result.secondary_turned_angle_deg is not None
+            else "n/a"
+        )
         return (
             f"side={result.side.value}, clearance={clearance_repr}, "
             f"target={result.target_angle_deg:.1f}°, turned={result.turned_angle_deg:.1f}°, "
-            f"primary_target={((result.primary_target_angle_deg or result.target_angle_deg)):.1f}°, "
-            f"primary_turned={((result.primary_turned_angle_deg or result.turned_angle_deg)):.1f}°, "
+            f"primary_target={primary_target_deg:.1f}°, "
+            f"primary_turned={primary_turned_deg:.1f}°, "
             f"primary_clearance={primary_clearance_repr}, "
-            f"secondary_target={f'{result.secondary_target_angle_deg:.1f}°' if result.secondary_target_angle_deg is not None else 'n/a'}, "
-            f"secondary_turned={f'{result.secondary_turned_angle_deg:.1f}°' if result.secondary_turned_angle_deg is not None else 'n/a'}, "
+            f"secondary_target={secondary_target_repr}, "
+            f"secondary_turned={secondary_turned_repr}, "
             f"secondary_clearance={secondary_clearance_repr}, "
             f"completed={result.scan_completed}, partial={result.used_partial_scan}, "
             f"useful={result.scan_useful}, limited_confidence={result.limited_confidence}, "
@@ -1545,6 +1603,16 @@ class DriveController(DriveControllerProtocol):
             else "n/a"
         )
         measurement_summary: DistanceMeasurementSummary | None = result.measurement_summary
+        secondary_target_repr: str = (
+            f"{result.secondary_target_angle_deg:.1f}"
+            if result.secondary_target_angle_deg is not None
+            else "n/a"
+        )
+        measurement_reason: str = (
+            measurement_summary.reliability_reason
+            if measurement_summary is not None
+            else "n/a"
+        )
         logger.info(
             "Обход: side scan side=%s clearance_cm=%s threshold=%.1f exploratory_threshold=%.1f "
             "raw_exploratory_threshold=%.1f "
@@ -1553,7 +1621,8 @@ class DriveController(DriveControllerProtocol):
             "secondary_turned_angle_deg=%s secondary_clearance_cm=%s scan_completed=%s "
             "partial_scan=%s scan_useful=%s limited_confidence=%s heading_restored=%s "
             "turn_stop_reason=%s measurement_samples=%s measurement_spread_cm=%s "
-            "measurement_reliable=%s measurement_reason=%s selection_blocked=%s selection_reason=%s "
+            "measurement_reliable=%s measurement_reason=%s "
+            "selection_blocked=%s selection_reason=%s "
             "useful_angle_min_deg=%.1f confident_angle_min_deg=%.1f",
             result.side.value,
             clearance_repr,
@@ -1565,7 +1634,7 @@ class DriveController(DriveControllerProtocol):
             result.primary_target_angle_deg or result.target_angle_deg,
             result.primary_turned_angle_deg or result.turned_angle_deg,
             primary_clearance_repr,
-            f"{result.secondary_target_angle_deg:.1f}" if result.secondary_target_angle_deg is not None else "n/a",
+            secondary_target_repr,
             (
                 f"{result.secondary_turned_angle_deg:.1f}"
                 if result.secondary_turned_angle_deg is not None
@@ -1589,7 +1658,7 @@ class DriveController(DriveControllerProtocol):
                 else "n/a"
             ),
             measurement_summary.reliable if measurement_summary is not None else True,
-            measurement_summary.reliability_reason if measurement_summary is not None else "n/a",
+            measurement_reason,
             result.selection_blocked,
             result.selection_reason or "n/a",
             self._side_scan_useful_angle_threshold(result.target_angle_deg),
@@ -1613,7 +1682,7 @@ class DriveController(DriveControllerProtocol):
                 result.heading_restored,
                 result.turn_stop_reason,
                 measurement_summary.reliable if measurement_summary is not None else True,
-                measurement_summary.reliability_reason if measurement_summary is not None else "n/a",
+                measurement_reason,
                 result.selection_reason or "n/a",
             )
 
@@ -1635,7 +1704,8 @@ class DriveController(DriveControllerProtocol):
         )
         logger.info(
             "Обход: оценка стороны side=%s status=%s clearance_cm=%s "
-            "preferred_threshold=%.1f exploratory_threshold=%.1f raw_exploratory_threshold=%.1f reason=%s",
+            "preferred_threshold=%.1f exploratory_threshold=%.1f "
+            "raw_exploratory_threshold=%.1f reason=%s",
             result.side.value,
             selection_status,
             clearance_repr,
@@ -1730,4 +1800,7 @@ class DriveController(DriveControllerProtocol):
 
     def _stop_motion(self) -> None:
         """Остановить движение и дождаться фонового потока при необходимости."""
-        self.lifecycle.stop_and_join(self.motor_controller.stop, timeout_sec=self.STOP_JOIN_TIMEOUT_SEC)
+        self.lifecycle.stop_and_join(
+            self.motor_controller.stop,
+            timeout_sec=self.STOP_JOIN_TIMEOUT_SEC,
+        )

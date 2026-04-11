@@ -4,8 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from fastapi import HTTPException
-from fastapi import status
+from fastapi import HTTPException, status
 
 from src.application.services.motion_events import MotionEventHub
 from src.presentation.api.dependencies import get_drive_controller, get_motion_events

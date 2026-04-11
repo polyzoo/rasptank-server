@@ -110,11 +110,22 @@ def test_segments_use_custom_runners_and_turn_callback() -> None:
     backward_calls: list[tuple[float, int]] = []
     turn_calls: list[tuple[float, bool]] = []
     turn_executor: FakeTurnExecutor = FakeTurnExecutor()
+
+    def forward_runner(distance: float, speed: int) -> bool:
+        """Сохранить вызов прямого сегмента и вернуть успех."""
+        forward_calls.append((distance, speed))
+        return True
+
+    def backward_runner(distance: float, speed: int) -> bool:
+        """Сохранить вызов заднего сегмента и вернуть успех."""
+        backward_calls.append((distance, speed))
+        return True
+
     runner: RouteRunner = _route_runner(
         lifecycle=lifecycle,
         turn_executor=turn_executor,
-        forward_segment_runner=lambda distance, speed: forward_calls.append((distance, speed)) or True,
-        backward_segment_runner=lambda distance, speed: backward_calls.append((distance, speed)) or True,
+        forward_segment_runner=forward_runner,
+        backward_segment_runner=backward_runner,
         turn_completed_callback=lambda angle, left: turn_calls.append((angle, left)),
     )
 
@@ -161,9 +172,15 @@ def test_run_segments_stops_when_lifecycle_stops_or_segment_fails() -> None:
     lifecycle: MotionLifecycle = MotionLifecycle()
     lifecycle.set_running(is_route_running=True)
     forward_calls: list[tuple[float, int]] = []
+
+    def forward_runner(distance: float, speed: int) -> bool:
+        """Сохранить вызов и вернуть признак неудачи сегмента."""
+        forward_calls.append((distance, speed))
+        return False
+
     runner: RouteRunner = _route_runner(
         lifecycle=lifecycle,
-        forward_segment_runner=lambda distance, speed: forward_calls.append((distance, speed)) or False,
+        forward_segment_runner=forward_runner,
     )
 
     runner._run_segments([ForwardSegment(distance_cm=10.0), BackwardSegment(distance_cm=5.0)])
@@ -171,11 +188,22 @@ def test_run_segments_stops_when_lifecycle_stops_or_segment_fails() -> None:
     assert forward_calls == [(10.0, 55)]
 
     backward_calls: list[tuple[float, int]] = []
+
+    def backward_runner_fn(distance: float, speed: int) -> bool:
+        """Сохранить вызов и вернуть признак неудачи сегмента."""
+        backward_calls.append((distance, speed))
+        return False
+
     backward_runner: RouteRunner = _route_runner(
         lifecycle=lifecycle,
-        backward_segment_runner=lambda distance, speed: backward_calls.append((distance, speed)) or False,
+        backward_segment_runner=backward_runner_fn,
     )
 
-    backward_runner._run_segments([BackwardSegment(distance_cm=5.0), ForwardSegment(distance_cm=10.0)])
+    backward_runner._run_segments(
+        [
+            BackwardSegment(distance_cm=5.0),
+            ForwardSegment(distance_cm=10.0),
+        ]
+    )
 
     assert backward_calls == [(5.0, 55)]

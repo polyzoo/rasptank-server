@@ -6,14 +6,13 @@ from typing import TYPE_CHECKING, Any, final
 from src.application.protocols import MotorControllerProtocol
 
 if TYPE_CHECKING:  # pragma: no cover
-    from adafruit_motor.motor import DCMotor
     from adafruit_pca9685 import PCA9685
 
 try:
-    from board import SCL, SDA
     import busio
-    from adafruit_pca9685 import PCA9685
     from adafruit_motor import motor
+    from adafruit_pca9685 import PCA9685
+    from board import SCL, SDA
 
     _HARDWARE_AVAILABLE: bool = True
 except ImportError:

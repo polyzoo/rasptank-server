@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, TypeAlias, final
 
-
 FORWARD_ACTION: str = "forward"
 BACKWARD_ACTION: str = "backward"
 TURN_LEFT_ACTION: str = "turn_left"

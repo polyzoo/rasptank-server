@@ -3,13 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from src.application.models.route import (
-    BackwardSegment,
-    ForwardSegment,
-    RouteSegment,
     BACKWARD_ACTION,
     FORWARD_ACTION,
     TURN_LEFT_ACTION,
     TURN_RIGHT_ACTION,
+    BackwardSegment,
+    ForwardSegment,
+    RouteSegment,
     TurnLeftSegment,
     TurnRightSegment,
 )

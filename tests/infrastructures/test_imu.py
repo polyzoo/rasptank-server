@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import pytest
-
 from typing import Callable
+
+import pytest
 
 from src.infrastructures import imu as imu_module
 from src.infrastructures.imu import IMUSensor

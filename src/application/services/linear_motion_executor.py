@@ -189,7 +189,9 @@ class LinearMotionExecutor:
                             blocked=True,
                         )
                 else:
-                    current_speed = clamped_speed * self._calculate_distance_speed_factor(remaining_dist)
+                    current_speed = clamped_speed * self._calculate_distance_speed_factor(
+                        remaining_dist
+                    )
 
                 elapsed_seg: float = time.monotonic() - segment_start_t
                 ramp: float = (

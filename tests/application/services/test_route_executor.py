@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from src.application.models.route import ForwardSegment, Route
-from src.application.services.motion_lifecycle import MotionLifecycle
 from src.application.services import route_executor as route_executor_module
+from src.application.services.motion_lifecycle import MotionLifecycle
 from src.application.services.route_executor import RouteExecutor
 
 

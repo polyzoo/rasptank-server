@@ -134,7 +134,10 @@ class TurnExecutor:
                 break
 
             now: float = time.monotonic()
-            if stop_on_front_obstacle and (now - last_obstacle_check_t) >= self.turn_obstacle_check_interval_sec:
+            if (
+                stop_on_front_obstacle
+                and (now - last_obstacle_check_t) >= self.turn_obstacle_check_interval_sec
+            ):
                 if self.ultrasonic_sensor.measure_distance_cm() <= self.min_obstacle_distance_cm:
                     stop_reason = "front_obstacle"
                     break
