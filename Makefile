@@ -1,8 +1,15 @@
-.PHONY: test coverage
+.PHONY: lint format-check test coverage
 
 PYTHON ?= python3
 PYTEST ?= $(PYTHON) -m pytest
 COVERAGE ?= $(PYTHON) -m coverage
+RUFF ?= $(PYTHON) -m ruff
+
+lint:
+	PYTHONDONTWRITEBYTECODE=1 $(RUFF) check .
+
+format-check:
+	PYTHONDONTWRITEBYTECODE=1 $(RUFF) format --check .
 
 test:
 	PYTHONDONTWRITEBYTECODE=1 $(PYTEST) tests

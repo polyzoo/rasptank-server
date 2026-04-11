@@ -40,9 +40,18 @@ uvicorn src.main:app --host 0.0.0.0 --port 8010
 
 5. Откройте `http://localhost:8010/docs` для Swagger UI.
 
-6. Для запуска тестов используйте команду.
+## Проверка кода
+
+Для локальной проверки используйте следующие команды:
+
+- `make lint` - запустить линтер `ruff`.
+- `make format-check` - проверить, что форматирование соответствует `ruff format`.
+- `make test` - запустить тесты.
+- `make coverage` - запустить тесты с отчетом по покрытию.
 
 ```bash
+make lint
+make format-check
 make test
 make coverage
 ```
