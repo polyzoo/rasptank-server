@@ -251,8 +251,8 @@ def test_forward_cm_sync_runs_forward_segment_and_stops() -> None:
     head_servo: FakeHeadServo = FakeHeadServo()
     controller: DriveController = _controller(head_servo=head_servo)
     calls: list[tuple[float, int]] = []
-    controller._run_forward_segment = (
-        lambda distance, speed: calls.append((distance, speed)) or True
+    controller._run_forward_segment = lambda distance, speed: (
+        calls.append((distance, speed)) or True
     )  # type: ignore[method-assign]
 
     controller.forward_cm_sync(distance_cm=12.0, max_speed_percent=40)
@@ -364,6 +364,21 @@ def test_motion_event_helpers_update_position_obstacle_and_workspace_limit() -> 
     assert controller_without_hub.motor_controller.stop_calls == 0  # type: ignore[attr-defined]
 
 
+def test_report_motion_error_ignores_repeated_error() -> None:
+    """Повторный вызов _report_motion_error ничего не делает после первой ошибки."""
+    hub: MotionEventHub = MotionEventHub()
+    queue = hub.subscribe()
+    queue.get_nowait()
+    controller: DriveController = _controller(motion_events=hub)
+    controller._motion_error_reported = True
+
+    controller._report_motion_error("Повторная ошибка")
+
+    assert queue.qsize() == 0
+    assert controller.motor_controller.stop_calls == 0  # type: ignore[attr-defined]
+    assert controller.lifecycle.is_moving is False
+
+
 def test_turn_and_route_finished_event_helpers() -> None:
     """Поворот обновляет heading, route_finished публикует stopped без error."""
     hub: MotionEventHub = MotionEventHub()
@@ -421,12 +436,9 @@ def test_run_forward_segment_success_blocked_and_error_paths() -> None:
 
     controller.lifecycle.set_running(is_route_running=False)
     calls: list[str] = []
-    controller._run_linear_motion = (
-        lambda **kwargs: LinearMoveResult(False, 2.0, blocked=True)
-    )  # type: ignore[method-assign]
-    controller._run_obstacle_avoidance = (
-        lambda remaining_cm, speed_percent: calls.append("avoid")
-        or AvoidanceResult(True, remaining_cm)
+    controller._run_linear_motion = lambda **kwargs: LinearMoveResult(False, 2.0, blocked=True)  # type: ignore[method-assign]
+    controller._run_obstacle_avoidance = lambda remaining_cm, speed_percent: (
+        calls.append("avoid") or AvoidanceResult(True, remaining_cm)
     )  # type: ignore[method-assign]
     assert controller._run_forward_segment(10.0, 50) is True
     assert calls == ["avoid"]
@@ -439,11 +451,9 @@ def test_run_forward_segment_success_blocked_and_error_paths() -> None:
     assert controller._run_forward_segment(0.0, 50) is True
 
     controller.lifecycle.set_running(is_route_running=False)
-    controller._run_linear_motion = (
-        lambda **kwargs: LinearMoveResult(False, 2.0, blocked=True)
-    )  # type: ignore[method-assign]
-    controller._run_obstacle_avoidance = (
-        lambda remaining_cm, speed_percent: AvoidanceResult(False, 0.0)
+    controller._run_linear_motion = lambda **kwargs: LinearMoveResult(False, 2.0, blocked=True)  # type: ignore[method-assign]
+    controller._run_obstacle_avoidance = lambda remaining_cm, speed_percent: AvoidanceResult(
+        False, 0.0
     )  # type: ignore[method-assign]
     assert controller._run_forward_segment(10.0, 50) is False
 
@@ -460,11 +470,11 @@ def test_backward_side_forward_and_rejoin_step_helpers() -> None:
     controller: DriveController = _controller()
     run_calls: list[dict[str, object]] = []
     lateral_calls: list[dict[str, object]] = []
-    controller._run_linear_motion = (
-        lambda **kwargs: run_calls.append(kwargs) or LinearMoveResult(True, 3.0)
+    controller._run_linear_motion = lambda **kwargs: (
+        run_calls.append(kwargs) or LinearMoveResult(True, 3.0)
     )  # type: ignore[method-assign]
-    controller._perform_lateral_step = (
-        lambda **kwargs: lateral_calls.append(kwargs) or LinearMoveResult(True, 4.0)
+    controller._perform_lateral_step = lambda **kwargs: (
+        lateral_calls.append(kwargs) or LinearMoveResult(True, 4.0)
     )  # type: ignore[method-assign]
 
     assert controller._run_backward_segment(9.0, 40) is True
@@ -605,13 +615,10 @@ def test_rejoin_and_angle_threshold_helpers() -> None:
         )
         == 5.0
     )
-    assert (
-        controller._effective_rejoin_lateral_recovery_cm(
-            traveled_cm=5.0,
-            lateral_offset_before_cm=5.0,
-        )
-        == pytest.approx(4.75)
-    )
+    assert controller._effective_rejoin_lateral_recovery_cm(
+        traveled_cm=5.0,
+        lateral_offset_before_cm=5.0,
+    ) == pytest.approx(4.75)
     assert controller._should_retry_final_rejoin_immediately(lateral_offset_cm=0.1) is False
     assert controller._should_retry_final_rejoin_immediately(lateral_offset_cm=0.75) is True
     assert controller._side_scan_useful_angle_threshold(45.0) == 22.5
@@ -674,32 +681,44 @@ def test_side_scan_formatting_and_assessment_helpers() -> None:
     assert controller._scan_clearance_for_log([result], AvoidanceSide.RIGHT) == "n/a"
     assert "measurement=samples" in controller._format_side_scan_result(result)
     assert controller._format_measurement_summary(None) == "n/a"
-    assert controller._side_selection_assessment(
-        result=result,
-        preferred_threshold_cm=25.0,
-        exploratory_threshold_cm=22.0,
-    )[0] == "preferred"
+    assert (
+        controller._side_selection_assessment(
+            result=result,
+            preferred_threshold_cm=25.0,
+            exploratory_threshold_cm=22.0,
+        )[0]
+        == "preferred"
+    )
 
     result.clearance_cm = 23.0
-    assert controller._side_selection_assessment(
-        result=result,
-        preferred_threshold_cm=25.0,
-        exploratory_threshold_cm=22.0,
-    )[0] == "borderline"
+    assert (
+        controller._side_selection_assessment(
+            result=result,
+            preferred_threshold_cm=25.0,
+            exploratory_threshold_cm=22.0,
+        )[0]
+        == "borderline"
+    )
     result.clearance_cm = 10.0
     result.turn_stop_reason = "timeout"
-    assert controller._side_selection_assessment(
-        result=result,
-        preferred_threshold_cm=25.0,
-        exploratory_threshold_cm=22.0,
-    )[0] == "inconclusive"
+    assert (
+        controller._side_selection_assessment(
+            result=result,
+            preferred_threshold_cm=25.0,
+            exploratory_threshold_cm=22.0,
+        )[0]
+        == "inconclusive"
+    )
     result.turn_stop_reason = "target_reached"
     result.limited_confidence = False
-    assert controller._side_selection_assessment(
-        result=result,
-        preferred_threshold_cm=25.0,
-        exploratory_threshold_cm=22.0,
-    )[0] == "rejected"
+    assert (
+        controller._side_selection_assessment(
+            result=result,
+            preferred_threshold_cm=25.0,
+            exploratory_threshold_cm=22.0,
+        )[0]
+        == "rejected"
+    )
 
 
 def _scan_result(
@@ -872,10 +891,13 @@ def test_secondary_target_default_reason_annotate_and_clearance_helpers() -> Non
 
     unusable: SideScanResult = _scan_result(AvoidanceSide.LEFT, clearance_cm=None, selectable=False)
     unusable.rejection_reason = "bad"
-    assert controller._default_side_scan_selection_reason(
-        result=unusable,
-        exploratory_threshold_cm=22.0,
-    ) == "bad"
+    assert (
+        controller._default_side_scan_selection_reason(
+            result=unusable,
+            exploratory_threshold_cm=22.0,
+        )
+        == "bad"
+    )
     below: SideScanResult = _scan_result(AvoidanceSide.LEFT, clearance_cm=10.0)
     assert "will try" in controller._default_side_scan_selection_reason(
         result=below,
@@ -984,15 +1006,13 @@ def test_run_obstacle_avoidance_happy_path() -> None:
     controller: DriveController = _controller()
     controller.lifecycle.set_running(is_route_running=False)
     controller._select_avoidance_side = lambda: AvoidanceSide.LEFT  # type: ignore[method-assign]
-    controller._perform_side_step = (
-        lambda side, speed_percent: LinearMoveResult(True, 10.0)
-    )  # type: ignore[method-assign]
+    controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 10.0)  # type: ignore[method-assign]
     controller._is_front_clear_confirmed = lambda: True  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 9.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 9.0
     )  # type: ignore[method-assign]
-    controller._attempt_rejoin_step = (
-        lambda side, lateral_offset_cm, speed_percent: LinearMoveResult(True, 10.0)
+    controller._attempt_rejoin_step = lambda side, lateral_offset_cm, speed_percent: (
+        LinearMoveResult(True, 10.0)
     )  # type: ignore[method-assign]
 
     result: AvoidanceResult = controller._run_obstacle_avoidance(
@@ -1005,12 +1025,12 @@ def test_run_obstacle_avoidance_happy_path() -> None:
 
 
 @pytest.mark.parametrize(
-        ("side_step", "expected_progress"),
-        [
-            (LinearMoveResult(False, 0.0, blocked=False, heading_restored=False), 0.0),
-            (LinearMoveResult(False, 2.0, blocked=False), 0.0),
-            (LinearMoveResult(False, 0.0, blocked=True), 0.0),
-        ],
+    ("side_step", "expected_progress"),
+    [
+        (LinearMoveResult(False, 0.0, blocked=False, heading_restored=False), 0.0),
+        (LinearMoveResult(False, 2.0, blocked=False), 0.0),
+        (LinearMoveResult(False, 0.0, blocked=True), 0.0),
+    ],
 )
 def test_run_obstacle_avoidance_side_step_failure_branches(
     side_step: LinearMoveResult,
@@ -1077,8 +1097,8 @@ def test_run_obstacle_avoidance_forward_progress_completion_branches() -> None:
     controller._select_avoidance_side = lambda: AvoidanceSide.LEFT  # type: ignore[method-assign]
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 0.2)  # type: ignore[method-assign]
     controller._is_front_clear_confirmed = lambda: True  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 20.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 20.0
     )  # type: ignore[method-assign]
     recovered: AvoidanceResult = controller._run_obstacle_avoidance(
         remaining_cm=10.0,
@@ -1091,11 +1111,11 @@ def test_run_obstacle_avoidance_forward_progress_completion_branches() -> None:
     controller._select_avoidance_side = lambda: AvoidanceSide.LEFT  # type: ignore[method-assign]
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 0.2)  # type: ignore[method-assign]
     controller._is_front_clear_confirmed = lambda: True  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 20.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 20.0
     )  # type: ignore[method-assign]
-    controller._attempt_rejoin_step = (
-        lambda side, lateral_offset_cm, speed_percent: LinearMoveResult(
+    controller._attempt_rejoin_step = lambda side, lateral_offset_cm, speed_percent: (
+        LinearMoveResult(
             False,
             0.0,
             heading_restored=False,
@@ -1125,8 +1145,8 @@ def test_run_obstacle_avoidance_forward_step_completed_with_recovered_offset() -
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 0.2)  # type: ignore[method-assign]
     front_results: list[bool] = [True]
     controller._is_front_clear_confirmed = lambda: front_results.pop(0)  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 1.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 1.0
     )  # type: ignore[method-assign]
     lateral_checks: list[bool] = [False, True]
 
@@ -1153,11 +1173,11 @@ def test_run_obstacle_avoidance_forward_completion_switches_to_rejoin() -> None:
     controller._select_avoidance_side = lambda: AvoidanceSide.LEFT  # type: ignore[method-assign]
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 2.0)  # type: ignore[method-assign]
     controller._is_front_clear_confirmed = lambda: True  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 20.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 20.0
     )  # type: ignore[method-assign]
-    controller._attempt_rejoin_step = (
-        lambda side, lateral_offset_cm, speed_percent: LinearMoveResult(
+    controller._attempt_rejoin_step = lambda side, lateral_offset_cm, speed_percent: (
+        LinearMoveResult(
             False,
             0.0,
             heading_restored=False,
@@ -1180,12 +1200,11 @@ def test_run_obstacle_avoidance_forward_step_failure_branches() -> None:
     controller._select_avoidance_side = lambda: AvoidanceSide.LEFT  # type: ignore[method-assign]
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 2.0)  # type: ignore[method-assign]
     controller._is_front_clear_confirmed = lambda: True  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(False, 1.0, blocked=True)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        False, 1.0, blocked=True
     )  # type: ignore[method-assign]
     assert (
-        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed
-        is False
+        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed is False
     )
 
     controller = _controller()
@@ -1193,12 +1212,11 @@ def test_run_obstacle_avoidance_forward_step_failure_branches() -> None:
     controller._select_avoidance_side = lambda: AvoidanceSide.LEFT  # type: ignore[method-assign]
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 2.0)  # type: ignore[method-assign]
     controller._is_front_clear_confirmed = lambda: True  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(False, 1.0, blocked=False)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        False, 1.0, blocked=False
     )  # type: ignore[method-assign]
     assert (
-        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed
-        is False
+        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed is False
     )
 
 
@@ -1209,19 +1227,18 @@ def test_run_obstacle_avoidance_rejoin_failure_and_retry_branches() -> None:
     controller._select_avoidance_side = lambda: AvoidanceSide.LEFT  # type: ignore[method-assign]
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 2.0)  # type: ignore[method-assign]
     controller._is_front_clear_confirmed = lambda: True  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 1.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 1.0
     )  # type: ignore[method-assign]
-    controller._attempt_rejoin_step = (
-        lambda side, lateral_offset_cm, speed_percent: LinearMoveResult(
+    controller._attempt_rejoin_step = lambda side, lateral_offset_cm, speed_percent: (
+        LinearMoveResult(
             False,
             0.0,
             heading_restored=False,
         )
     )  # type: ignore[method-assign]
     assert (
-        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed
-        is False
+        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed is False
     )
 
     controller = _controller()
@@ -1229,19 +1246,18 @@ def test_run_obstacle_avoidance_rejoin_failure_and_retry_branches() -> None:
     controller._select_avoidance_side = lambda: AvoidanceSide.LEFT  # type: ignore[method-assign]
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 2.0)  # type: ignore[method-assign]
     controller._is_front_clear_confirmed = lambda: True  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 1.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 1.0
     )  # type: ignore[method-assign]
-    controller._attempt_rejoin_step = (
-        lambda side, lateral_offset_cm, speed_percent: LinearMoveResult(
+    controller._attempt_rejoin_step = lambda side, lateral_offset_cm, speed_percent: (
+        LinearMoveResult(
             False,
             1.0,
             blocked=False,
         )
     )  # type: ignore[method-assign]
     assert (
-        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed
-        is False
+        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed is False
     )
 
     controller = _controller()
@@ -1250,19 +1266,18 @@ def test_run_obstacle_avoidance_rejoin_failure_and_retry_branches() -> None:
     controller._select_avoidance_side = lambda: AvoidanceSide.LEFT  # type: ignore[method-assign]
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 2.0)  # type: ignore[method-assign]
     controller._is_front_clear_confirmed = lambda: True  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 1.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 1.0
     )  # type: ignore[method-assign]
-    controller._attempt_rejoin_step = (
-        lambda side, lateral_offset_cm, speed_percent: LinearMoveResult(
+    controller._attempt_rejoin_step = lambda side, lateral_offset_cm, speed_percent: (
+        LinearMoveResult(
             False,
             0.0,
             blocked=True,
         )
     )  # type: ignore[method-assign]
     assert (
-        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed
-        is False
+        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed is False
     )
 
 
@@ -1275,15 +1290,14 @@ def test_run_obstacle_avoidance_rejoin_front_blocked_and_final_retry() -> None:
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 1.0)  # type: ignore[method-assign]
     front_results: list[bool] = [True, False]
     controller._is_front_clear_confirmed = lambda: front_results.pop(0)  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 0.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 0.0
     )  # type: ignore[method-assign]
-    controller._attempt_rejoin_step = (
-        lambda side, lateral_offset_cm, speed_percent: LinearMoveResult(True, 1.0)
+    controller._attempt_rejoin_step = lambda side, lateral_offset_cm, speed_percent: (
+        LinearMoveResult(True, 1.0)
     )  # type: ignore[method-assign]
     assert (
-        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed
-        is False
+        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed is False
     )
 
     controller = _controller()
@@ -1292,21 +1306,18 @@ def test_run_obstacle_avoidance_rejoin_front_blocked_and_final_retry() -> None:
     controller._select_avoidance_side = lambda: AvoidanceSide.LEFT  # type: ignore[method-assign]
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 1.0)  # type: ignore[method-assign]
     controller._is_front_clear_confirmed = lambda: True  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 0.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 0.0
     )  # type: ignore[method-assign]
     rejoin_steps: list[LinearMoveResult] = [
         LinearMoveResult(True, 0.25),
         LinearMoveResult(True, 0.25),
         LinearMoveResult(True, 0.25),
     ]
-    controller._attempt_rejoin_step = (
-        lambda side, lateral_offset_cm, speed_percent: rejoin_steps.pop(0)
+    controller._attempt_rejoin_step = lambda side, lateral_offset_cm, speed_percent: (
+        rejoin_steps.pop(0)
     )  # type: ignore[method-assign]
-    assert (
-        controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed
-        is True
-    )
+    assert controller._run_obstacle_avoidance(remaining_cm=10.0, speed_percent=50).completed is True
 
 
 def test_run_obstacle_avoidance_rejoin_returns_to_front_check() -> None:
@@ -1318,11 +1329,11 @@ def test_run_obstacle_avoidance_rejoin_returns_to_front_check() -> None:
     controller._perform_side_step = lambda side, speed_percent: LinearMoveResult(True, 10.0)  # type: ignore[method-assign]
     front_results: list[bool] = [True, False]
     controller._is_front_clear_confirmed = lambda: front_results.pop(0)  # type: ignore[method-assign]
-    controller._perform_forward_step = (
-        lambda remaining_cm, speed_percent: LinearMoveResult(True, 1.0)
+    controller._perform_forward_step = lambda remaining_cm, speed_percent: LinearMoveResult(
+        True, 1.0
     )  # type: ignore[method-assign]
-    controller._attempt_rejoin_step = (
-        lambda side, lateral_offset_cm, speed_percent: LinearMoveResult(True, 1.0)
+    controller._attempt_rejoin_step = lambda side, lateral_offset_cm, speed_percent: (
+        LinearMoveResult(True, 1.0)
     )  # type: ignore[method-assign]
 
     result: AvoidanceResult = controller._run_obstacle_avoidance(

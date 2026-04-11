@@ -241,21 +241,15 @@ class IMUSensor(GyroscopeProtocol):
             yaw_delta: float = (self.GYRO_SIGN_Z * actual_gz) * dt
 
             accel_x_m_s2: float = (
-                self.ACCEL_SIGN_X
-                * (raw_ax / self.ACCEL_SCALE_FACTOR)
-                * self.STANDARD_GRAVITY_M_S2
+                self.ACCEL_SIGN_X * (raw_ax / self.ACCEL_SCALE_FACTOR) * self.STANDARD_GRAVITY_M_S2
             )
 
             accel_y_m_s2: float = (
-                self.ACCEL_SIGN_Y
-                * (raw_ay / self.ACCEL_SCALE_FACTOR)
-                * self.STANDARD_GRAVITY_M_S2
+                self.ACCEL_SIGN_Y * (raw_ay / self.ACCEL_SCALE_FACTOR) * self.STANDARD_GRAVITY_M_S2
             )
 
             accel_z_m_s2: float = (
-                self.ACCEL_SIGN_Z
-                * (raw_az / self.ACCEL_SCALE_FACTOR)
-                * self.STANDARD_GRAVITY_M_S2
+                self.ACCEL_SIGN_Z * (raw_az / self.ACCEL_SCALE_FACTOR) * self.STANDARD_GRAVITY_M_S2
             )
 
             with self._state_lock:

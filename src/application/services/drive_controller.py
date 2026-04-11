@@ -690,8 +690,7 @@ class DriveController(DriveControllerProtocol):
                 side_step: LinearMoveResult = self._perform_side_step(context.side, speed_percent)
                 if not side_step.heading_restored:
                     logger.warning(
-                        "Обход остановлен: после бокового шага "
-                        "не удалось восстановить курс."
+                        "Обход остановлен: после бокового шага не удалось восстановить курс."
                     )
                     break
                 self._update_avoidance_progress(
@@ -735,8 +734,7 @@ class DriveController(DriveControllerProtocol):
                 if self._has_reached_target_distance(context.lateral_offset_cm):
                     self._log_lateral_offset_recovery(
                         reason=(
-                            "front is clear after side step and lateral offset "
-                            "is within tolerance"
+                            "front is clear after side step and lateral offset is within tolerance"
                         ),
                         lateral_offset_cm=context.lateral_offset_cm,
                     )
@@ -764,8 +762,7 @@ class DriveController(DriveControllerProtocol):
                     if self._has_reached_target_distance(context.lateral_offset_cm):
                         self._log_lateral_offset_recovery(
                             reason=(
-                                "forward progress completed and lateral offset "
-                                "is within tolerance"
+                                "forward progress completed and lateral offset is within tolerance"
                             ),
                             lateral_offset_cm=context.lateral_offset_cm,
                         )
@@ -939,9 +936,8 @@ class DriveController(DriveControllerProtocol):
         inconclusive_usable_candidates: list[SideScanResult] = [
             result
             for result in scan_results
-            if result.is_selectable and (
-                result.limited_confidence or result.turn_stop_reason != "target_reached"
-            )
+            if result.is_selectable
+            and (result.limited_confidence or result.turn_stop_reason != "target_reached")
         ]
         if inconclusive_usable_candidates:
             selected = max(
@@ -1010,8 +1006,7 @@ class DriveController(DriveControllerProtocol):
 
         if not secondary_result.is_selectable:
             secondary_rejection_reason: str = (
-                secondary_result.rejection_reason
-                or "scan unusable or heading not restored"
+                secondary_result.rejection_reason or "scan unusable or heading not restored"
             )
             final_result: SideScanResult = self._annotate_side_scan_result(
                 result=primary_result,
@@ -1019,8 +1014,7 @@ class DriveController(DriveControllerProtocol):
                 secondary_result=secondary_result,
                 selection_blocked=True,
                 selection_reason=(
-                    "45° clearance below exploratory threshold; "
-                    "60° fallback scan unusable"
+                    "45° clearance below exploratory threshold; 60° fallback scan unusable"
                 ),
                 rejection_reason=(
                     "45° scan insufficient "
@@ -1038,9 +1032,7 @@ class DriveController(DriveControllerProtocol):
                 primary_result=primary_result,
                 secondary_result=secondary_result,
                 selection_blocked=True,
-                selection_reason=(
-                    "both 45° and 60° clearances stayed below exploratory threshold"
-                ),
+                selection_reason=("both 45° and 60° clearances stayed below exploratory threshold"),
                 rejection_reason=(
                     "45° clearance="
                     f"{primary_clearance:.1f}, 60° clearance={secondary_clearance:.1f}, "
@@ -1092,12 +1084,9 @@ class DriveController(DriveControllerProtocol):
             target_angle=target_angle,
             stop_on_front_obstacle=False,
         )
-        useful_partial_scan: bool = (
-            not turn_result.completed
-            and self._is_useful_partial_side_scan(
-                target_angle_deg=target_angle,
-                turned_angle_deg=turn_result.angle_deg,
-            )
+        useful_partial_scan: bool = not turn_result.completed and self._is_useful_partial_side_scan(
+            target_angle_deg=target_angle,
+            turned_angle_deg=turn_result.angle_deg,
         )
         used_partial_scan: bool = useful_partial_scan
         clearance: float | None = None
@@ -1346,9 +1335,7 @@ class DriveController(DriveControllerProtocol):
             spread_cm=spread_cm,
             reliable=reliable,
             reliability_reason=(
-                "stable median sample set"
-                if reliable
-                else ", ".join(reliability_issues)
+                "stable median sample set" if reliable else ", ".join(reliability_issues)
             ),
         )
 
@@ -1572,12 +1559,8 @@ class DriveController(DriveControllerProtocol):
         reason: str = result.rejection_reason or "ok"
         selection_reason: str = result.selection_reason or "n/a"
         measurement_repr: str = self._format_measurement_summary(result.measurement_summary)
-        primary_target_deg: float = (
-            result.primary_target_angle_deg or result.target_angle_deg
-        )
-        primary_turned_deg: float = (
-            result.primary_turned_angle_deg or result.turned_angle_deg
-        )
+        primary_target_deg: float = result.primary_target_angle_deg or result.target_angle_deg
+        primary_turned_deg: float = result.primary_turned_angle_deg or result.turned_angle_deg
         secondary_target_repr: str = (
             f"{result.secondary_target_angle_deg:.1f}°"
             if result.secondary_target_angle_deg is not None
@@ -1628,9 +1611,7 @@ class DriveController(DriveControllerProtocol):
             else "n/a"
         )
         measurement_reason: str = (
-            measurement_summary.reliability_reason
-            if measurement_summary is not None
-            else "n/a"
+            measurement_summary.reliability_reason if measurement_summary is not None else "n/a"
         )
         logger.info(
             "Обход: side scan side=%s clearance_cm=%s threshold=%.1f exploratory_threshold=%.1f "
@@ -1671,11 +1652,7 @@ class DriveController(DriveControllerProtocol):
                 if measurement_summary is not None
                 else "n/a"
             ),
-            (
-                f"{measurement_summary.spread_cm:.1f}"
-                if measurement_summary is not None
-                else "n/a"
-            ),
+            (f"{measurement_summary.spread_cm:.1f}" if measurement_summary is not None else "n/a"),
             measurement_summary.reliable if measurement_summary is not None else True,
             measurement_reason,
             result.selection_blocked,

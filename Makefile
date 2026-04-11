@@ -1,6 +1,7 @@
 .PHONY: lint format-check test coverage
 
-PYTHON ?= python3
+PYTHON_VENV := $(firstword $(wildcard venv/bin/python .venv/bin/python))
+PYTHON ?= $(if $(PYTHON_VENV),$(PYTHON_VENV),python3)
 PYTEST ?= $(PYTHON) -m pytest
 COVERAGE ?= $(PYTHON) -m coverage
 RUFF ?= $(PYTHON) -m ruff
