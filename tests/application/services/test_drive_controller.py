@@ -316,25 +316,41 @@ def test_fix_head_forward_ignores_missing_or_failed_servo() -> None:
 
 
 def test_motion_event_helpers_update_position_obstacle_and_workspace_limit() -> None:
-    """Progress callback обновляет позицию, препятствие и ошибку выхода за лимит."""
+    """Progress callback учитывает допуск по границе зоны и публикует ошибку только после него."""
     hub: MotionEventHub = MotionEventHub()
     queue = hub.subscribe()
     queue.get_nowait()
-    controller: DriveController = _controller(motion_events=hub, workspace_limit_cm=5.0)
+    controller: DriveController = _controller(
+        motion_events=hub,
+        workspace_limit_cm=5.0,
+    )
     controller._heading_deg = 90.0
     controller.lifecycle.set_running(is_route_running=False)
 
     controller._handle_linear_motion_progress(
-        traveled_cm=10.0,
-        delta_cm=10.0,
+        traveled_cm=5.5,
+        delta_cm=5.5,
         direction=1,
         obstacle_cm=10.0,
     )
 
     events: list[MotionEvent] = [queue.get_nowait() for _ in range(queue.qsize())]
-    assert controller._position_x_cm == pytest.approx(10.0)
+    assert controller._position_x_cm == pytest.approx(5.5)
     assert controller._position_y_cm == pytest.approx(0.0)
-    assert [event.type for event in events] == ["position", "obstacle", "error"]
+    assert [event.type for event in events] == ["position", "obstacle"]
+    assert controller._motion_error_reported is False
+    assert controller.lifecycle.is_moving is True
+
+    controller._handle_linear_motion_progress(
+        traveled_cm=6.2,
+        delta_cm=0.7,
+        direction=1,
+        obstacle_cm=None,
+    )
+
+    events = [queue.get_nowait() for _ in range(queue.qsize())]
+    assert controller._position_x_cm == pytest.approx(6.2)
+    assert [event.type for event in events] == ["position", "error"]
     assert controller._motion_error_reported is True
     assert controller.lifecycle.is_moving is False
 

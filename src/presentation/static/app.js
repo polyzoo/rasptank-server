@@ -22,7 +22,10 @@ const els = {
     heading: document.querySelector("#heading"),
     obstacle: document.querySelector("#obstacle"),
     message: document.querySelector("#message"),
+    stepDistance: document.querySelector("#stepDistance"),
 };
+
+const CARDINAL_ANGLES = [0, 90, 180, 270];
 
 function routePayload(kind) {
     if (kind === "square") {
@@ -41,6 +44,52 @@ function routePayload(kind) {
     return {segments: [{action: "forward", distance_cm: 100}]};
 }
 
+function normalizeAngle(angle) {
+    return ((angle % 360) + 360) % 360;
+}
+
+function roundToCardinal(angle) {
+    const normalized = normalizeAngle(angle);
+    return CARDINAL_ANGLES.reduce((closest, candidate) => {
+        const currentDistance = Math.abs(normalized - closest);
+        const candidateDistance = Math.abs(normalized - candidate);
+        return candidateDistance < currentDistance ? candidate : closest;
+    }, CARDINAL_ANGLES[0]);
+}
+
+function buildTurnSegments(targetHeading) {
+    const currentHeading = roundToCardinal(state.current.heading);
+    const desiredHeading = normalizeAngle(targetHeading);
+    const rightDelta = normalizeAngle(desiredHeading - currentHeading);
+    const leftDelta = normalizeAngle(currentHeading - desiredHeading);
+
+    if (rightDelta === 0 || leftDelta === 0) {
+        return [];
+    }
+    if (rightDelta <= leftDelta) {
+        return [{action: "turn_right", angle_deg: rightDelta}];
+    }
+    return [{action: "turn_left", angle_deg: leftDelta}];
+}
+
+function movementPayload(direction) {
+    const distance = Math.max(1, Number(els.stepDistance.value) || 0);
+    if (direction === "forward") {
+        return {segments: [{action: "forward", distance_cm: distance}]};
+    }
+    if (direction === "backward") {
+        return {segments: [{action: "backward", distance_cm: distance}]};
+    }
+
+    const targetHeading = direction === "right" ? 90 : 270;
+    return {
+        segments: [
+            ...buildTurnSegments(targetHeading),
+            {action: "forward", distance_cm: distance},
+        ],
+    };
+}
+
 async function sendRoute(kind) {
     state.points = [{x: 0, y: 0}];
     state.obstacles = [];
@@ -49,6 +98,14 @@ async function sendRoute(kind) {
         method: "POST",
         headers: {"content-type": "application/json"},
         body: JSON.stringify(routePayload(kind)),
+    });
+}
+
+async function sendMovement(direction) {
+    await fetch("/v1/drive/route", {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify(movementPayload(direction)),
     });
 }
 
@@ -71,8 +128,14 @@ function connect() {
 }
 
 function update(event) {
+    const displayX = -event.x_cm;
+    const displayObstacleX =
+        event.obstacle_x_cm === null || event.obstacle_x_cm === undefined
+            ? null
+            : -event.obstacle_x_cm;
+
     state.current = {
-        x: event.x_cm,
+        x: displayX,
         y: event.y_cm,
         heading: event.heading_deg,
         status: event.status,
@@ -80,16 +143,16 @@ function update(event) {
 
     if (event.type === "position") {
         const last = state.points[state.points.length - 1];
-        if (!last || Math.hypot(last.x - event.x_cm, last.y - event.y_cm) >= 0.25) {
-            state.points.push({x: event.x_cm, y: event.y_cm});
+        if (!last || Math.hypot(last.x - displayX, last.y - event.y_cm) >= 0.25) {
+            state.points.push({x: displayX, y: event.y_cm});
         }
     }
-    if (event.type === "obstacle" && event.obstacle_x_cm !== null && event.obstacle_y_cm !== null) {
-        addObstacle(event.obstacle_x_cm, event.obstacle_y_cm);
+    if (event.type === "obstacle" && displayObstacleX !== null && event.obstacle_y_cm !== null) {
+        addObstacle(displayObstacleX, event.obstacle_y_cm);
     }
 
     els.status.textContent = statusLabel(event.status);
-    els.x.textContent = `${event.x_cm.toFixed(1)} см`;
+    els.x.textContent = `${displayX.toFixed(1)} см`;
     els.y.textContent = `${event.y_cm.toFixed(1)} см`;
     els.heading.textContent = `${event.heading_deg.toFixed(0)}°`;
     els.obstacle.textContent =
@@ -224,6 +287,10 @@ document.querySelector("#startSquare").addEventListener("click", () => sendRoute
 document.querySelector("#startLine").addEventListener("click", () => sendRoute("line"));
 document.querySelector("#resetView").addEventListener("click", resetView);
 document.querySelector("#stop").addEventListener("click", stopRoute);
+document.querySelector("#moveForward").addEventListener("click", () => sendMovement("forward"));
+document.querySelector("#moveBackward").addEventListener("click", () => sendMovement("backward"));
+document.querySelector("#moveLeft").addEventListener("click", () => sendMovement("left"));
+document.querySelector("#moveRight").addEventListener("click", () => sendMovement("right"));
 canvas.addEventListener("pointerdown", startDrag);
 canvas.addEventListener("pointermove", drag);
 canvas.addEventListener("pointerup", stopDrag);

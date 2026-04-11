@@ -29,6 +29,18 @@
         <aside class="panel">
             <p class="eyebrow">Состояние</p>
             <strong id="status">подключение...</strong>
+            <div class="manual-controls" aria-label="Ручные команды">
+                <label class="field">
+                    <span>Шаг</span>
+                    <input id="stepDistance" type="number" min="1" step="1" value="30"/>
+                </label>
+                <div class="manual-grid">
+                    <button id="moveForward" type="button">Вперед</button>
+                    <button id="moveLeft" type="button">Влево</button>
+                    <button id="moveRight" type="button">Вправо</button>
+                    <button id="moveBackward" type="button">Назад</button>
+                </div>
+            </div>
             <dl>
                 <div>
                     <dt>X</dt>

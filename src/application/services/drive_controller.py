@@ -157,6 +157,7 @@ class DriveController(DriveControllerProtocol):
     """Контроллер движения поверх модульных executors с obstacle avoidance."""
 
     DISTANCE_TOLERANCE_CM: float = 0.5
+    WORKSPACE_LIMIT_TOLERANCE_CM: float = 1.0
     BLOCK_CONFIRMATION_SAMPLES_MIN: int = 3
     CLEAR_CONFIRMATION_CHECKS: int = 2
     CLEARANCE_HYSTERESIS_CM: float = 3.0
@@ -625,9 +626,12 @@ class DriveController(DriveControllerProtocol):
         if self._motion_error_reported:
             return
 
+        effective_workspace_limit_cm: float = (
+            self._workspace_limit_cm + self.WORKSPACE_LIMIT_TOLERANCE_CM
+        )
         if (
-            abs(self._position_x_cm) <= self._workspace_limit_cm
-            and abs(self._position_y_cm) <= self._workspace_limit_cm
+            abs(self._position_x_cm) <= effective_workspace_limit_cm
+            and abs(self._position_y_cm) <= effective_workspace_limit_cm
         ):
             return
 
