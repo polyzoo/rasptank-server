@@ -123,19 +123,19 @@ function draw() {
 
     ctx.strokeStyle = "#e1e7ee";
     ctx.lineWidth = 1;
-    for (let i = -40; i <= 40; i += 10) {
+    for (let i = -500; i <= 500; i += 10) {
         ctx.beginPath();
-        ctx.moveTo(originX + i * scale, originY - 40 * scale);
-        ctx.lineTo(originX + i * scale, originY + 40 * scale);
+        ctx.moveTo(originX + i * scale, originY - 500 * scale);
+        ctx.lineTo(originX + i * scale, originY + 500 * scale);
         ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(originX - 40 * scale, originY + i * scale);
-        ctx.lineTo(originX + 40 * scale, originY + i * scale);
+        ctx.moveTo(originX - 500 * scale, originY + i * scale);
+        ctx.lineTo(originX + 500 * scale, originY + i * scale);
         ctx.stroke();
     }
 
     ctx.strokeStyle = "#c43d4b";
-    ctx.strokeRect(originX - 40 * scale, originY - 40 * scale, 80 * scale, 80 * scale);
+    ctx.strokeRect(originX - 500 * scale, originY - 500 * scale, 80 * scale, 80 * scale);
 
     ctx.fillStyle = "#111827";
     state.obstacles.forEach((obstacle) => {
