@@ -29,7 +29,7 @@ function routePayload(kind) {
             ],
         };
     }
-    return {segments: [{action: "forward", distance_cm: 35}]};
+    return {segments: [{action: "forward", distance_cm: 100}]};
 }
 
 async function sendRoute(kind) {
