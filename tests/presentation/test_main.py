@@ -36,7 +36,6 @@ def test_create_app_sets_state_and_mounts_routes() -> None:
 
     paths: set[str | None] = {getattr(route, "path", None) for route in app.routes}
     assert "/v1/health" in paths
-    assert "/demo" in paths
 
 
 def test_lifespan_destroys_drive_controller_on_shutdown() -> None:

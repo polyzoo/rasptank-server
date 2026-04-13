@@ -4,7 +4,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 
 from src.application.factories import create_drive_controller
 from src.application.services.motion_events import MotionEventHub
@@ -37,11 +36,6 @@ def create_app(settings: Settings) -> FastAPI:
 
     setup_exception_handlers(app)
     app.include_router(v1_router)
-    app.mount(
-        path="/demo",
-        app=StaticFiles(directory="src/presentation/static", html=True),
-        name="demo",
-    )
 
     return app
 
