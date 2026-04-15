@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from src.application.protocols import MotorControllerProtocol
 from src.application.services.drive_controller import DriveController
+from src.application.services.kinematics import DifferentialDriveKinematics
+from src.application.services.l1_service import L1Service
+from src.application.services.l2_service import L2Service
 from src.application.services.motion_config import MotionConfig
 from src.application.services.motion_events import MotionEventHub
+from src.application.services.pose_estimator import PoseEstimator
+from src.application.services.velocity_command_controller import VelocityCommandController
 from src.config.settings import Settings
 from src.infrastructures.head_servo import HeadServoController
 from src.infrastructures.imu import IMUSensor
@@ -70,4 +76,67 @@ def create_drive_controller(
         motion_events=motion_events,
         head_servo=head_servo,
         head_servo_home_angle_deg=settings.head_servo_home_angle_deg,
+    )
+
+
+def create_differential_drive_kinematics(settings: Settings) -> DifferentialDriveKinematics:
+    """Собрать кинематику корпуса и бортов по настройкам приложения."""
+    return DifferentialDriveKinematics(
+        track_width_cm=settings.track_width_cm,
+        left_track_max_speed_cm_per_sec=settings.left_track_max_speed_cm_per_sec,
+        right_track_max_speed_cm_per_sec=settings.right_track_max_speed_cm_per_sec,
+    )
+
+
+def create_pose_estimator() -> PoseEstimator:
+    """Создать оценщик положения и скорости машинки."""
+    return PoseEstimator()
+
+
+def create_velocity_command_controller(
+    settings: Settings,
+    motor_controller: MotorControllerProtocol,
+) -> VelocityCommandController:
+    """Собрать контроллер команд скорости корпуса поверх нижнего уровня."""
+    return VelocityCommandController(
+        motor_controller=motor_controller,
+        kinematics=create_differential_drive_kinematics(settings),
+    )
+
+
+def create_l2_service(
+    settings: Settings,
+    motor_controller: MotorControllerProtocol,
+) -> L2Service:
+    """Собрать изолированный математический слой нового контура."""
+    kinematics: DifferentialDriveKinematics = create_differential_drive_kinematics(settings)
+    pose_estimator: PoseEstimator = create_pose_estimator()
+    velocity_controller: VelocityCommandController = VelocityCommandController(
+        motor_controller=motor_controller,
+        kinematics=kinematics,
+    )
+    return L2Service(
+        kinematics=kinematics,
+        pose_estimator=pose_estimator,
+        velocity_controller=velocity_controller,
+    )
+
+
+def create_l1_service(settings: Settings) -> L1Service:
+    """Собрать чистый нижний уровень нового контура."""
+    imu_sensor: IMUSensor = IMUSensor()
+    ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
+    head_servo: HeadServoController = HeadServoController(
+        channel=settings.head_servo_channel,
+        home_angle_deg=settings.head_servo_home_angle_deg,
+    )
+    motor_controller: MotorController = MotorController(
+        tl_left_offset=settings.tl_left_offset,
+        tl_right_offset=settings.tl_right_offset,
+    )
+    return L1Service(
+        motor_controller=motor_controller,
+        gyroscope=imu_sensor,
+        ultrasonic_sensor=ultrasonic_sensor,
+        head_servo=head_servo,
     )

@@ -159,6 +159,18 @@ def test_set_tracks_clamps_signed_speed_range(monkeypatch: Any) -> None:
     assert motor2.throttle == 1.0
 
 
+def test_set_tracks_returns_when_setup_does_not_create_motors(monkeypatch: Any) -> None:
+    """set_tracks завершается без записи, если setup не создал оба мотора."""
+    _enable_fake_hardware(monkeypatch)
+    controller: MotorController = MotorController()
+    monkeypatch.setattr(controller, "_setup", lambda: None)
+
+    controller.set_tracks(left_speed_percent=20, right_speed_percent=20)
+
+    assert controller._motor1 is None
+    assert controller._motor2 is None
+
+
 def test_turn_methods_drive_tracks_in_opposite_directions(monkeypatch: Any) -> None:
     """Повороты на месте выставляют throttle для разворота."""
     _enable_fake_hardware(monkeypatch)

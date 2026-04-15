@@ -273,6 +273,34 @@ class Settings(BaseSettings):
         validation_alias="MAX_SPEED_CM_PER_SEC",
         description="Скорость при 100%.",
     )
+    track_width_cm: float = Field(
+        default=17.0,
+        gt=0.0,
+        le=100.0,
+        validation_alias="TRACK_WIDTH_CM",
+        description=(
+            "Расстояние между центрами левого и правого борта (см). "
+            "Временный ориентир до калибровки."
+        ),
+    )
+    left_track_max_speed_cm_per_sec: float = Field(
+        default=30.0,
+        gt=0.0,
+        le=100.0,
+        validation_alias="LEFT_TRACK_MAX_SPEED_CM_PER_SEC",
+        description=(
+            "Скорость левого борта при команде 100% (см/с). Временный ориентир до калибровки."
+        ),
+    )
+    right_track_max_speed_cm_per_sec: float = Field(
+        default=30.0,
+        gt=0.0,
+        le=100.0,
+        validation_alias="RIGHT_TRACK_MAX_SPEED_CM_PER_SEC",
+        description=(
+            "Скорость правого борта при команде 100% (см/с). Временный ориентир до калибровки."
+        ),
+    )
 
     model_config: SettingsConfigDict = SettingsConfigDict(
         env_file=".env",
