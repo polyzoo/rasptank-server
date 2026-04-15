@@ -57,7 +57,7 @@ class MotorController(MotorControllerProtocol):
     SPEED_PERCENT_MIN: int = 0
     SPEED_PERCENT_MAX: int = 100
 
-    # Диапазон signed-скорости для независимого управления гусеницами
+    # Диапазон скорости со знаком для независимого управления гусеницами
     SPEED_PERCENT_SIGNED_MIN: int = -100
     SPEED_PERCENT_SIGNED_MAX: int = 100
 
@@ -75,6 +75,21 @@ class MotorController(MotorControllerProtocol):
         self._motor1: object | None = None
         self._motor2: object | None = None
         self._is_initialized: bool = False
+
+    def set_tracks(self, left_speed_percent: int, right_speed_percent: int) -> None:
+        """Независимо задать скорость левой и правой гусеницы в процентах со знаком."""
+        if not _HARDWARE_AVAILABLE:
+            return
+
+        self._setup()
+        if self._motor1 is None or self._motor2 is None:
+            return
+
+        left_pct: int = self._clamp_signed_speed(left_speed_percent)
+        right_pct: int = self._clamp_signed_speed(right_speed_percent)
+
+        self._motor1.throttle = self._signed_percent_to_throttle(right_pct, self.M1_DIRECTION)
+        self._motor2.throttle = self._signed_percent_to_throttle(left_pct, self.M2_DIRECTION)
 
     def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
         """Движение вперед с заданной скоростью."""
@@ -132,7 +147,7 @@ class MotorController(MotorControllerProtocol):
         if self._motor1 is None or self._motor2 is None:
             return
 
-        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
+        clamped_speed: int = self._clamp_unsigned_speed(speed_percent)
         steer: int = max(-self.SPEED_PERCENT_MAX, min(self.SPEED_PERCENT_MAX, steer_percent))
 
         left_pct: int = max(
@@ -144,18 +159,15 @@ class MotorController(MotorControllerProtocol):
             min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_RIGHT_OFFSET - steer),
         )
 
-        left_speed: float = max(
-            self.THROTTLE_MIN,
-            min(self.THROTTLE_MAX, left_pct / float(self.SPEED_PERCENT_MAX)),
-        )
-        right_speed: float = max(
-            self.THROTTLE_MIN,
-            min(self.THROTTLE_MAX, right_pct / float(self.SPEED_PERCENT_MAX)),
-        )
-
         direction: float = -1.0 if reverse else 1.0
-        self._motor1.throttle = direction * right_speed * self.M1_DIRECTION
-        self._motor2.throttle = direction * left_speed * self.M2_DIRECTION
+        self._motor1.throttle = self._signed_percent_to_throttle(
+            int(direction * right_pct),
+            self.M1_DIRECTION,
+        )
+        self._motor2.throttle = self._signed_percent_to_throttle(
+            int(direction * left_pct),
+            self.M2_DIRECTION,
+        )
 
     def _turn_in_place(self, speed_percent: int, *, left: bool) -> None:
         """Выполнить поворот на месте в заданную сторону."""
@@ -166,15 +178,30 @@ class MotorController(MotorControllerProtocol):
         if self._motor1 is None or self._motor2 is None:
             return
 
-        clamped_speed: int = max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
-        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
-
         if left:
-            self._motor1.throttle = -throttle * self.M1_DIRECTION
-            self._motor2.throttle = throttle * self.M2_DIRECTION
+            self.set_tracks(left_speed_percent=speed_percent, right_speed_percent=-speed_percent)
         else:
-            self._motor1.throttle = throttle * self.M1_DIRECTION
-            self._motor2.throttle = -throttle * self.M2_DIRECTION
+            self.set_tracks(left_speed_percent=-speed_percent, right_speed_percent=speed_percent)
+
+    def _clamp_unsigned_speed(self, speed_percent: int) -> int:
+        """Ограничить скорость без знака допустимым диапазоном."""
+        return max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
+
+    def _clamp_signed_speed(self, speed_percent: int) -> int:
+        """Ограничить скорость со знаком допустимым диапазоном."""
+        return max(
+            self.SPEED_PERCENT_SIGNED_MIN,
+            min(self.SPEED_PERCENT_SIGNED_MAX, speed_percent),
+        )
+
+    def _signed_percent_to_throttle(self, speed_percent: int, direction: int) -> float:
+        """Преобразовать скорость со знаком в мощность мотора с учетом его направления."""
+        clamped_speed: int = self._clamp_signed_speed(speed_percent)
+        throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
+        return max(
+            self.THROTTLE_REVERSE_MIN,
+            min(self.THROTTLE_MAX, throttle * direction),
+        )
 
     def _setup(self) -> None:
         """Однократная инициализация PCA9685 и DC-моторов."""

@@ -218,8 +218,8 @@ def test_calibrate_is_noop_before_setup() -> None:
     assert sensor._gyro_z_bias == 0.0
 
 
-def test_yaw_and_accel_getters_are_thread_safe() -> None:
-    """getters возвращают актуальный state и валидируют ось акселерометра."""
+def test_angle_speed_and_acceleration_getters_are_thread_safe() -> None:
+    """Методы чтения состояния возвращают актуальные угол, скорость и ускорение."""
     sensor: IMUSensor = IMUSensor()
     sensor._yaw = 14.0
     sensor._gyro_z_deg_per_sec = -2.0
@@ -228,6 +228,8 @@ def test_yaw_and_accel_getters_are_thread_safe() -> None:
     sensor._accel_z_m_s2 = 3.0
 
     assert sensor.get_yaw() == 14.0
+    assert sensor.get_angular_speed_z_deg_per_sec() == -2.0
+    assert sensor.get_acceleration_xyz_m_s2() == (1.0, 2.0, 3.0)
 
     sensor.reset_yaw()
     assert sensor.get_yaw() == 0.0

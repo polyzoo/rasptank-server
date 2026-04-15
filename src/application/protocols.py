@@ -11,6 +11,10 @@ class MotorControllerProtocol(Protocol):
     """Протокол управления двигателями."""
 
     @abstractmethod
+    def set_tracks(self, left_speed_percent: int, right_speed_percent: int) -> None:
+        """Независимо задать скорость левой и правой гусеницы в процентах со знаком."""
+
+    @abstractmethod
     def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
         """Движение вперед."""
 
@@ -57,6 +61,14 @@ class GyroscopeProtocol(Protocol):
     @abstractmethod
     def get_yaw(self) -> float:
         """Возврат текущего угла."""
+
+    @abstractmethod
+    def get_angular_speed_z_deg_per_sec(self) -> float:
+        """Возврат текущей угловой скорости вокруг вертикальной оси в градусах в секунду."""
+
+    @abstractmethod
+    def get_acceleration_xyz_m_s2(self) -> tuple[float, float, float]:
+        """Возврат текущих ускорений по трём осям в метрах на секунду в квадрате."""
 
     @abstractmethod
     def stop(self) -> None:

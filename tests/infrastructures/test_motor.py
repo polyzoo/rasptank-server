@@ -92,6 +92,7 @@ def test_motor_methods_are_noop_when_hardware_is_unavailable(monkeypatch: Any) -
     monkeypatch.setattr(motor_module, "_HARDWARE_AVAILABLE", False)
     controller: MotorController = MotorController()
 
+    controller.set_tracks(40, -40)
     controller.move_forward(50)
     controller.turn_left(50)
     controller.stop()
@@ -132,6 +133,30 @@ def test_move_backward_reverses_track_direction(monkeypatch: Any) -> None:
     motor1, motor2 = FakeDCMotor.instances
     assert motor1.throttle == -0.25
     assert motor2.throttle == 0.25
+
+
+def test_set_tracks_drives_left_and_right_tracks_independently(monkeypatch: Any) -> None:
+    """set_tracks напрямую задает скорости со знаком для обоих бортов."""
+    _enable_fake_hardware(monkeypatch)
+    controller: MotorController = MotorController()
+
+    controller.set_tracks(left_speed_percent=30, right_speed_percent=-45)
+
+    motor1, motor2 = FakeDCMotor.instances
+    assert motor1.throttle == -0.45
+    assert motor2.throttle == -0.3
+
+
+def test_set_tracks_clamps_signed_speed_range(monkeypatch: Any) -> None:
+    """set_tracks ограничивает скорости со знаком диапазоном [-100; 100]."""
+    _enable_fake_hardware(monkeypatch)
+    controller: MotorController = MotorController()
+
+    controller.set_tracks(left_speed_percent=-140, right_speed_percent=180)
+
+    motor1, motor2 = FakeDCMotor.instances
+    assert motor1.throttle == 1.0
+    assert motor2.throttle == 1.0
 
 
 def test_turn_methods_drive_tracks_in_opposite_directions(monkeypatch: Any) -> None:

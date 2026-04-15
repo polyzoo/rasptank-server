@@ -142,6 +142,20 @@ class IMUSensor(GyroscopeProtocol):
         with self._state_lock:
             return self._yaw
 
+    def get_angular_speed_z_deg_per_sec(self) -> float:
+        """Возврат текущей угловой скорости вокруг вертикальной оси."""
+        with self._state_lock:
+            return self._gyro_z_deg_per_sec
+
+    def get_acceleration_xyz_m_s2(self) -> tuple[float, float, float]:
+        """Возврат текущих ускорений по трём осям."""
+        with self._state_lock:
+            return (
+                self._accel_x_m_s2,
+                self._accel_y_m_s2,
+                self._accel_z_m_s2,
+            )
+
     def reset_yaw(self) -> None:
         """Сброс текущего значения угла в ноль."""
         with self._state_lock:
