@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from src.application.factories import create_drive_controller
+from src.application.factories import create_drive_controller, create_isolated_motion_service
 from src.application.services.motion_events import MotionEventHub
 from src.config.settings import Settings
 from src.presentation.api.exception_handlers import setup_exception_handlers
@@ -15,7 +15,14 @@ from src.presentation.api.v1.routers import router as v1_router
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Управление жизненным циклом приложения."""
+    if app.state.isolated_motion is not None:
+        app.state.isolated_motion.start()
+
     yield
+
+    if app.state.isolated_motion is not None:
+        app.state.isolated_motion.destroy()
+
     if app.state.drive_controller is not None:
         app.state.drive_controller.destroy()
 
@@ -33,6 +40,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.settings = settings
     app.state.motion_events = MotionEventHub()
     app.state.drive_controller = create_drive_controller(settings, app.state.motion_events)
+    app.state.isolated_motion = create_isolated_motion_service(settings)
 
     setup_exception_handlers(app)
     app.include_router(v1_router)

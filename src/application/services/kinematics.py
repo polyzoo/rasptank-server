@@ -30,7 +30,7 @@ class DifferentialDriveKinematics:
     right_track_max_speed_cm_per_sec: float
     max_command_percent: float = 100.0
 
-    # Половина базы между бортами из формулы v_R = v + omega * l / 2 и v_L = v - omega * l / 2
+    # Половина базы между бортами из формулы v_R = v + omega * l / 2 и v_L = v - omega * l / 2.
     HALF_TRACK_WIDTH_DIVISOR: ClassVar[float] = 2.0
 
     def to_track_command(

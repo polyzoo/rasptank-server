@@ -301,6 +301,89 @@ class Settings(BaseSettings):
             "Скорость правого борта при команде 100% (см/с). Временный ориентир до калибровки."
         ),
     )
+    l3_position_tolerance_cm: float = Field(
+        default=5.0,
+        gt=0.0,
+        le=50.0,
+        validation_alias="L3_POSITION_TOLERANCE_CM",
+        description="Допустимая ошибка по расстоянию до целевой точки (см).",
+    )
+    l3_linear_speed_gain: float = Field(
+        default=1.0,
+        gt=0.0,
+        le=10.0,
+        validation_alias="L3_LINEAR_SPEED_GAIN",
+        description="Коэффициент перевода ошибки расстояния в линейную скорость.",
+    )
+    l3_angular_speed_gain: float = Field(
+        default=2.0,
+        gt=0.0,
+        le=20.0,
+        validation_alias="L3_ANGULAR_SPEED_GAIN",
+        description="Коэффициент перевода ошибки угла в угловую скорость.",
+    )
+    l3_max_linear_speed_cm_per_sec: float = Field(
+        default=20.0,
+        gt=0.0,
+        le=100.0,
+        validation_alias="L3_MAX_LINEAR_SPEED_CM_PER_SEC",
+        description="Максимальная линейная скорость, которую L3 может запросить у L2.",
+    )
+    l3_max_angular_speed_deg_per_sec: float = Field(
+        default=120.0,
+        gt=0.0,
+        le=720.0,
+        validation_alias="L3_MAX_ANGULAR_SPEED_DEG_PER_SEC",
+        description="Максимальная угловая скорость, которую L3 может запросить у L2.",
+    )
+    l3_obstacle_stop_distance_cm: float = Field(
+        default=20.0,
+        gt=0.0,
+        le=200.0,
+        validation_alias="L3_OBSTACLE_STOP_DISTANCE_CM",
+        description="Расстояние до препятствия, при котором L3 останавливает движение (см).",
+    )
+    l3_obstacle_slowdown_distance_cm: float = Field(
+        default=40.0,
+        gt=0.0,
+        le=300.0,
+        validation_alias="L3_OBSTACLE_SLOWDOWN_DISTANCE_CM",
+        description=(
+            "Расстояние до препятствия, с которого L3 начинает плавно снижать скорость (см)."
+        ),
+    )
+    l3_planner_obstacle_clearance_cm: float = Field(
+        default=5.0,
+        gt=0.0,
+        le=100.0,
+        validation_alias="L3_PLANNER_OBSTACLE_CLEARANCE_CM",
+        description="Минимальный зазор планировщика при обходе заранее известных препятствий (см).",
+    )
+    l3_planner_max_detour_offset_cm: float = Field(
+        default=40.0,
+        gt=0.0,
+        le=300.0,
+        validation_alias="L3_PLANNER_MAX_DETOUR_OFFSET_CM",
+        description=(
+            "Максимальное допустимое боковое отклонение обходного пути от исходной прямой (см)."
+        ),
+    )
+    l3_planner_max_waypoints: int = Field(
+        default=24,
+        ge=1,
+        le=200,
+        validation_alias="L3_PLANNER_MAX_WAYPOINTS",
+        description=(
+            "Максимальное число точек, которые планировщик может вставить в обходной маршрут."
+        ),
+    )
+    l3_unknown_obstacle_radius_cm: float = Field(
+        default=8.0,
+        gt=0.0,
+        le=100.0,
+        validation_alias="L3_UNKNOWN_OBSTACLE_RADIUS_CM",
+        description="Оценочный радиус препятствия, впервые обнаруженного только датчиком (см).",
+    )
 
     model_config: SettingsConfigDict = SettingsConfigDict(
         env_file=".env",

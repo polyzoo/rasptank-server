@@ -10,6 +10,9 @@ from src.presentation.api.v1.schemas.drive import (
     TurnLeftSegmentSchema,
 )
 from src.presentation.api.v1.schemas.health import HealthResponseSchema
+from src.presentation.api.v1.schemas.l1 import L1ActionResponseSchema, L1TrackCommandRequestSchema
+from src.presentation.api.v1.schemas.l2 import L2ResetStateRequestSchema
+from src.presentation.api.v1.schemas.l3 import L3RouteRequestSchema
 
 
 def test_response_schemas_have_expected_defaults() -> None:
@@ -17,6 +20,8 @@ def test_response_schemas_have_expected_defaults() -> None:
     assert HealthResponseSchema().status == "ok"
     assert DriveRouteResponseSchema().status == "accepted"
     assert DriveStopResponseSchema().status == "stopped"
+    assert L1ActionResponseSchema(status="accepted").status == "accepted"
+    assert L2ResetStateRequestSchema().x_cm == 0.0
 
 
 def test_segment_schemas_reject_negative_values() -> None:
@@ -35,3 +40,12 @@ def test_route_request_uses_discriminator() -> None:
     )
 
     assert isinstance(route.segments[0], TurnLeftSegmentSchema)
+
+
+def test_new_l1_and_l3_schemas_validate_bounds() -> None:
+    """Новые схемы L1 и L3 проверяют диапазоны команд и непустой маршрут."""
+    with pytest.raises(ValueError):
+        L1TrackCommandRequestSchema.model_validate({"left_percent": 101, "right_percent": 0})
+
+    with pytest.raises(ValueError):
+        L3RouteRequestSchema.model_validate({"points": [], "obstacles": []})

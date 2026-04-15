@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import HTTPException, Request, status
 
 from src.application.protocols import DriveControllerProtocol
+from src.application.services.isolated_motion_service import IsolatedMotionService
 from src.application.services.motion_events import MotionEventHub
 
 
@@ -23,4 +24,14 @@ def get_motion_events(request: Request) -> MotionEventHub:
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Поток событий движения не инициализирован.",
+    )
+
+
+def get_isolated_motion_service(request: Request) -> IsolatedMotionService:
+    """Получить изолированный контур L1-L3."""
+    if request.app.state.isolated_motion is not None:
+        return request.app.state.isolated_motion
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Изолированный контур L1-L3 не инициализирован.",
     )
