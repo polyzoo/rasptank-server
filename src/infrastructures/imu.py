@@ -93,6 +93,14 @@ class IMUSensor(GyroscopeProtocol):
         if not self._is_initialized:
             return
 
+        if self._update_thread is not None and self._update_thread.is_alive():
+            if calibrate:
+                logger.info(
+                    "IMU: поток уже работает — пропускаем повторный start() "
+                    "(калибровка не выполняется, чтобы не ломать общий с L1-L3 сенсор)"
+                )
+            return
+
         self.stop()
         if calibrate:
             self.calibrate()

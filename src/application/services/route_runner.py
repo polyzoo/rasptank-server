@@ -38,6 +38,8 @@ class RouteRunner:
         forward_segment_runner: ForwardSegmentRunner | None = None,
         backward_segment_runner: BackwardSegmentRunner | None = None,
         turn_completed_callback: TurnCompletedCallback | None = None,
+        *,
+        release_gyroscope_after_route: bool = True,
     ) -> None:
         """Инициализация исполнителя маршрута."""
         self._linear_motion: LinearMotionExecutor = linear_motion
@@ -47,6 +49,7 @@ class RouteRunner:
         self._gyroscope: GyroscopeProtocol = gyroscope
         self._lifecycle: MotionLifecycle = lifecycle
         self.base_speed_percent: int = base_speed_percent
+        self._release_gyroscope_after_route: bool = release_gyroscope_after_route
         self._forward_segment_runner: ForwardSegmentRunner | None = forward_segment_runner
         self._backward_segment_runner: BackwardSegmentRunner | None = backward_segment_runner
         self._turn_completed_callback: TurnCompletedCallback | None = turn_completed_callback
@@ -57,7 +60,8 @@ class RouteRunner:
         try:
             self._run_segments(segments)
         finally:
-            self._gyroscope.stop()
+            if self._release_gyroscope_after_route:
+                self._gyroscope.stop()
 
     def _run_segments(self, segments: list[RouteSegment]) -> None:
         """Пройти маршрут по сегментам."""

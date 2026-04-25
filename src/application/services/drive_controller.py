@@ -217,11 +217,13 @@ class DriveController(DriveControllerProtocol):
         workspace_limit_cm: float = DEFAULT_WORKSPACE_LIMIT_CM,
         head_servo: HeadServoProtocol | None = None,
         head_servo_home_angle_deg: float = 0.0,
+        release_gyroscope_after_route: bool = True,
     ) -> None:
         """Инициализация контроллера движения."""
         self.motor_controller: MotorControllerProtocol = motor_controller
         self.ultrasonic_sensor: UltrasonicSensorProtocol = ultrasonic_sensor
         self.gyroscope: GyroscopeProtocol = gyroscope
+        self._release_gyroscope_after_route: bool = release_gyroscope_after_route
         self.config: MotionConfig = config or MotionConfig(
             min_obstacle_distance_cm=min_obstacle_distance_cm,
             deceleration_distance_cm=deceleration_distance_cm,
@@ -318,6 +320,7 @@ class DriveController(DriveControllerProtocol):
             forward_segment_runner=self._run_forward_segment,
             backward_segment_runner=self._run_backward_segment,
             turn_completed_callback=self._handle_turn_completed,
+            release_gyroscope_after_route=release_gyroscope_after_route,
         )
 
         self._route_executor: RouteExecutor = RouteExecutor(
@@ -365,7 +368,8 @@ class DriveController(DriveControllerProtocol):
             self._run_forward_segment(distance_cm, speed_percent)
         finally:
             self.motor_controller.stop()
-            self.gyroscope.stop()
+            if self._release_gyroscope_after_route:
+                self.gyroscope.stop()
             self.lifecycle.set_stopped()
 
     def execute_route(self, route: Route) -> None:

@@ -105,6 +105,7 @@ def create_drive_controller(
         motion_events=motion_events,
         head_servo=hardware.head_servo,
         head_servo_home_angle_deg=settings.head_servo_home_angle_deg,
+        release_gyroscope_after_route=False,
     )
 
 
