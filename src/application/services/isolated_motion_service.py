@@ -37,11 +37,29 @@ class IsolatedMotionService:
         self._stop_event: Event = Event()
         self._loop_thread: Thread | None = None
         self._last_sync_time_sec: float | None = None
+        # Пока > 0, фоновый контур не трогает датчики и L3 — отдать IMU/УЗ legacy DriveController.
+        self._legacy_drive_exclusive_depth: int = 0
 
     @property
     def update_interval_sec(self) -> float:
         """Вернуть период фонового обновления нового контура."""
         return self._update_interval_sec
+
+    def begin_legacy_drive_exclusive(self) -> None:
+        """Пометить, что идёт движение по старому DriveController (маршрут / forward_cm_sync)."""
+        with self._state_lock:
+            self._legacy_drive_exclusive_depth += 1
+
+    def end_legacy_drive_exclusive(self) -> None:
+        """Завершить режим эксклюзива для legacy-движения."""
+        with self._state_lock:
+            if self._legacy_drive_exclusive_depth > 0:
+                self._legacy_drive_exclusive_depth -= 1
+
+    def reset_legacy_drive_exclusive(self) -> None:
+        """Сбросить счётчик (например при destroy), чтобы фон снова работал."""
+        with self._state_lock:
+            self._legacy_drive_exclusive_depth = 0
 
     def start(self, *, calibrate_imu: bool = True) -> None:
         """Запустить IMU и фоновый цикл нового контура."""
@@ -190,6 +208,8 @@ class IsolatedMotionService:
         """Фоновый цикл синхронизации L2 и продвижения L3."""
         while not self._stop_event.wait(self._update_interval_sec):
             with self._state_lock:
+                if self._legacy_drive_exclusive_depth > 0:
+                    continue
                 self.sync_l2_from_l1()
                 self._l3_service.step()
 

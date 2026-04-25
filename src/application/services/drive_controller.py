@@ -16,6 +16,7 @@ from src.application.protocols import (
     MotorControllerProtocol,
     UltrasonicSensorProtocol,
 )
+from src.application.services.isolated_motion_service import IsolatedMotionService
 from src.application.services.linear_motion_executor import (
     LinearMotionExecutionResult,
     LinearMotionExecutor,
@@ -218,12 +219,14 @@ class DriveController(DriveControllerProtocol):
         head_servo: HeadServoProtocol | None = None,
         head_servo_home_angle_deg: float = 0.0,
         release_gyroscope_after_route: bool = True,
+        isolated_motion_coordinator: IsolatedMotionService | None = None,
     ) -> None:
         """Инициализация контроллера движения."""
         self.motor_controller: MotorControllerProtocol = motor_controller
         self.ultrasonic_sensor: UltrasonicSensorProtocol = ultrasonic_sensor
         self.gyroscope: GyroscopeProtocol = gyroscope
         self._release_gyroscope_after_route: bool = release_gyroscope_after_route
+        self._isolated_motion_coordinator: IsolatedMotionService | None = isolated_motion_coordinator
         self.config: MotionConfig = config or MotionConfig(
             min_obstacle_distance_cm=min_obstacle_distance_cm,
             deceleration_distance_cm=deceleration_distance_cm,
@@ -356,51 +359,79 @@ class DriveController(DriveControllerProtocol):
 
     def forward_cm_sync(self, distance_cm: float, max_speed_percent: int | None = None) -> None:
         """Проехать заданную дистанцию в текущем потоке."""
-        self._stop_motion()
-        self._fix_head_forward()
-        self.lifecycle.set_running(is_route_running=False)
-        self.gyroscope.start(calibrate=True)
-
+        self._legacy_exclusive_begin()
         try:
-            speed_percent: int = (
-                self.base_speed_percent if max_speed_percent is None else max_speed_percent
-            )
-            self._run_forward_segment(distance_cm, speed_percent)
+            self._stop_motion()
+            self._fix_head_forward()
+            self.lifecycle.set_running(is_route_running=False)
+            self.gyroscope.start(calibrate=True)
+
+            try:
+                speed_percent: int = (
+                    self.base_speed_percent if max_speed_percent is None else max_speed_percent
+                )
+                self._run_forward_segment(distance_cm, speed_percent)
+            finally:
+                self.motor_controller.stop()
+                if self._release_gyroscope_after_route:
+                    self.gyroscope.stop()
+                self.lifecycle.set_stopped()
         finally:
-            self.motor_controller.stop()
-            if self._release_gyroscope_after_route:
-                self.gyroscope.stop()
-            self.lifecycle.set_stopped()
+            self._legacy_exclusive_end()
 
     def execute_route(self, route: Route) -> None:
         """Запустить выполнение маршрута в фоновом потоке."""
-        self._stop_motion()
-        self._fix_head_forward()
-        self._reset_motion_state()
-        self._publish_motion_event(status="moving", event_type="status", message="Маршрут запущен")
-        self._route_runner.base_speed_percent = self.base_speed_percent
-        self.lifecycle.set_running(is_route_running=True)
-        self._route_executor.execute(route)
+        self._legacy_exclusive_begin()
+        try:
+            self._stop_motion()
+            self._fix_head_forward()
+            self._reset_motion_state()
+            self._publish_motion_event(
+                status="moving", event_type="status", message="Маршрут запущен"
+            )
+            self._route_runner.base_speed_percent = self.base_speed_percent
+            self.lifecycle.set_running(is_route_running=True)
+            self._route_executor.execute(route)
+        except Exception:
+            self._legacy_exclusive_end()
+            raise
 
     def execute_route_sync(self, route: Route) -> None:
         """Запустить выполнение маршрута в текущем потоке."""
-        self._stop_motion()
-        self._fix_head_forward()
-        self._reset_motion_state()
-        self._publish_motion_event(status="moving", event_type="status", message="Маршрут запущен")
-        self._route_runner.base_speed_percent = self.base_speed_percent
-        self.lifecycle.set_running(is_route_running=True)
-
+        self._legacy_exclusive_begin()
         try:
-            self._route_executor.execute_sync(route)
-        finally:
-            self.motor_controller.stop()
-            self.lifecycle.set_stopped()
+            self._stop_motion()
+            self._fix_head_forward()
+            self._reset_motion_state()
             self._publish_motion_event(
-                status="stopped",
-                event_type="status",
-                message="Маршрут завершен",
+                status="moving", event_type="status", message="Маршрут запущен"
             )
+            self._route_runner.base_speed_percent = self.base_speed_percent
+            self.lifecycle.set_running(is_route_running=True)
+
+            try:
+                self._route_executor.execute_sync(route)
+            finally:
+                self.motor_controller.stop()
+                self.lifecycle.set_stopped()
+                self._publish_motion_event(
+                    status="stopped",
+                    event_type="status",
+                    message="Маршрут завершен",
+                )
+        finally:
+            self._legacy_exclusive_end()
+
+    def _legacy_exclusive_begin(self) -> None:
+        """Приостановить фоновый L1–L3, чтобы не делить IMU/УЗ с удержанием курса legacy."""
+        coordinator: IsolatedMotionService | None = self._isolated_motion_coordinator
+        if coordinator is not None:
+            coordinator.begin_legacy_drive_exclusive()
+
+    def _legacy_exclusive_end(self) -> None:
+        coordinator: IsolatedMotionService | None = self._isolated_motion_coordinator
+        if coordinator is not None:
+            coordinator.end_legacy_drive_exclusive()
 
     def stop(self) -> None:
         """Остановить текущее движение."""
@@ -414,6 +445,9 @@ class DriveController(DriveControllerProtocol):
 
     def destroy(self, *, release_devices: bool = True) -> None:
         """Освободить все ресурсы, связанные с движением."""
+        coordinator: IsolatedMotionService | None = self._isolated_motion_coordinator
+        if coordinator is not None:
+            coordinator.reset_legacy_drive_exclusive()
         self.stop()
         if not release_devices:
             return
@@ -574,12 +608,15 @@ class DriveController(DriveControllerProtocol):
 
     def _handle_route_finished(self) -> None:
         """Опубликовать финальное событие фонового маршрута."""
-        if not self._motion_error_reported:
-            self._publish_motion_event(
-                status="stopped",
-                event_type="status",
-                message="Маршрут завершен",
-            )
+        try:
+            if not self._motion_error_reported:
+                self._publish_motion_event(
+                    status="stopped",
+                    event_type="status",
+                    message="Маршрут завершен",
+                )
+        finally:
+            self._legacy_exclusive_end()
 
     def _publish_motion_event(
         self,

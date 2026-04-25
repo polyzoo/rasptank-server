@@ -60,6 +60,7 @@ def create_drive_controller(
     settings: Settings,
     motion_events: MotionEventHub | None,
     hardware: SharedMotionHardware,
+    isolated_motion: IsolatedMotionService | None = None,
 ) -> DriveController:
     """Собирает контроллер движения поверх общего железа."""
     config: MotionConfig = MotionConfig(
@@ -107,6 +108,7 @@ def create_drive_controller(
         head_servo=hardware.head_servo,
         head_servo_home_angle_deg=settings.head_servo_home_angle_deg,
         release_gyroscope_after_route=False,
+        isolated_motion_coordinator=isolated_motion,
     )
 
 

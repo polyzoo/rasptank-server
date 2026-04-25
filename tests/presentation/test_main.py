@@ -58,8 +58,13 @@ def test_create_app_sets_state_and_mounts_routes() -> None:
         app: FastAPI = create_app(settings)
 
     hardware_factory.assert_called_once_with(settings)
-    drive_factory.assert_called_once_with(settings, app.state.motion_events, motion_hardware)
     motion_factory.assert_called_once_with(settings, motion_hardware)
+    drive_factory.assert_called_once_with(
+        settings,
+        app.state.motion_events,
+        motion_hardware,
+        isolated_motion,
+    )
     assert app.title == "Server RaspTank"
     assert app.state.settings is settings
     assert app.state.motion_hardware is motion_hardware

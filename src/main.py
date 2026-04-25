@@ -47,12 +47,13 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.settings = settings
     app.state.motion_events = MotionEventHub()
     app.state.motion_hardware = create_shared_motion_hardware(settings)
+    app.state.isolated_motion = create_isolated_motion_service(settings, app.state.motion_hardware)
     app.state.drive_controller = create_drive_controller(
         settings,
         app.state.motion_events,
         app.state.motion_hardware,
+        app.state.isolated_motion,
     )
-    app.state.isolated_motion = create_isolated_motion_service(settings, app.state.motion_hardware)
 
     setup_exception_handlers(app)
     app.include_router(v1_router)
