@@ -208,7 +208,7 @@ class DriveController(DriveControllerProtocol):
         heading_hold_min_speed_percent: float = 0.0,
         heading_hold_steer_cap_min_speed_percent: float = 45.0,
         heading_hold_steer_trim: int = 0,
-        heading_hold_invert_steer: bool = True,
+        heading_hold_invert_steer: bool = False,
         forward_soft_start_sec: float = 0.35,
         turn_check_interval_sec: float = 0.01,
         turn_obstacle_check_interval_sec: float = 0.20,

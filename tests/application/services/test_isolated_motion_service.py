@@ -46,7 +46,7 @@ class FakeL1Service:
         """Запомнить остановку бортов."""
         self.stop_motion_calls += 1
 
-    def destroy(self) -> None:
+    def destroy(self, *, release_devices: bool = True) -> None:
         """Запомнить освобождение ресурсов."""
         self.destroy_calls += 1
 

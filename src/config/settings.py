@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import final
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -172,14 +172,29 @@ class Settings(BaseSettings):
         validation_alias="TL_RIGHT_OFFSET",
         description="Смещение правого мотора.",
     )
-    invert_line_motion: bool = Field(
-        default=False,
-        validation_alias="INVERT_LINE_MOTION",
+    m1_direction: int = Field(
+        default=-1,
+        validation_alias="M1_DIRECTION",
         description=(
-            "Поменять местами физическое «вперёд» и «назад» для move_forward/move_backward "
-            "(сегменты forward/backward в /v1/drive/route). Повороты на месте (set_tracks) не меняются."
+            "Направление канала M1 (PCA9685): 1 или −1. По умолчанию −1 под типичную сборку RaspTank; "
+            "для обратной полярности задайте M1_DIRECTION=1 и M2_DIRECTION=-1."
         ),
     )
+    m2_direction: int = Field(
+        default=1,
+        validation_alias="M2_DIRECTION",
+        description="Направление канала M2: 1 или −1 (по умолчанию 1, противоположно M1).",
+    )
+
+    @field_validator("m1_direction", "m2_direction", mode="before")
+    @classmethod
+    def _motor_direction_pm_one(cls, value: object) -> int:
+        """Разрешить только ±1 (из .env приходят строки)."""
+        as_int: int = int(value)  # type: ignore[arg-type]
+        if as_int not in (-1, 1):
+            msg: str = "M1_DIRECTION и M2_DIRECTION должны быть 1 или -1"
+            raise ValueError(msg)
+        return as_int
     heading_hold_enabled: bool = Field(
         default=True,
         validation_alias="HEADING_HOLD_ENABLED",
@@ -235,9 +250,12 @@ class Settings(BaseSettings):
         description="Постоянная поправка руления (%).",
     )
     heading_hold_invert_steer: bool = Field(
-        default=True,
+        default=False,
         validation_alias="HEADING_HOLD_INVERT_STEER",
-        description="Инверсия знака руления.",
+        description=(
+            "Инверсия знака руления для удержания курса. При дефолтных M1_DIRECTION=-1 и M2_DIRECTION=1 "
+            "оставьте false; при классической паре 1/-1 часто нужно true — см. доку по моторам."
+        ),
     )
     forward_soft_start_sec: float = Field(
         default=0.35,

@@ -45,9 +45,9 @@ class MotorController(MotorControllerProtocol):
     MOTOR_M2_IN1: int = 10
     MOTOR_M2_IN2: int = 11
 
-    # Коэффициенты направления, учитывающие физическую установку моторов
-    M1_DIRECTION: int = 1
-    M2_DIRECTION: int = -1
+    # Дефолты для конструктора (на проде совпадают с Settings; можно переопределить).
+    _DEFAULT_M1_DIRECTION: int = -1
+    _DEFAULT_M2_DIRECTION: int = 1
 
     # Настройки PWM-контроллера PCA9685
     PWM_FREQUENCY: int = 50
@@ -72,12 +72,18 @@ class MotorController(MotorControllerProtocol):
         tl_left_offset: int = 0,
         tl_right_offset: int = 0,
         *,
-        invert_line_motion: bool = False,
+        m1_direction: int | None = None,
+        m2_direction: int | None = None,
     ) -> None:
         """Инициализация контроллера."""
         self.TL_LEFT_OFFSET: int = tl_left_offset
         self.TL_RIGHT_OFFSET: int = tl_right_offset
-        self._invert_line_motion: bool = invert_line_motion
+        m1: int = self._DEFAULT_M1_DIRECTION if m1_direction is None else m1_direction
+        m2: int = self._DEFAULT_M2_DIRECTION if m2_direction is None else m2_direction
+        if m1 not in (-1, 1) or m2 not in (-1, 1):
+            raise ValueError("m1_direction и m2_direction должны быть 1 или -1")
+        self._m1_direction: int = m1
+        self._m2_direction: int = m2
         self._pwm_motor: object | None = None
         self._motor1: object | None = None
         self._motor2: object | None = None
@@ -95,8 +101,8 @@ class MotorController(MotorControllerProtocol):
         left_pct: int = self._clamp_signed_speed(left_speed_percent)
         right_pct: int = self._clamp_signed_speed(right_speed_percent)
 
-        self._motor1.throttle = self._signed_percent_to_throttle(right_pct, self.M1_DIRECTION)
-        self._motor2.throttle = self._signed_percent_to_throttle(left_pct, self.M2_DIRECTION)
+        self._motor1.throttle = self._signed_percent_to_throttle(right_pct, self._m1_direction)
+        self._motor2.throttle = self._signed_percent_to_throttle(left_pct, self._m2_direction)
 
     def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
         """Движение вперед с заданной скоростью."""
@@ -157,24 +163,27 @@ class MotorController(MotorControllerProtocol):
         clamped_speed: int = self._clamp_unsigned_speed(speed_percent)
         steer: int = max(-self.SPEED_PERCENT_MAX, min(self.SPEED_PERCENT_MAX, steer_percent))
 
+        effective_reverse: bool = reverse
+        # При движении назад знак дифференциала лево/право для удержания курса обратный.
+        steer_mix: int = -steer if effective_reverse else steer
+
         left_pct: int = max(
             self.SPEED_PERCENT_MIN,
-            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_LEFT_OFFSET + steer),
+            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_LEFT_OFFSET + steer_mix),
         )
         right_pct: int = max(
             self.SPEED_PERCENT_MIN,
-            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_RIGHT_OFFSET - steer),
+            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_RIGHT_OFFSET - steer_mix),
         )
 
-        effective_reverse: bool = reverse ^ self._invert_line_motion
         direction: float = -1.0 if effective_reverse else 1.0
         self._motor1.throttle = self._signed_percent_to_throttle(
             int(direction * right_pct),
-            self.M1_DIRECTION,
+            self._m1_direction,
         )
         self._motor2.throttle = self._signed_percent_to_throttle(
             int(direction * left_pct),
-            self.M2_DIRECTION,
+            self._m2_direction,
         )
 
     def _turn_in_place(self, speed_percent: int, *, left: bool) -> None:

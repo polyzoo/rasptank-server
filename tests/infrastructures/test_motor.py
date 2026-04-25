@@ -119,8 +119,8 @@ def test_move_forward_initializes_motors_and_applies_steering(monkeypatch: Any) 
     assert (motor2.in1, motor2.in2) == ("ch10", "ch11")
     assert motor1.decay_mode == FakeMotorModule.SLOW_DECAY
     assert motor2.decay_mode == FakeMotorModule.SLOW_DECAY
-    assert motor1.throttle == 0.35
-    assert motor2.throttle == -0.65
+    assert motor1.throttle == -0.35
+    assert motor2.throttle == 0.65
 
 
 def test_move_backward_reverses_track_direction(monkeypatch: Any) -> None:
@@ -131,8 +131,34 @@ def test_move_backward_reverses_track_direction(monkeypatch: Any) -> None:
     controller.move_backward(speed_percent=25)
 
     motor1, motor2 = FakeDCMotor.instances
-    assert motor1.throttle == -0.25
-    assert motor2.throttle == 0.25
+    assert motor1.throttle == 0.25
+    assert motor2.throttle == -0.25
+
+
+def test_swapped_m1_m2_direction_makes_forward_match_legacy_backward(monkeypatch: Any) -> None:
+    """Текущие дефолты M1/M2: «вперёд» совпадает с «назад» при полярности 1/-1."""
+    _enable_fake_hardware(monkeypatch)
+    legacy: MotorController = MotorController(m1_direction=1, m2_direction=-1)
+    legacy.move_backward(speed_percent=25)
+    back_m1, back_m2 = FakeDCMotor.instances
+
+    _enable_fake_hardware(monkeypatch)
+    current: MotorController = MotorController()
+    current.move_forward(speed_percent=25)
+    fwd_m1, fwd_m2 = FakeDCMotor.instances
+
+    assert (fwd_m1.throttle, fwd_m2.throttle) == (back_m1.throttle, back_m2.throttle)
+
+
+def test_backward_steer_mix_uses_opposite_sign_for_heading_hold(monkeypatch: Any) -> None:
+    """Задний ход с подруливанием: steer_mix обращён относительно вперёд."""
+    _enable_fake_hardware(monkeypatch)
+    controller: MotorController = MotorController(tl_left_offset=5, tl_right_offset=-5)
+    controller.move_backward(speed_percent=50, steer_percent=10)
+
+    motor1, motor2 = FakeDCMotor.instances
+    assert motor1.throttle == 0.55
+    assert motor2.throttle == -0.45
 
 
 def test_set_tracks_drives_left_and_right_tracks_independently(monkeypatch: Any) -> None:
@@ -143,8 +169,8 @@ def test_set_tracks_drives_left_and_right_tracks_independently(monkeypatch: Any)
     controller.set_tracks(left_speed_percent=30, right_speed_percent=-45)
 
     motor1, motor2 = FakeDCMotor.instances
-    assert motor1.throttle == -0.45
-    assert motor2.throttle == -0.3
+    assert motor1.throttle == 0.45
+    assert motor2.throttle == 0.3
 
 
 def test_set_tracks_clamps_signed_speed_range(monkeypatch: Any) -> None:
@@ -155,8 +181,8 @@ def test_set_tracks_clamps_signed_speed_range(monkeypatch: Any) -> None:
     controller.set_tracks(left_speed_percent=-140, right_speed_percent=180)
 
     motor1, motor2 = FakeDCMotor.instances
-    assert motor1.throttle == 1.0
-    assert motor2.throttle == 1.0
+    assert motor1.throttle == -1.0
+    assert motor2.throttle == -1.0
 
 
 def test_set_tracks_returns_when_setup_does_not_create_motors(monkeypatch: Any) -> None:
@@ -178,13 +204,13 @@ def test_turn_methods_drive_tracks_in_opposite_directions(monkeypatch: Any) -> N
 
     controller.turn_left(40)
     motor1, motor2 = FakeDCMotor.instances
-    assert motor1.throttle == -0.4
-    assert motor2.throttle == -0.4
+    assert motor1.throttle == 0.4
+    assert motor2.throttle == 0.4
 
     controller.turn_right(60)
 
-    assert motor1.throttle == 0.6
-    assert motor2.throttle == 0.6
+    assert motor1.throttle == -0.6
+    assert motor2.throttle == -0.6
 
 
 def test_turn_returns_when_setup_does_not_create_motors(monkeypatch: Any) -> None:
