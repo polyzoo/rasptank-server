@@ -67,10 +67,17 @@ class MotorController(MotorControllerProtocol):
     THROTTLE_MIN: float = 0.0
     THROTTLE_MAX: float = 1.0
 
-    def __init__(self, tl_left_offset: int = 0, tl_right_offset: int = 0) -> None:
+    def __init__(
+        self,
+        tl_left_offset: int = 0,
+        tl_right_offset: int = 0,
+        *,
+        invert_line_motion: bool = False,
+    ) -> None:
         """Инициализация контроллера."""
         self.TL_LEFT_OFFSET: int = tl_left_offset
         self.TL_RIGHT_OFFSET: int = tl_right_offset
+        self._invert_line_motion: bool = invert_line_motion
         self._pwm_motor: object | None = None
         self._motor1: object | None = None
         self._motor2: object | None = None
@@ -159,7 +166,8 @@ class MotorController(MotorControllerProtocol):
             min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_RIGHT_OFFSET - steer),
         )
 
-        direction: float = -1.0 if reverse else 1.0
+        effective_reverse: bool = reverse ^ self._invert_line_motion
+        direction: float = -1.0 if effective_reverse else 1.0
         self._motor1.throttle = self._signed_percent_to_throttle(
             int(direction * right_pct),
             self.M1_DIRECTION,

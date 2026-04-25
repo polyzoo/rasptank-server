@@ -172,6 +172,14 @@ class Settings(BaseSettings):
         validation_alias="TL_RIGHT_OFFSET",
         description="Смещение правого мотора.",
     )
+    invert_line_motion: bool = Field(
+        default=False,
+        validation_alias="INVERT_LINE_MOTION",
+        description=(
+            "Поменять местами физическое «вперёд» и «назад» для move_forward/move_backward "
+            "(сегменты forward/backward в /v1/drive/route). Повороты на месте (set_tracks) не меняются."
+        ),
+    )
     heading_hold_enabled: bool = Field(
         default=True,
         validation_alias="HEADING_HOLD_ENABLED",

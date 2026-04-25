@@ -45,6 +45,7 @@ def create_shared_motion_hardware(settings: Settings) -> SharedMotionHardware:
         motor_controller=MotorController(
             tl_left_offset=settings.tl_left_offset,
             tl_right_offset=settings.tl_right_offset,
+            invert_line_motion=settings.invert_line_motion,
         ),
         gyroscope=IMUSensor(),
         ultrasonic_sensor=UltrasonicSensor(),
@@ -163,6 +164,7 @@ def create_l1_service(settings: Settings) -> L1Service:
     motor_controller: MotorController = MotorController(
         tl_left_offset=settings.tl_left_offset,
         tl_right_offset=settings.tl_right_offset,
+        invert_line_motion=settings.invert_line_motion,
     )
     return L1Service(
         motor_controller=motor_controller,
