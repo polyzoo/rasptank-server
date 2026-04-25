@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -24,9 +25,24 @@ def _parse_cors_origins(raw: str) -> list[str]:
     return [part.strip() for part in text.split(",") if part.strip()]
 
 
+def _configure_l123_debug_logging(settings: Settings) -> None:
+    """Вывести трейс L1->L2->L3 в stderr, даже если корневой logging не настроен."""
+    if not settings.l123_debug_trace_enabled:
+        return
+    log = logging.getLogger("src.application.services.isolated_motion_service")
+    log.setLevel(logging.INFO)
+    if log.handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    log.addHandler(handler)
+    log.propagate = False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Управление жизненным циклом приложения."""
+    _configure_l123_debug_logging(app.state.settings)
     if app.state.isolated_motion is not None:
         app.state.isolated_motion.start()
 

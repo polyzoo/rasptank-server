@@ -95,6 +95,8 @@ class L3State:
     target_heading_deg: float | None
     linear_speed_cm_per_sec: float
     angular_speed_deg_per_sec: float
+    desired_linear_speed_cm_per_sec: float | None = None
+    desired_angular_speed_deg_per_sec: float | None = None
     detected_obstacle_x_cm: float | None = None
     detected_obstacle_y_cm: float | None = None
     detected_obstacle_radius_cm: float | None = None

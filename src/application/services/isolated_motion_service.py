@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from threading import Event, RLock, Thread
 from typing import Callable
@@ -8,8 +9,16 @@ from src.application.services.l1_models import L1SensorState, L1TrackCommand
 from src.application.services.l1_service import L1Service
 from src.application.services.l2_models import BodyVelocityCommand, L1SensorSnapshot, L2State
 from src.application.services.l2_service import L2Service
-from src.application.services.l3_models import KnownObstacle, L3State, TargetPoint, TargetRoute
+from src.application.services.l3_models import (
+    L3_MODE_IDLE,
+    KnownObstacle,
+    L3State,
+    TargetPoint,
+    TargetRoute,
+)
 from src.application.services.l3_service import L3Service
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class IsolatedMotionService:
@@ -25,6 +34,8 @@ class IsolatedMotionService:
         l3_service: L3Service,
         *,
         update_interval_sec: float,
+        debug_trace_enabled: bool = False,
+        debug_trace_every_n_steps: int = 1,
         time_fn: Callable[[], float] = time.monotonic,
     ) -> None:
         """Сохранить уровни нового контура и параметры цикла синхронизации."""
@@ -32,6 +43,9 @@ class IsolatedMotionService:
         self._l2_service: L2Service = l2_service
         self._l3_service: L3Service = l3_service
         self._update_interval_sec: float = update_interval_sec
+        self._debug_trace_enabled: bool = debug_trace_enabled
+        self._debug_trace_every_n_steps: int = max(1, debug_trace_every_n_steps)
+        self._debug_step_counter: int = 0
         self._time_fn: Callable[[], float] = time_fn
         self._state_lock: RLock = RLock()
         self._stop_event: Event = Event()
@@ -115,7 +129,7 @@ class IsolatedMotionService:
         with self._state_lock:
             actual_dt_sec: float = self._compute_dt_sec(dt_sec)
             l1_state: L1SensorState = self._l1_service.read_sensors()
-            return self._l2_service.update_from_l1(
+            l2_state: L2State = self._l2_service.update_from_l1(
                 L1SensorSnapshot(
                     angular_speed_z_deg_per_sec=l1_state.angular_speed_z_deg_per_sec,
                     longitudinal_acceleration_m_s2=l1_state.accel_x_m_s2,
@@ -126,6 +140,8 @@ class IsolatedMotionService:
                 ),
                 actual_dt_sec,
             )
+            self._trace_l1_l2_math(l1_state=l1_state, l2_state=l2_state, dt_sec=actual_dt_sec)
+            return l2_state
 
     def get_l2_state(self) -> L2State:
         """Вернуть текущее состояние L2."""
@@ -177,6 +193,7 @@ class IsolatedMotionService:
     ) -> L3State:
         """Передать целевую точку в L3."""
         with self._state_lock:
+            self._l2_service.reset_state()
             return self._l3_service.set_target_point(target=target, obstacles=obstacles)
 
     def set_l3_route(
@@ -186,13 +203,16 @@ class IsolatedMotionService:
     ) -> L3State:
         """Передать маршрут в L3."""
         with self._state_lock:
+            self._l2_service.reset_state()
             return self._l3_service.set_route(route=route, obstacles=obstacles)
 
     def step_l3(self) -> L3State:
         """Выполнить один шаг верхнего уровня после синхронизации L2 с датчиками."""
         with self._state_lock:
             self.sync_l2_from_l1()
-            return self._l3_service.step()
+            l3_state: L3State = self._l3_service.step()
+            self._trace_l3_math(l3_state=l3_state)
+            return l3_state
 
     def cancel_l3(self) -> L3State:
         """Отменить текущую цель или маршрут верхнего уровня."""
@@ -211,7 +231,8 @@ class IsolatedMotionService:
                 if self._legacy_drive_exclusive_depth > 0:
                     continue
                 self.sync_l2_from_l1()
-                self._l3_service.step()
+                l3_state: L3State = self._l3_service.step()
+                self._trace_l3_math(l3_state=l3_state)
 
     def _compute_dt_sec(self, dt_sec: float | None) -> float:
         """Вычислить шаг времени между обновлениями."""
@@ -227,3 +248,80 @@ class IsolatedMotionService:
         actual_dt_sec: float = max(0.0, now_sec - self._last_sync_time_sec)
         self._last_sync_time_sec: float = now_sec
         return actual_dt_sec
+
+    def _trace_l1_l2_math(
+        self, *, l1_state: L1SensorState, l2_state: L2State, dt_sec: float
+    ) -> None:
+        """Записать отладочный след преобразования L1 -> L2."""
+        if not self._should_trace():
+            return
+
+        logger.info(
+            (
+                "L1->L2 dt=%.3f sensors=(w_gyro=%.3f, a_xyz=(%.3f, %.3f, %.3f), dist=%.2f) | "
+                "L2 state_hat=(x=%.2f, y=%.2f, theta=%.2f, v_hat=%.2f, w_hat=%.2f) "
+                "tracks=(U_L=%.1f, U_R=%.1f)"
+            ),
+            dt_sec,
+            l1_state.angular_speed_z_deg_per_sec,
+            l1_state.accel_x_m_s2,
+            l1_state.accel_y_m_s2,
+            l1_state.accel_z_m_s2,
+            l1_state.distance_cm,
+            l2_state.x_cm,
+            l2_state.y_cm,
+            l2_state.heading_deg,
+            l2_state.linear_speed_cm_per_sec,
+            l2_state.angular_speed_deg_per_sec,
+            l2_state.left_percent,
+            l2_state.right_percent,
+        )
+
+    def _trace_l3_math(self, *, l3_state: L3State) -> None:
+        """Записать отладочный след шага L3 -> L2 -> L1 в терминах формул."""
+        if not self._should_trace():
+            return
+
+        l2_state: L2State = self._l2_service.get_state()
+        logger.info(
+            (
+                "L3->L2 status=%s mode=%s planner=%s "
+                "X*=(x=%s, y=%s) err=(dist=%s, dtheta=%s, theta*=%s) "
+                "cmd_des=(v_des=%s, w_des=%s) | "
+                "L2->L1 cmd_tracks=(U_L=%.1f, U_R=%.1f) "
+                "state_hat=(x=%.2f, y=%.2f, theta=%.2f, v_hat=%.2f, w_hat=%.2f)"
+            ),
+            l3_state.status,
+            l3_state.mode,
+            l3_state.planner_status,
+            _fmt_optional(l3_state.target_x_cm),
+            _fmt_optional(l3_state.target_y_cm),
+            _fmt_optional(l3_state.distance_error_cm),
+            _fmt_optional(l3_state.heading_error_deg),
+            _fmt_optional(l3_state.target_heading_deg),
+            _fmt_optional(l3_state.desired_linear_speed_cm_per_sec),
+            _fmt_optional(l3_state.desired_angular_speed_deg_per_sec),
+            l2_state.left_percent,
+            l2_state.right_percent,
+            l2_state.x_cm,
+            l2_state.y_cm,
+            l2_state.heading_deg,
+            l2_state.linear_speed_cm_per_sec,
+            l2_state.angular_speed_deg_per_sec,
+        )
+
+    def _should_trace(self) -> bool:
+        """Определить, нужно ли печатать текущий шаг debug-трейса."""
+        if not self._debug_trace_enabled:
+            return False
+        if self._l3_service.get_state().mode == L3_MODE_IDLE:
+            return False
+        self._debug_step_counter += 1
+        return self._debug_step_counter % self._debug_trace_every_n_steps == 0
+
+
+def _fmt_optional(value: float | None) -> str:
+    """Сформатировать optional float для логов без 'NoneType'."""
+    if value is None:
+        return "-"
+    return f"{value:.2f}"

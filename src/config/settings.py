@@ -168,6 +168,18 @@ class Settings(BaseSettings):
         validation_alias="UPDATE_INTERVAL_SEC",
         description="Интервал обновления (с).",
     )
+    l123_debug_trace_enabled: bool = Field(
+        default=False,
+        validation_alias="L123_DEBUG_TRACE_ENABLED",
+        description="Логировать шаги математики L1->L2->L3.",
+    )
+    l123_debug_trace_every_n_steps: int = Field(
+        default=1,
+        ge=1,
+        le=1000,
+        validation_alias="L123_DEBUG_TRACE_EVERY_N_STEPS",
+        description="Писать каждый N-й шаг debug-трейса L1->L2->L3.",
+    )
     avoidance_scan_angle_deg: float = Field(
         default=45.0,
         ge=0,

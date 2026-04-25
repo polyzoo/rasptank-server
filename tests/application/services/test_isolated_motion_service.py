@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from src.application.services.isolated_motion_service import IsolatedMotionService
+from src.application.services.isolated_motion_service import (
+    IsolatedMotionService,
+    _fmt_optional,
+)
 from src.application.services.l1_models import L1SensorState, L1TrackCommand
 from src.application.services.l2_models import BodyVelocityCommand, L1SensorSnapshot, L2State
 from src.application.services.l3_models import KnownObstacle, L3State, TargetPoint, TargetRoute
@@ -193,7 +197,10 @@ class FakeStopEvent:
 
 
 def _service(
-    *, time_values: tuple[float, ...] = (10.0, 10.2)
+    *,
+    time_values: tuple[float, ...] = (10.0, 10.2),
+    debug_trace_enabled: bool = False,
+    debug_trace_every_n_steps: int = 1,
 ) -> tuple[
     IsolatedMotionService,
     FakeL1Service,
@@ -216,6 +223,8 @@ def _service(
             l2_service=l2_service,  # type: ignore[arg-type]
             l3_service=l3_service,  # type: ignore[arg-type]
             update_interval_sec=0.1,
+            debug_trace_enabled=debug_trace_enabled,
+            debug_trace_every_n_steps=debug_trace_every_n_steps,
             time_fn=time_fn,
         ),
         l1_service,
@@ -283,7 +292,10 @@ def test_public_methods_forward_commands_and_states() -> None:
         linear_speed_cm_per_sec=12.0,
         angular_speed_deg_per_sec=34.0,
     )
+    assert len(l2_service.reset_calls) == 3
     assert l2_service.reset_calls[0]["x_cm"] == 9.0
+    assert l2_service.reset_calls[1] == {}
+    assert l2_service.reset_calls[2] == {}
     assert l3_service.goal_calls[0][0] == TargetPoint(x_cm=1.0, y_cm=2.0)
     assert l3_service.route_calls[0][0] == TargetRoute(points=(TargetPoint(x_cm=3.0, y_cm=4.0),))
     assert l3_service.step_calls == 1
@@ -354,3 +366,78 @@ def test_sync_l2_respects_explicit_dt_and_background_loop_runs_one_iteration() -
     assert l3_service.step_calls == 1
     assert l2_service.update_snapshots[1][1] == 3.0
     assert l1_service.sensor_state.angular_speed_z_deg_per_sec == 12.0
+
+
+def test_debug_trace_logs_l1_l2_and_l3_math(caplog: Any) -> None:
+    """При включенном debug-трейсе в логах появляются шаги L1->L2 и L3."""
+    service, _, _, l3_service = _service(
+        time_values=(1.0, 1.5, 2.0),
+        debug_trace_enabled=True,
+    )
+    l3_service.state = L3State(
+        status="tracking",
+        mode="point",
+        planner_status="planned",
+        target_x_cm=1.0,
+        target_y_cm=0.0,
+        active_point_index=0,
+        total_points=1,
+        distance_error_cm=1.0,
+        heading_error_deg=0.0,
+        target_heading_deg=0.0,
+        linear_speed_cm_per_sec=0.0,
+        angular_speed_deg_per_sec=0.0,
+    )
+    service.set_l3_goal(TargetPoint(x_cm=1.0, y_cm=0.0))
+
+    with caplog.at_level(logging.INFO, logger="src.application.services.isolated_motion_service"):
+        service.sync_l2_from_l1()
+        service.step_l3()
+
+    messages: str = "\n".join(caplog.messages)
+    assert "L1->L2" in messages
+    assert "L3->L2" in messages
+
+
+def test_debug_trace_sampling_and_optional_formatter(caplog: Any) -> None:
+    """Трейс может писать не каждый шаг; форматтер optional выдаёт '-' для None."""
+    service, _, _, l3_service = _service(
+        time_values=(1.0, 1.2, 1.4),
+        debug_trace_enabled=True,
+        debug_trace_every_n_steps=2,
+    )
+    l3_service.state = L3State(
+        status="tracking",
+        mode="point",
+        planner_status="planned",
+        target_x_cm=1.0,
+        target_y_cm=0.0,
+        active_point_index=0,
+        total_points=1,
+        distance_error_cm=1.0,
+        heading_error_deg=0.0,
+        target_heading_deg=0.0,
+        linear_speed_cm_per_sec=0.0,
+        angular_speed_deg_per_sec=0.0,
+    )
+    service.set_l3_goal(TargetPoint(x_cm=1.0, y_cm=0.0))
+
+    with caplog.at_level(logging.INFO, logger="src.application.services.isolated_motion_service"):
+        service.sync_l2_from_l1()
+        service.sync_l2_from_l1()
+
+    messages: str = "\n".join(caplog.messages)
+    assert messages.count("L1->L2") == 1
+    assert _fmt_optional(None) == "-"
+    assert _fmt_optional(12.345) == "12.35"
+
+
+def test_debug_trace_suppressed_when_l3_idle(caplog: Any) -> None:
+    """При idle-режиме L3 debug-трейс не печатается даже если включен."""
+    service, _, _, _ = _service(
+        time_values=(1.0, 1.2),
+        debug_trace_enabled=True,
+    )
+    with caplog.at_level(logging.INFO, logger="src.application.services.isolated_motion_service"):
+        service.sync_l2_from_l1()
+    assert caplog.messages == []

@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import logging
 import threading
+import warnings
 from typing import Any, final
 
 from src.application.protocols import UltrasonicSensorProtocol
 
 try:
+    warnings.filterwarnings(
+        "ignore",
+        message=".*PWMSoftwareFallback.*",
+        category=UserWarning,
+        module="gpiozero.input_devices",
+    )
     from gpiozero import DistanceSensor
 
     _HARDWARE_AVAILABLE: bool = True

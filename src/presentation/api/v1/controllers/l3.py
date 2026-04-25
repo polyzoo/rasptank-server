@@ -47,6 +47,8 @@ def _to_response(state: L3State) -> L3StateResponseSchema:
         target_heading_deg=state.target_heading_deg,
         linear_speed_cm_per_sec=state.linear_speed_cm_per_sec,
         angular_speed_deg_per_sec=state.angular_speed_deg_per_sec,
+        desired_linear_speed_cm_per_sec=state.desired_linear_speed_cm_per_sec,
+        desired_angular_speed_deg_per_sec=state.desired_angular_speed_deg_per_sec,
         detected_obstacle_x_cm=state.detected_obstacle_x_cm,
         detected_obstacle_y_cm=state.detected_obstacle_y_cm,
         detected_obstacle_radius_cm=state.detected_obstacle_radius_cm,

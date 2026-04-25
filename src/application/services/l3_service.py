@@ -68,6 +68,8 @@ class L3Service:
             target_heading_deg=None,
             linear_speed_cm_per_sec=0.0,
             angular_speed_deg_per_sec=0.0,
+            desired_linear_speed_cm_per_sec=None,
+            desired_angular_speed_deg_per_sec=None,
         )
 
     @property
@@ -202,6 +204,8 @@ class L3Service:
                 distance_error_cm=tracking_command.distance_error_cm,
                 heading_error_deg=tracking_command.heading_error_deg,
                 target_heading_deg=tracking_command.target_heading_deg,
+                desired_linear_speed_cm_per_sec=0.0,
+                desired_angular_speed_deg_per_sec=0.0,
             )
             self._last_state = blocked_state
             return self._last_state
@@ -217,6 +221,8 @@ class L3Service:
                     distance_error_cm=None,
                     heading_error_deg=None,
                     target_heading_deg=None,
+                    desired_linear_speed_cm_per_sec=None,
+                    desired_angular_speed_deg_per_sec=None,
                 )
                 self._last_state = continued_tracking_state
                 return self._last_state
@@ -239,6 +245,8 @@ class L3Service:
                 target_heading_deg=tracking_command.target_heading_deg,
                 linear_speed_cm_per_sec=updated_state.linear_speed_cm_per_sec,
                 angular_speed_deg_per_sec=updated_state.angular_speed_deg_per_sec,
+                desired_linear_speed_cm_per_sec=0.0,
+                desired_angular_speed_deg_per_sec=0.0,
                 **self._detected_obstacle_fields(),
             )
             self._route_points = empty_route_points
@@ -261,6 +269,8 @@ class L3Service:
             distance_error_cm=tracking_command.distance_error_cm,
             heading_error_deg=tracking_command.heading_error_deg,
             target_heading_deg=tracking_command.target_heading_deg,
+            desired_linear_speed_cm_per_sec=tracking_command.command.linear_speed_cm_per_sec,
+            desired_angular_speed_deg_per_sec=tracking_command.command.angular_speed_deg_per_sec,
         )
         self._last_state = new_tracking_state
         return self._last_state
@@ -300,6 +310,8 @@ class L3Service:
             target_heading_deg=None,
             linear_speed_cm_per_sec=current_state.linear_speed_cm_per_sec,
             angular_speed_deg_per_sec=current_state.angular_speed_deg_per_sec,
+            desired_linear_speed_cm_per_sec=None,
+            desired_angular_speed_deg_per_sec=None,
             **self._detected_obstacle_fields(),
         )
         self._last_state = tracking_state
@@ -314,6 +326,8 @@ class L3Service:
         distance_error_cm: float | None,
         heading_error_deg: float | None,
         target_heading_deg: float | None,
+        desired_linear_speed_cm_per_sec: float | None,
+        desired_angular_speed_deg_per_sec: float | None,
     ) -> L3State:
         """Собрать снимок состояния L3 по текущей активной цели."""
         current_target: TargetPoint | None = self._current_target_point()
@@ -335,6 +349,8 @@ class L3Service:
             target_heading_deg=target_heading_deg,
             linear_speed_cm_per_sec=linear_speed_cm_per_sec,
             angular_speed_deg_per_sec=angular_speed_deg_per_sec,
+            desired_linear_speed_cm_per_sec=desired_linear_speed_cm_per_sec,
+            desired_angular_speed_deg_per_sec=desired_angular_speed_deg_per_sec,
             **self._detected_obstacle_fields(),
         )
         self._last_state = state_snapshot

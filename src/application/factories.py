@@ -257,4 +257,6 @@ def create_isolated_motion_service(
         l2_service=l2_service,
         l3_service=l3_service,
         update_interval_sec=settings.update_interval_sec,
+        debug_trace_enabled=settings.l123_debug_trace_enabled,
+        debug_trace_every_n_steps=settings.l123_debug_trace_every_n_steps,
     )
