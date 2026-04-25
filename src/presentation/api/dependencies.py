@@ -35,3 +35,8 @@ def get_isolated_motion_service(request: Request) -> IsolatedMotionService:
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Изолированный контур L1-L3 не инициализирован.",
     )
+
+
+def get_isolated_motion_optional(request: Request) -> IsolatedMotionService | None:
+    """Тот же контур L1-L3 или None, если не поднят (для совместимости и legacy-ручек)."""
+    return getattr(request.app.state, "isolated_motion", None)

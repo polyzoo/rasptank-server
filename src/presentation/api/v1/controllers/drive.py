@@ -12,7 +12,11 @@ from src.application.models.route import (
     TurnRightSegment,
 )
 from src.application.protocols import DriveControllerProtocol
-from src.presentation.api.dependencies import get_drive_controller
+from src.application.services.isolated_motion_service import IsolatedMotionService
+from src.presentation.api.dependencies import (
+    get_drive_controller,
+    get_isolated_motion_optional,
+)
 from src.presentation.api.v1.schemas.drive import (
     BackwardSegmentSchema,
     DriveRouteResponseSchema,
@@ -24,6 +28,19 @@ from src.presentation.api.v1.schemas.drive import (
 )
 
 router: APIRouter = APIRouter()
+
+
+def _disarm_l_stack_for_legacy_drive(isolated_motion: IsolatedMotionService | None) -> None:
+    """Снять команды нового контура, чтобы моторы принадлежали только DriveController.
+
+    Иначе фоновый цикл L3 и/или последние команды L2 продолжают вызывать set_tracks и
+    наслаиваются на move_forward/move_backward — визуально «перепутываются» вперёд/назад и стоп.
+    """
+    if isolated_motion is None:
+        return
+    isolated_motion.cancel_l3()
+    isolated_motion.stop_l2()
+    isolated_motion.stop_l1()
 
 
 def _schema_to_route(body: RouteRequestSchema) -> Route:
@@ -53,8 +70,12 @@ def _schema_to_route(body: RouteRequestSchema) -> Route:
 async def drive_route(
     body: RouteRequestSchema,
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
+    isolated_motion: Annotated[
+        IsolatedMotionService | None, Depends(get_isolated_motion_optional)
+    ],
 ) -> DriveRouteResponseSchema:
     """Запуск движения по заданному маршруту с плавной остановкой при препятствиях."""
+    _disarm_l_stack_for_legacy_drive(isolated_motion)
     route: Route = _schema_to_route(body)
     drive.execute_route(route=route)
     return DriveRouteResponseSchema()
@@ -63,7 +84,11 @@ async def drive_route(
 @router.post("/stop", description="Немедленная остановка")
 async def drive_stop(
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
+    isolated_motion: Annotated[
+        IsolatedMotionService | None, Depends(get_isolated_motion_optional)
+    ],
 ) -> DriveStopResponseSchema:
     """Немедленная остановка движения."""
+    _disarm_l_stack_for_legacy_drive(isolated_motion)
     drive.stop()
     return DriveStopResponseSchema()

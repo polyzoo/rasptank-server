@@ -90,7 +90,11 @@ def test_drive_route_executes_route_and_returns_accepted() -> None:
             }
         )
 
-        response: DriveRouteResponseSchema = await drive_route(body=body, drive=drive)
+        response: DriveRouteResponseSchema = await drive_route(
+            body=body,
+            drive=drive,
+            isolated_motion=None,
+        )
 
         assert response.status == "accepted"
         assert len(drive.routes) == 1
@@ -107,7 +111,10 @@ def test_drive_stop_stops_drive_and_returns_stopped() -> None:
         """Выполнить асинхронный обработчик внутри цикла событий."""
         drive: SpyDriveController = SpyDriveController()
 
-        response: DriveStopResponseSchema = await drive_stop(drive=drive)
+        response: DriveStopResponseSchema = await drive_stop(
+            drive=drive,
+            isolated_motion=None,
+        )
 
         assert response.status == "stopped"
         assert drive.stop_called is True
