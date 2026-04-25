@@ -408,9 +408,11 @@ class DriveController(DriveControllerProtocol):
             message="Движение остановлено",
         )
 
-    def destroy(self) -> None:
+    def destroy(self, *, release_devices: bool = True) -> None:
         """Освободить все ресурсы, связанные с движением."""
         self.stop()
+        if not release_devices:
+            return
         self.motor_controller.destroy()
         self.ultrasonic_sensor.destroy()
         self.gyroscope.destroy()

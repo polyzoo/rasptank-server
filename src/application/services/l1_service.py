@@ -61,8 +61,10 @@ class L1Service:
             return
         self._head_servo.set_angle(angle_deg)
 
-    def destroy(self) -> None:
+    def destroy(self, *, release_devices: bool = True) -> None:
         """Освободить ресурсы устройств нижнего уровня."""
+        if not release_devices:
+            return
         self._motor_controller.destroy()
         self._gyroscope.destroy()
         self._ultrasonic_sensor.destroy()

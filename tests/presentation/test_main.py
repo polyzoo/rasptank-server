@@ -16,7 +16,7 @@ class FakeDriveController:
         """Инициализировать флаг вызова destroy."""
         self.destroy_called: bool = False
 
-    def destroy(self) -> None:
+    def destroy(self, *, release_devices: bool = True) -> None:
         """Зафиксировать освобождение ресурсов."""
         self.destroy_called = True
 
@@ -33,7 +33,7 @@ class FakeIsolatedMotion:
         """Зафиксировать запуск нового контура."""
         self.start_called = True
 
-    def destroy(self) -> None:
+    def destroy(self, *, release_hardware: bool = True) -> None:
         """Зафиксировать освобождение ресурсов нового контура."""
         self.destroy_called = True
 
@@ -44,7 +44,12 @@ def test_create_app_sets_state_and_mounts_routes() -> None:
     drive: FakeDriveController = FakeDriveController()
     isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
 
+    motion_hardware: Mock = Mock()
+
     with (
+        patch(
+            "src.main.create_shared_motion_hardware", return_value=motion_hardware
+        ) as hardware_factory,
         patch("src.main.create_drive_controller", return_value=drive) as drive_factory,
         patch(
             "src.main.create_isolated_motion_service", return_value=isolated_motion
@@ -52,10 +57,12 @@ def test_create_app_sets_state_and_mounts_routes() -> None:
     ):
         app: FastAPI = create_app(settings)
 
-    drive_factory.assert_called_once_with(settings, app.state.motion_events)
-    motion_factory.assert_called_once_with(settings)
+    hardware_factory.assert_called_once_with(settings)
+    drive_factory.assert_called_once_with(settings, app.state.motion_events, motion_hardware)
+    motion_factory.assert_called_once_with(settings, motion_hardware)
     assert app.title == "Server RaspTank"
     assert app.state.settings is settings
+    assert app.state.motion_hardware is motion_hardware
     assert app.state.drive_controller is drive
     assert app.state.isolated_motion is isolated_motion
 
@@ -74,8 +81,10 @@ def test_lifespan_destroys_drive_controller_on_shutdown() -> None:
         app: Mock = Mock()
         drive: FakeDriveController = FakeDriveController()
         isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
+        motion_hardware: Mock = Mock()
         app.state.drive_controller = drive
         app.state.isolated_motion = isolated_motion
+        app.state.motion_hardware = motion_hardware
 
         async with lifespan(app):
             assert drive.destroy_called is False
@@ -83,6 +92,7 @@ def test_lifespan_destroys_drive_controller_on_shutdown() -> None:
 
         assert drive.destroy_called is True
         assert isolated_motion.destroy_called is True
+        motion_hardware.destroy.assert_called_once_with()
 
     anyio.run(run)
 

@@ -65,7 +65,7 @@ class IsolatedMotionService:
 
         self._loop_thread: Thread | None = None
 
-    def destroy(self) -> None:
+    def destroy(self, *, release_hardware: bool = True) -> None:
         """Остановить цикл и освободить ресурсы нового контура."""
         self.stop()
         with self._state_lock:
@@ -73,7 +73,7 @@ class IsolatedMotionService:
             self._l2_service.stop()
             self._l1_service.stop_motion()
             self._l1_service.stop_imu()
-            self._l1_service.destroy()
+            self._l1_service.destroy(release_devices=release_hardware)
 
     def read_l1_state(self) -> L1SensorState:
         """Вернуть последний снимок датчиков нижнего уровня."""

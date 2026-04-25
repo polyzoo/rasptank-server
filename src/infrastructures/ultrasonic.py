@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, final
 
 from src.application.protocols import UltrasonicSensorProtocol
@@ -48,35 +49,38 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
         """Инициализация без обращения к GPIO."""
         self._sensor: object | None = None
         self._is_initialized: bool = False
+        self._lock: threading.Lock = threading.Lock()
 
     def measure_distance_cm(self) -> float:
         """Измерение расстояния до препятствия."""
         if not _HARDWARE_AVAILABLE:
             return self.FALLBACK_DISTANCE_CM
 
-        self._setup()
-        if self._sensor is None:
-            return self.FALLBACK_DISTANCE_CM
+        with self._lock:
+            self._setup()
+            if self._sensor is None:
+                return self.FALLBACK_DISTANCE_CM
 
-        try:
-            distance_m: float = self._sensor.distance
-            return distance_m * self.METERS_TO_CM
-        except _SENSOR_EXCEPTIONS:
-            return self.FALLBACK_DISTANCE_CM
+            try:
+                distance_m: float = self._sensor.distance
+                return distance_m * self.METERS_TO_CM
+            except _SENSOR_EXCEPTIONS:
+                return self.FALLBACK_DISTANCE_CM
 
     def destroy(self) -> None:
         """Освобождение ресурсов GPIO."""
         if not _HARDWARE_AVAILABLE:
             return
 
-        if self._sensor is not None:
-            try:
-                self._sensor.close()
-            except _SENSOR_EXCEPTIONS:
-                pass
-            finally:
-                self._sensor: object | None = None
-                self._is_initialized: bool = False
+        with self._lock:
+            if self._sensor is not None:
+                try:
+                    self._sensor.close()
+                except _SENSOR_EXCEPTIONS:
+                    pass
+                finally:
+                    self._sensor: object | None = None
+                    self._is_initialized: bool = False
 
     def _setup(self) -> None:
         """Однократная инициализация датчика."""

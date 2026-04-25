@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from src.application.protocols import MotorControllerProtocol
 from src.application.services.drive_controller import DriveController
 from src.application.services.goal_point_controller import GoalPointController
@@ -20,22 +22,45 @@ from src.infrastructures.motor import MotorController
 from src.infrastructures.ultrasonic import UltrasonicSensor
 
 
-def create_drive_controller(
-    settings: Settings,
-    motion_events: MotionEventHub | None = None,
-) -> DriveController:
-    """Собирает контроллер движения со всеми инфраструктурными зависимостями."""
-    imu_sensor: IMUSensor = IMUSensor()
-    ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
-    head_servo: HeadServoController = HeadServoController(
-        channel=settings.head_servo_channel,
-        home_angle_deg=settings.head_servo_home_angle_deg,
-    )
-    motor_controller: MotorController = MotorController(
-        tl_left_offset=settings.tl_left_offset,
-        tl_right_offset=settings.tl_right_offset,
+@dataclass(slots=True)
+class SharedMotionHardware:
+    """Один набор GPIO/I²C-устройств на процесс (моторы, IMU, УЗ-датчик, серво головы)."""
+
+    motor_controller: MotorController
+    gyroscope: IMUSensor
+    ultrasonic_sensor: UltrasonicSensor
+    head_servo: HeadServoController
+
+    def destroy(self) -> None:
+        """Освободить железо в том же порядке, что и DriveController.destroy."""
+        self.motor_controller.destroy()
+        self.ultrasonic_sensor.destroy()
+        self.gyroscope.destroy()
+        self.head_servo.destroy()
+
+
+def create_shared_motion_hardware(settings: Settings) -> SharedMotionHardware:
+    """Создать единственный экземпляр нижнеуровневого железа для приложения."""
+    return SharedMotionHardware(
+        motor_controller=MotorController(
+            tl_left_offset=settings.tl_left_offset,
+            tl_right_offset=settings.tl_right_offset,
+        ),
+        gyroscope=IMUSensor(),
+        ultrasonic_sensor=UltrasonicSensor(),
+        head_servo=HeadServoController(
+            channel=settings.head_servo_channel,
+            home_angle_deg=settings.head_servo_home_angle_deg,
+        ),
     )
 
+
+def create_drive_controller(
+    settings: Settings,
+    motion_events: MotionEventHub | None,
+    hardware: SharedMotionHardware,
+) -> DriveController:
+    """Собирает контроллер движения поверх общего железа."""
     config: MotionConfig = MotionConfig(
         min_obstacle_distance_cm=settings.min_obstacle_distance_cm,
         deceleration_distance_cm=settings.deceleration_distance_cm,
@@ -73,12 +98,12 @@ def create_drive_controller(
     )
 
     return DriveController(
-        motor_controller=motor_controller,
-        gyroscope=imu_sensor,
-        ultrasonic_sensor=ultrasonic_sensor,
+        motor_controller=hardware.motor_controller,
+        gyroscope=hardware.gyroscope,
+        ultrasonic_sensor=hardware.ultrasonic_sensor,
         config=config,
         motion_events=motion_events,
-        head_servo=head_servo,
+        head_servo=hardware.head_servo,
         head_servo_home_angle_deg=settings.head_servo_home_angle_deg,
     )
 
@@ -178,26 +203,18 @@ def create_l3_service(settings: Settings, l2_service: L2Service) -> L3Service:
     )
 
 
-def create_isolated_motion_service(settings: Settings) -> IsolatedMotionService:
-    """Собрать общий координирующий сервис контура L1-L3."""
-    imu_sensor: IMUSensor = IMUSensor()
-    ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
-    head_servo: HeadServoController = HeadServoController(
-        channel=settings.head_servo_channel,
-        home_angle_deg=settings.head_servo_home_angle_deg,
-    )
-    motor_controller: MotorController = MotorController(
-        tl_left_offset=settings.tl_left_offset,
-        tl_right_offset=settings.tl_right_offset,
-    )
-
+def create_isolated_motion_service(
+    settings: Settings,
+    hardware: SharedMotionHardware,
+) -> IsolatedMotionService:
+    """Собрать общий координирующий сервис контура L1-L3 на том же железе, что и DriveController."""
     l1_service: L1Service = L1Service(
-        motor_controller=motor_controller,
-        gyroscope=imu_sensor,
-        ultrasonic_sensor=ultrasonic_sensor,
-        head_servo=head_servo,
+        motor_controller=hardware.motor_controller,
+        gyroscope=hardware.gyroscope,
+        ultrasonic_sensor=hardware.ultrasonic_sensor,
+        head_servo=hardware.head_servo,
     )
-    l2_service: L2Service = create_l2_service(settings, motor_controller)
+    l2_service: L2Service = create_l2_service(settings, hardware.motor_controller)
     l3_service: L3Service = create_l3_service(settings, l2_service)
 
     return IsolatedMotionService(
