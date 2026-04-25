@@ -160,3 +160,16 @@ def test_set_head_angle_is_noop_without_servo() -> None:
     service, _, _, _, _ = _service(with_head_servo=False)
 
     service.set_head_angle(30.0)
+
+
+def test_destroy_skips_devices_when_release_disabled() -> None:
+    """destroy(release_devices=False) не вызывает destroy у железа."""
+    service, motor, gyro, ultrasonic, head_servo = _service()
+
+    service.destroy(release_devices=False)
+
+    assert motor.destroy_calls == 0
+    assert gyro.destroy_calls == 0
+    assert ultrasonic.destroy_calls == 0
+    assert head_servo is not None
+    assert head_servo.destroy_calls == 0

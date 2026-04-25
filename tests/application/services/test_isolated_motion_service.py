@@ -307,6 +307,39 @@ def test_public_methods_forward_commands_and_states() -> None:
     )
 
 
+def test_legacy_exclusive_depth_begin_end_reset() -> None:
+    """Счётчик эксклюзива legacy-драйва инкрементируется, уменьшается и сбрасывается."""
+    service, _, _, _ = _service()
+
+    service.begin_legacy_drive_exclusive()
+    service.begin_legacy_drive_exclusive()
+    assert service._legacy_drive_exclusive_depth == 2
+    service.end_legacy_drive_exclusive()
+    assert service._legacy_drive_exclusive_depth == 1
+    service.reset_legacy_drive_exclusive()
+    assert service._legacy_drive_exclusive_depth == 0
+
+
+def test_end_legacy_drive_exclusive_noop_when_depth_zero() -> None:
+    """end_legacy при нулевой глубине не уходит в отрицательные значения."""
+    service, _, _, _ = _service()
+
+    service.end_legacy_drive_exclusive()
+
+    assert service._legacy_drive_exclusive_depth == 0
+
+
+def test_background_loop_skips_sync_when_legacy_exclusive_active() -> None:
+    """Пока legacy держит эксклюзив, фон не вызывает sync L2 и step L3."""
+    service, _l1, l2, l3 = _service(time_values=(5.0, 8.0))
+    service.begin_legacy_drive_exclusive()
+    service._stop_event = FakeStopEvent()  # type: ignore[assignment]
+    service._background_loop()
+
+    assert len(l2.update_snapshots) == 0
+    assert l3.step_calls == 0
+
+
 def test_sync_l2_respects_explicit_dt_and_background_loop_runs_one_iteration() -> None:
     """Координатор умеет брать явный шаг времени и выполнять проход фонового цикла."""
     service, l1_service, l2_service, l3_service = _service(time_values=(5.0, 8.0))

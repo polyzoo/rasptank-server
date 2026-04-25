@@ -226,7 +226,9 @@ class DriveController(DriveControllerProtocol):
         self.ultrasonic_sensor: UltrasonicSensorProtocol = ultrasonic_sensor
         self.gyroscope: GyroscopeProtocol = gyroscope
         self._release_gyroscope_after_route: bool = release_gyroscope_after_route
-        self._isolated_motion_coordinator: IsolatedMotionService | None = isolated_motion_coordinator
+        self._isolated_motion_coordinator: IsolatedMotionService | None = (
+            isolated_motion_coordinator
+        )
         self.config: MotionConfig = config or MotionConfig(
             min_obstacle_distance_cm=min_obstacle_distance_cm,
             deceleration_distance_cm=deceleration_distance_cm,

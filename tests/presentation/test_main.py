@@ -6,7 +6,7 @@ import anyio
 from fastapi import FastAPI
 
 from src.config.settings import Settings
-from src.main import create_app, lifespan
+from src.main import _parse_cors_origins, create_app, lifespan
 
 
 class FakeDriveController:
@@ -36,6 +36,12 @@ class FakeIsolatedMotion:
     def destroy(self, *, release_hardware: bool = True) -> None:
         """Зафиксировать освобождение ресурсов нового контура."""
         self.destroy_called = True
+
+
+def test_parse_cors_origins_splits_comma_separated_list() -> None:
+    """CORS_ORIGINS со списком через запятую превращается в список origin."""
+    assert _parse_cors_origins("http://a, http://b") == ["http://a", "http://b"]
+    assert _parse_cors_origins("*") == ["*"]
 
 
 def test_create_app_sets_state_and_mounts_routes() -> None:

@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from src.infrastructures import motor as motor_module
 from src.infrastructures.motor import MotorController
+
+
+def test_motor_rejects_invalid_direction_values() -> None:
+    """m1_direction и m2_direction должны быть строго ±1."""
+    with pytest.raises(ValueError, match="m1_direction"):
+        MotorController(m1_direction=2, m2_direction=1)
 
 
 class FakeBusio:

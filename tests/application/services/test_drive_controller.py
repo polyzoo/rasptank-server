@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Any
+from unittest.mock import MagicMock
+
 import pytest
 
 from src.application.models.route import ForwardSegment, Route
@@ -177,10 +180,12 @@ def _controller(
     motion_events: MotionEventHub | None = None,
     head_servo: FakeHeadServo | None = None,
     workspace_limit_cm: float = 40.0,
+    motor: FakeMotor | None = None,
+    isolated_motion_coordinator: Any | None = None,
 ) -> DriveController:
     """Создать DriveController с fake зависимостями."""
     return DriveController(
-        motor_controller=FakeMotor(),
+        motor_controller=motor or FakeMotor(),
         ultrasonic_sensor=ultrasonic or FakeUltrasonic(),
         gyroscope=FakeGyroscope(),
         min_obstacle_distance_cm=20.0,
@@ -199,6 +204,7 @@ def _controller(
         workspace_limit_cm=workspace_limit_cm,
         head_servo=head_servo,
         head_servo_home_angle_deg=7.0,
+        isolated_motion_coordinator=isolated_motion_coordinator,
     )
 
 
@@ -1358,3 +1364,62 @@ def test_run_obstacle_avoidance_remaining_exhausted_switches_to_rejoin() -> None
     )
 
     assert result.completed is False
+
+
+class RaisingRouteExecutor:
+    """RouteExecutor, падающий в execute — для проверки снятия legacy-эксклюзива."""
+
+    def execute(self, route: Route) -> None:
+        """Сымитировать ошибку фонового маршрута."""
+        raise RuntimeError("route failed")
+
+    def execute_sync(self, route: Route) -> None:
+        """Не используется в этом тесте."""
+        raise RuntimeError("unexpected sync")
+
+    def stop(self) -> None:
+        """Заглушка остановки."""
+        return
+
+
+def test_execute_route_calls_legacy_end_when_execute_raises() -> None:
+    """При ошибке execute маршрута снимается эксклюзив L1–L3 (end_legacy)."""
+    coordinator: MagicMock = MagicMock()
+    controller: DriveController = _controller(isolated_motion_coordinator=coordinator)
+    controller._route_executor = RaisingRouteExecutor()  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="route failed"):
+        controller.execute_route(Route(segments=[ForwardSegment(distance_cm=1.0)]))
+
+    coordinator.begin_legacy_drive_exclusive.assert_called()
+    coordinator.end_legacy_drive_exclusive.assert_called()
+
+
+def test_execute_route_sync_calls_legacy_exclusive_hooks() -> None:
+    """Синхронный маршрут берёт и отпускает эксклюзив вокруг выполнения."""
+    coordinator: MagicMock = MagicMock()
+    controller: DriveController = _controller(isolated_motion_coordinator=coordinator)
+    fake_executor: FakeRouteExecutor = FakeRouteExecutor()
+    controller._route_executor = fake_executor  # type: ignore[assignment]
+    route: Route = Route(segments=[ForwardSegment(distance_cm=1.0)])
+
+    controller.execute_route_sync(route)
+
+    coordinator.begin_legacy_drive_exclusive.assert_called_once()
+    coordinator.end_legacy_drive_exclusive.assert_called_once()
+    assert fake_executor.execute_sync_calls == [route]
+
+
+def test_destroy_resets_legacy_exclusive_and_skips_device_teardown() -> None:
+    """destroy(release_devices=False) сбрасывает счётчик эксклюзива и не трогает железо."""
+    coordinator: MagicMock = MagicMock()
+    motor: FakeMotor = FakeMotor()
+    controller: DriveController = _controller(
+        motor=motor,
+        isolated_motion_coordinator=coordinator,
+    )
+
+    controller.destroy(release_devices=False)
+
+    coordinator.reset_legacy_drive_exclusive.assert_called_once()
+    assert motor.destroy_calls == 0

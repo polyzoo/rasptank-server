@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import anyio
 import pytest
@@ -100,6 +101,23 @@ def test_drive_route_executes_route_and_returns_accepted() -> None:
         assert len(drive.routes) == 1
         assert isinstance(drive.routes[0].segments[0], ForwardSegment)
         assert drive.routes[0].segments[0].distance_cm == 12.5
+
+    anyio.run(run)
+
+
+def test_drive_route_disarms_isolated_stack_when_present() -> None:
+    """Legacy POST /route снимает L3/L2/L1, если изолированный контур есть."""
+
+    async def run() -> None:
+        drive: SpyDriveController = SpyDriveController()
+        isolated: MagicMock = MagicMock()
+        body: RouteRequestSchema = RouteRequestSchema.model_validate(
+            {"segments": [{"action": "forward", "distance_cm": 1.0}]}
+        )
+        await drive_route(body=body, drive=drive, isolated_motion=isolated)
+        isolated.cancel_l3.assert_called_once()
+        isolated.stop_l2.assert_called_once()
+        isolated.stop_l1.assert_called_once()
 
     anyio.run(run)
 

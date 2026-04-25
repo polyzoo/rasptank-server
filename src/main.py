@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.middleware.cors import CORSMiddleware
 
 from src.application.factories import (
     create_drive_controller,
@@ -14,6 +15,13 @@ from src.application.services.motion_events import MotionEventHub
 from src.config.settings import Settings
 from src.presentation.api.exception_handlers import setup_exception_handlers
 from src.presentation.api.v1.routers import router as v1_router
+
+
+def _parse_cors_origins(raw: str) -> list[str]:
+    text = raw.strip()
+    if text == "*":
+        return ["*"]
+    return [part.strip() for part in text.split(",") if part.strip()]
 
 
 @asynccontextmanager
@@ -56,6 +64,16 @@ def create_app(settings: Settings) -> FastAPI:
     )
 
     setup_exception_handlers(app)
+
+    cors_origins = _parse_cors_origins(settings.cors_origins)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.include_router(v1_router)
 
     return app

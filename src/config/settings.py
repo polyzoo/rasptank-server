@@ -20,6 +20,11 @@ class Settings(BaseSettings):
         validation_alias="APP_PORT",
         description="Порт сервера.",
     )
+    cors_origins: str = Field(
+        default="*",
+        validation_alias="CORS_ORIGINS",
+        description="CORS: * или список Origin через запятую (например http://localhost:4200).",
+    )
     head_servo_channel: int = Field(
         default=4,
         ge=0,
@@ -176,7 +181,8 @@ class Settings(BaseSettings):
         default=-1,
         validation_alias="M1_DIRECTION",
         description=(
-            "Направление канала M1 (PCA9685): 1 или −1. По умолчанию −1 под типичную сборку RaspTank; "
+            "Направление канала M1 (PCA9685): 1 или −1. "
+            "По умолчанию −1 под типичную сборку RaspTank; "
             "для обратной полярности задайте M1_DIRECTION=1 и M2_DIRECTION=-1."
         ),
     )
@@ -195,6 +201,7 @@ class Settings(BaseSettings):
             msg: str = "M1_DIRECTION и M2_DIRECTION должны быть 1 или -1"
             raise ValueError(msg)
         return as_int
+
     heading_hold_enabled: bool = Field(
         default=True,
         validation_alias="HEADING_HOLD_ENABLED",
@@ -253,8 +260,9 @@ class Settings(BaseSettings):
         default=False,
         validation_alias="HEADING_HOLD_INVERT_STEER",
         description=(
-            "Инверсия знака руления для удержания курса. При дефолтных M1_DIRECTION=-1 и M2_DIRECTION=1 "
-            "оставьте false; при классической паре 1/-1 часто нужно true — см. доку по моторам."
+            "Инверсия знака руления для удержания курса. "
+            "При дефолтных M1_DIRECTION=-1 и M2_DIRECTION=1 оставьте false; "
+            "при классической паре 1/-1 часто нужно true — см. доку по моторам."
         ),
     )
     forward_soft_start_sec: float = Field(

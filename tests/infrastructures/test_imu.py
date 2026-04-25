@@ -75,15 +75,22 @@ class FakeThread:
         self.daemon: bool = daemon
         self.started: bool = False
         self.join_timeout: float | None = None
+        self._alive: bool = False
         FakeThread.instances.append(self)
 
     def start(self) -> None:
         """Зафиксировать старт потока без запуска target."""
         self.started = True
+        self._alive = True
+
+    def is_alive(self) -> bool:
+        """Имитация threading.Thread.is_alive для повторного IMUSensor.start()."""
+        return self._alive
 
     def join(self, *, timeout: float) -> None:
         """Зафиксировать timeout ожидания потока."""
         self.join_timeout = timeout
+        self._alive = False
 
 
 def _enable_fake_hardware(
@@ -156,6 +163,24 @@ def test_start_returns_when_setup_fails(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert sensor._is_initialized is False
     assert FakeThread.instances == []
+
+
+def test_second_start_skips_recalibrate_when_thread_still_alive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Повторный start(calibrate=True) при живом потоке не вызывает calibrate снова."""
+    _enable_fake_hardware(monkeypatch)
+    FakeThread.instances = []
+    monkeypatch.setattr(imu_module, "Thread", FakeThread)
+    monkeypatch.setattr(imu_module.time, "monotonic", lambda: 0.0)
+    sensor: IMUSensor = IMUSensor()
+    calibrate_calls: list[object | None] = []
+    monkeypatch.setattr(sensor, "calibrate", lambda samples=None: calibrate_calls.append(samples))
+
+    sensor.start(calibrate=True)
+    sensor.start(calibrate=True)
+
+    assert calibrate_calls == [None]
 
 
 def test_start_resets_state_and_starts_update_thread(monkeypatch: pytest.MonkeyPatch) -> None:

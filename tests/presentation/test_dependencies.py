@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from src.application.services.motion_events import MotionEventHub
 from src.presentation.api.dependencies import (
     get_drive_controller,
+    get_isolated_motion_optional,
     get_isolated_motion_service,
     get_motion_events,
 )
@@ -69,3 +70,9 @@ def test_get_isolated_motion_service_raises_when_missing() -> None:
     with pytest.raises(HTTPException) as exc_info:
         get_isolated_motion_service(_request(isolated_motion=None))
     assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+
+
+def test_get_isolated_motion_optional_returns_none_without_attribute() -> None:
+    """Опциональная зависимость возвращает None, если атрибута нет в state."""
+    request: SimpleNamespace = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    assert get_isolated_motion_optional(request) is None

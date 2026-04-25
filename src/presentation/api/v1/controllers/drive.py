@@ -70,9 +70,7 @@ def _schema_to_route(body: RouteRequestSchema) -> Route:
 async def drive_route(
     body: RouteRequestSchema,
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
-    isolated_motion: Annotated[
-        IsolatedMotionService | None, Depends(get_isolated_motion_optional)
-    ],
+    isolated_motion: Annotated[IsolatedMotionService | None, Depends(get_isolated_motion_optional)],
 ) -> DriveRouteResponseSchema:
     """Запуск движения по заданному маршруту с плавной остановкой при препятствиях."""
     _disarm_l_stack_for_legacy_drive(isolated_motion)
@@ -84,9 +82,7 @@ async def drive_route(
 @router.post("/stop", description="Немедленная остановка")
 async def drive_stop(
     drive: Annotated[DriveControllerProtocol, Depends(get_drive_controller)],
-    isolated_motion: Annotated[
-        IsolatedMotionService | None, Depends(get_isolated_motion_optional)
-    ],
+    isolated_motion: Annotated[IsolatedMotionService | None, Depends(get_isolated_motion_optional)],
 ) -> DriveStopResponseSchema:
     """Немедленная остановка движения."""
     _disarm_l_stack_for_legacy_drive(isolated_motion)

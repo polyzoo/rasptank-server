@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
+import pytest
+from pydantic import ValidationError
+
 from src.application.factories import (
+    SharedMotionHardware,
     create_differential_drive_kinematics,
     create_goal_point_controller,
     create_l1_service,
@@ -147,3 +153,30 @@ def test_create_l3_service_builds_isolated_navigation_layer() -> None:
     assert service.get_state().mode == "idle"
     assert service.get_state().planner_status == "idle"
     assert service.unknown_obstacle_radius_cm == settings.l3_unknown_obstacle_radius_cm
+
+
+def test_shared_motion_hardware_destroy_calls_components() -> None:
+    """SharedMotionHardware.destroy делегирует всем устройствам."""
+    motor: MagicMock = MagicMock()
+    gyro: MagicMock = MagicMock()
+    ultrasonic: MagicMock = MagicMock()
+    head: MagicMock = MagicMock()
+    hardware: SharedMotionHardware = SharedMotionHardware(
+        motor_controller=motor,
+        gyroscope=gyro,
+        ultrasonic_sensor=ultrasonic,
+        head_servo=head,
+    )
+
+    hardware.destroy()
+
+    motor.destroy.assert_called_once()
+    ultrasonic.destroy.assert_called_once()
+    gyro.destroy.assert_called_once()
+    head.destroy.assert_called_once()
+
+
+def test_settings_rejects_invalid_motor_direction() -> None:
+    """M1_DIRECTION и M2_DIRECTION принимают только ±1."""
+    with pytest.raises(ValidationError):
+        Settings(M1_DIRECTION=2)
