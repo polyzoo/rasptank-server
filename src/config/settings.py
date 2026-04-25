@@ -415,6 +415,46 @@ class Settings(BaseSettings):
             "Скорость правого борта при команде 100% (см/с). Временный ориентир до калибровки."
         ),
     )
+    l2_accel_speed_fusion_enabled: bool = Field(
+        default=True,
+        validation_alias="L2_ACCEL_SPEED_FUSION_ENABLED",
+        description="Включить мягкую коррекцию скорости L2 по акселерометру.",
+    )
+    l2_accel_speed_blend_alpha: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        validation_alias="L2_ACCEL_SPEED_BLEND_ALPHA",
+        description="Доля accel-скорости в оценке v_hat (0..1).",
+    )
+    l2_accel_stationary_threshold_m_s2: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=3.0,
+        validation_alias="L2_ACCEL_STATIONARY_THRESHOLD_M_S2",
+        description="Порог |a_long| (м/с²) для детектора покоя.",
+    )
+    l2_gyro_stationary_threshold_deg_per_sec: float = Field(
+        default=2.5,
+        ge=0.0,
+        le=30.0,
+        validation_alias="L2_GYRO_STATIONARY_THRESHOLD_DEG_PER_SEC",
+        description="Порог |w| (°/с) для детектора покоя при bias-обучении.",
+    )
+    l2_accel_bias_learning_rate: float = Field(
+        default=0.03,
+        ge=0.0,
+        le=1.0,
+        validation_alias="L2_ACCEL_BIAS_LEARNING_RATE",
+        description="Скорость обучения bias продольного акселя в покое.",
+    )
+    l2_accel_speed_limit_factor: float = Field(
+        default=1.1,
+        ge=0.5,
+        le=3.0,
+        validation_alias="L2_ACCEL_SPEED_LIMIT_FACTOR",
+        description="Лимит интегральной accel-скорости относительно max скорости борта.",
+    )
     l3_position_tolerance_cm: float = Field(
         default=5.0,
         gt=0.0,

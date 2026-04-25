@@ -167,6 +167,12 @@ def create_l2_service(
         kinematics=kinematics,
         pose_estimator=pose_estimator,
         velocity_controller=velocity_controller,
+        accel_speed_fusion_enabled=settings.l2_accel_speed_fusion_enabled,
+        accel_speed_blend_alpha=settings.l2_accel_speed_blend_alpha,
+        accel_stationary_threshold_m_s2=settings.l2_accel_stationary_threshold_m_s2,
+        gyro_stationary_threshold_deg_per_sec=settings.l2_gyro_stationary_threshold_deg_per_sec,
+        accel_bias_learning_rate=settings.l2_accel_bias_learning_rate,
+        accel_speed_limit_factor=settings.l2_accel_speed_limit_factor,
     )
 
 

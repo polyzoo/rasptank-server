@@ -40,6 +40,28 @@ def _service() -> tuple[L2Service, FakeMotor]:
     return service, motor
 
 
+def _service_with_accel_fusion(alpha: float = 1.0) -> tuple[L2Service, FakeMotor]:
+    """Создать L2 с включённой accel-коррекцией скорости."""
+    motor: FakeMotor = FakeMotor()
+    kinematics = DifferentialDriveKinematics(
+        track_width_cm=20.0,
+        left_track_max_speed_cm_per_sec=40.0,
+        right_track_max_speed_cm_per_sec=40.0,
+    )
+    service = L2Service(
+        kinematics=kinematics,
+        pose_estimator=PoseEstimator(),
+        velocity_controller=VelocityCommandController(
+            motor_controller=motor,  # type: ignore[arg-type]
+            kinematics=kinematics,
+        ),
+        accel_speed_fusion_enabled=True,
+        accel_speed_blend_alpha=alpha,
+        accel_speed_limit_factor=10.0,
+    )
+    return service, motor
+
+
 def test_apply_body_velocity_passes_commands_to_l1() -> None:
     """Желаемая скорость корпуса превращается в команды бортов."""
     service, motor = _service()
@@ -77,7 +99,7 @@ def test_update_from_l1_uses_last_command_and_sensor_data() -> None:
 
 def test_update_from_l1_can_integrate_longitudinal_acceleration() -> None:
     """Продольное ускорение изменяет скорость и положение в оценщике."""
-    service, _ = _service()
+    service, _ = _service_with_accel_fusion(alpha=1.0)
 
     state = service.update_from_l1(
         L1SensorSnapshot(
@@ -89,6 +111,22 @@ def test_update_from_l1_can_integrate_longitudinal_acceleration() -> None:
 
     assert state.linear_speed_cm_per_sec == pytest.approx(100.0)
     assert state.x_cm == pytest.approx(200.0)
+
+
+def test_update_from_l1_without_accel_fusion_uses_kinematic_speed_only() -> None:
+    """По умолчанию L2 не разгоняет v_hat по акселю: берём скорость из кинематики."""
+    service, _ = _service()
+    service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
+    )
+    state = service.update_from_l1(
+        L1SensorSnapshot(
+            longitudinal_acceleration_m_s2=2.0,
+            angular_speed_z_deg_per_sec=0.0,
+        ),
+        dt_sec=1.0,
+    )
+    assert state.linear_speed_cm_per_sec == pytest.approx(20.0)
 
 
 def test_reset_state_and_stop_keep_service_isolated() -> None:
