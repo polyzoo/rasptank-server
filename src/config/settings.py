@@ -39,6 +39,74 @@ class Settings(BaseSettings):
         validation_alias="HEAD_SERVO_HOME_ANGLE_DEG",
         description="Угол фиксации головы перед стартом движения.",
     )
+    gyro_yaw_integration_deadband_deg_per_sec: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=2.0,
+        validation_alias="GYRO_YAW_INTEGRATION_DEADBAND_DEG_PER_SEC",
+        description=(
+            "Мёртвая зона |ω_z| (°/с) при интеграции yaw: ниже порога угол не копится — "
+            "меньше дрейф стоя; 0 отключает. Акселерометр азимут на горизонтали не задаёт."
+        ),
+    )
+    imu_mpu6050_dlpf_cfg: int = Field(
+        default=3,
+        ge=0,
+        le=7,
+        validation_alias="IMU_MPU6050_DLPF_CFG",
+        description="MPU6050 DLPF_CFG (режим 3 ≈ 44/42 Гц).",
+    )
+    imu_mpu6050_smplrt_div: int = Field(
+        default=9,
+        ge=0,
+        le=255,
+        validation_alias="IMU_MPU6050_SMPLRT_DIV",
+        description="MPU6050 SMPLRT_DIV.",
+    )
+    imu_accel_ema_alpha: float = Field(
+        default=0.2,
+        ge=0.01,
+        le=1.0,
+        validation_alias="IMU_ACCEL_EMA_ALPHA",
+        description="EMA сглаживание акселерометра (0..1).",
+    )
+    imu_gyro_ema_alpha: float = Field(
+        default=0.3,
+        ge=0.01,
+        le=1.0,
+        validation_alias="IMU_GYRO_EMA_ALPHA",
+        description="EMA сглаживание гироскопа (°/с).",
+    )
+    imu_ekf_enabled: bool = Field(
+        default=True,
+        validation_alias="IMU_EKF_ENABLED",
+        description="Фильтр yaw + ZUPT (модуль ekf_imu).",
+    )
+    imu_ekf_q_angle: float = Field(
+        default=0.001,
+        ge=1e-12,
+        validation_alias="IMU_EKF_Q_ANGLE",
+        description="EKF: шум процесса угла.",
+    )
+    imu_ekf_q_bias: float = Field(
+        default=0.0001,
+        ge=1e-12,
+        validation_alias="IMU_EKF_Q_BIAS",
+        description="EKF: шум процесса bias.",
+    )
+    imu_ekf_r_accel: float = Field(
+        default=0.5,
+        ge=1e-12,
+        validation_alias="IMU_EKF_R_ACCEL",
+        description="EKF: зарезервированный параметр шума (в update не используется).",
+    )
+    imu_ekf_accel_gate: float = Field(
+        default=0.5,
+        ge=0.01,
+        le=1.0,
+        validation_alias="IMU_EKF_ACCEL_GATE",
+        description="EKF: порог отклонения |a| от g для опоры roll/pitch.",
+    )
     min_obstacle_distance_cm: float = Field(
         default=20.0,
         ge=0,

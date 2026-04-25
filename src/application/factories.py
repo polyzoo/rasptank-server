@@ -40,7 +40,10 @@ class SharedMotionHardware:
 
 
 def create_shared_motion_hardware(settings: Settings) -> SharedMotionHardware:
-    """Создать единственный экземпляр нижнеуровневого железа для приложения."""
+    """Создать единственный экземпляр нижнеуровневого железа для приложения.
+
+    Параметры ``IMUSensor`` (DLPF, частота выборки, EMA, EKF) берутся из ``settings.imu_*``.
+    """
     return SharedMotionHardware(
         motor_controller=MotorController(
             tl_left_offset=settings.tl_left_offset,
@@ -48,7 +51,18 @@ def create_shared_motion_hardware(settings: Settings) -> SharedMotionHardware:
             m1_direction=settings.m1_direction,
             m2_direction=settings.m2_direction,
         ),
-        gyroscope=IMUSensor(),
+        gyroscope=IMUSensor(
+            gyro_yaw_integration_deadband_deg_per_sec=settings.gyro_yaw_integration_deadband_deg_per_sec,
+            mpu6050_dlpf_cfg=settings.imu_mpu6050_dlpf_cfg,
+            mpu6050_smplrt_div=settings.imu_mpu6050_smplrt_div,
+            accel_ema_alpha=settings.imu_accel_ema_alpha,
+            gyro_ema_alpha=settings.imu_gyro_ema_alpha,
+            ekf_enabled=settings.imu_ekf_enabled,
+            ekf_q_angle=settings.imu_ekf_q_angle,
+            ekf_q_bias=settings.imu_ekf_q_bias,
+            ekf_r_accel=settings.imu_ekf_r_accel,
+            ekf_accel_gate=settings.imu_ekf_accel_gate,
+        ),
         ultrasonic_sensor=UltrasonicSensor(),
         head_servo=HeadServoController(
             channel=settings.head_servo_channel,
@@ -157,8 +171,22 @@ def create_l2_service(
 
 
 def create_l1_service(settings: Settings) -> L1Service:
-    """Собрать чистый нижний уровень нового контура."""
-    imu_sensor: IMUSensor = IMUSensor()
+    """Собрать чистый нижний уровень нового контура.
+
+    Отдельный экземпляр ``IMUSensor`` с теми же ``settings.imu_*``, что и у общего железа.
+    """
+    imu_sensor: IMUSensor = IMUSensor(
+        gyro_yaw_integration_deadband_deg_per_sec=settings.gyro_yaw_integration_deadband_deg_per_sec,
+        mpu6050_dlpf_cfg=settings.imu_mpu6050_dlpf_cfg,
+        mpu6050_smplrt_div=settings.imu_mpu6050_smplrt_div,
+        accel_ema_alpha=settings.imu_accel_ema_alpha,
+        gyro_ema_alpha=settings.imu_gyro_ema_alpha,
+        ekf_enabled=settings.imu_ekf_enabled,
+        ekf_q_angle=settings.imu_ekf_q_angle,
+        ekf_q_bias=settings.imu_ekf_q_bias,
+        ekf_r_accel=settings.imu_ekf_r_accel,
+        ekf_accel_gate=settings.imu_ekf_accel_gate,
+    )
     ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
     head_servo: HeadServoController = HeadServoController(
         channel=settings.head_servo_channel,
