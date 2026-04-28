@@ -8,6 +8,9 @@
 Результат печатается как готовые строки для `.env`:
 - LEFT_TRACK_MAX_SPEED_CM_PER_SEC
 - RIGHT_TRACK_MAX_SPEED_CM_PER_SEC
+
+По умолчанию скрипт не требует ручного ввода: достаточно запустить его на
+машинке рядом со свободным прямым участком пола.
 """
 
 from __future__ import annotations
@@ -41,6 +44,8 @@ class Trial:
     track_percent: int
     repeat_index: int
     stats: SampleStats
+    distance_cm: float | None = None
+    run_duration_sec: float = 0.0
 
 
 def _post_json(url: str, payload: dict[str, Any], timeout_sec: float) -> None:
@@ -132,6 +137,45 @@ def _estimate_delta_right_minus_left_cm_s(
     return track_width_cm * sum_p_omega / sum_p2
 
 
+def _estimate_track_max_speeds_from_distance(
+    *,
+    trials: list[Trial],
+    track_width_cm: float,
+) -> tuple[float, float] | None:
+    """Оценить абсолютные Vmax левого/правого борта по дистанции и gyro."""
+    left_values: list[float] = []
+    right_values: list[float] = []
+
+    for trial in trials:
+        if trial.distance_cm is None or trial.run_duration_sec <= 0.0:
+            continue
+
+        p: float = trial.track_percent / 100.0
+        if p <= 0.0:
+            continue
+
+        linear_speed_cm_s: float = trial.distance_cm / trial.run_duration_sec
+        omega_rad_s: float = radians(trial.stats.mean_wz_deg_s)
+        half_width_cm: float = track_width_cm / 2.0
+        right_speed_cm_s: float = linear_speed_cm_s + omega_rad_s * half_width_cm
+        left_speed_cm_s: float = linear_speed_cm_s - omega_rad_s * half_width_cm
+
+        left_values.append(left_speed_cm_s / p)
+        right_values.append(right_speed_cm_s / p)
+
+    if not left_values or not right_values:
+        return None
+
+    return float(statistics.mean(left_values)), float(statistics.mean(right_values))
+
+
+def _read_optional_distance_cm() -> float | None:
+    raw = input("Measured center distance, cm (blank to skip): ").strip()
+    if not raw:
+        return None
+    return float(raw.replace(",", "."))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -154,14 +198,35 @@ def main() -> int:
     parser.add_argument(
         "--track-width-cm",
         type=float,
-        default=17.0,
-        help="Текущий TRACK_WIDTH_CM (если не указать, используется 17.0).",
+        default=14.0,
+        help="Текущий TRACK_WIDTH_CM (по умолчанию 14.0).",
     )
     parser.add_argument(
         "--avg-max-cm-s",
         type=float,
         default=30.0,
-        help="Средний масштаб max-скорости борта для пары LEFT/RIGHT (по умолчанию 30).",
+        help=(
+            "Средний масштаб max-скорости борта для пары LEFT/RIGHT. "
+            "Без измерения дистанции скрипт подбирает разницу бортов вокруг этого значения."
+        ),
+    )
+    parser.add_argument(
+        "--ask-distance",
+        action="store_true",
+        help=(
+            "После каждого прогона спросить фактически пройденное расстояние центра машинки. "
+            "Если заполнить, скрипт оценит абсолютные LEFT/RIGHT max speed."
+        ),
+    )
+    parser.add_argument(
+        "--no-pause",
+        action="store_true",
+        help="Совместимость со старым режимом: сейчас пауз нет по умолчанию.",
+    )
+    parser.add_argument(
+        "--pause",
+        action="store_true",
+        help="Ждать Enter между прогонами.",
     )
     parser.add_argument("--settle-sec", type=float, default=0.8)
     parser.add_argument("--sample-sec", type=float, default=3.0)
@@ -222,18 +287,25 @@ def main() -> int:
                     sample_interval_sec=args.sample_interval_sec,
                     timeout_sec=args.timeout_sec,
                 )
-                trials.append(
-                    Trial(
-                        track_percent=track_percent,
-                        repeat_index=repeat_index,
-                        stats=stats,
-                    )
-                )
                 print(
                     f"trial p={track_percent:2d}% rep={repeat_index}/{args.repeats} "
                     f"mean_wz={stats.mean_wz_deg_s:+.4f} deg/s "
                     f"stdev={stats.stdev_wz_deg_s:.4f} n={stats.n}",
                 )
+                trials.append(
+                    Trial(
+                        track_percent=track_percent,
+                        repeat_index=repeat_index,
+                        stats=stats,
+                        distance_cm=_read_optional_distance_cm()
+                        if args.ask_distance
+                        else None,
+                        run_duration_sec=args.settle_sec + args.sample_sec,
+                    )
+                )
+                if args.pause and not args.ask_distance:
+                    input("Press Enter for next run...")
+                input()
     except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
         safe_stop()
         print(f"HTTP error: {exc}", file=sys.stderr)
@@ -250,9 +322,23 @@ def main() -> int:
         track_width_cm=args.track_width_cm,
     )
     recommended_delta = delta_v * safety_scale
-    avg_v = args.avg_max_cm_s
+    distance_based_speeds = _estimate_track_max_speeds_from_distance(
+        trials=trials,
+        track_width_cm=args.track_width_cm,
+    )
+    if distance_based_speeds is None:
+        avg_v = args.avg_max_cm_s
+    else:
+        avg_v = statistics.mean(distance_based_speeds)
+
     new_left = max(1e-3, avg_v - recommended_delta / 2.0)
     new_right = max(1e-3, avg_v + recommended_delta / 2.0)
+
+    if distance_based_speeds is not None:
+        measured_left, measured_right = distance_based_speeds
+        measured_delta = measured_right - measured_left
+        new_left = max(1e-3, avg_v - measured_delta * safety_scale / 2.0)
+        new_right = max(1e-3, avg_v + measured_delta * safety_scale / 2.0)
 
     mean_of_means = float(statistics.mean(t.stats.mean_wz_deg_s for t in trials))
     stdev_of_means = (
@@ -271,6 +357,13 @@ def main() -> int:
     print("  LEFT_TRACK_MAX_SPEED_CM_PER_SEC=auto_from_avg_minus_delta")
     print("  RIGHT_TRACK_MAX_SPEED_CM_PER_SEC=auto_from_avg_plus_delta")
     print(f"  AVG_MAX_CM_S={avg_v:.6f}")
+    if distance_based_speeds is not None:
+        measured_left, measured_right = distance_based_speeds
+        print()
+        print("Distance-based estimate:")
+        print(f"  measured LEFT max = {measured_left:.6f} cm/s")
+        print(f"  measured RIGHT max = {measured_right:.6f} cm/s")
+        print(f"  measured delta right-left = {measured_right - measured_left:+.6f} cm/s")
     print()
     print("Recommended (.env):")
     print(f"  LEFT_TRACK_MAX_SPEED_CM_PER_SEC={new_left:.6f}")

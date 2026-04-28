@@ -101,8 +101,8 @@ class MotorController(MotorControllerProtocol):
         left_pct: int = self._clamp_signed_speed(left_speed_percent)
         right_pct: int = self._clamp_signed_speed(right_speed_percent)
 
-        self._motor1.throttle = self._signed_percent_to_throttle(right_pct, self._m1_direction)
-        self._motor2.throttle = self._signed_percent_to_throttle(left_pct, self._m2_direction)
+        self._motor1.throttle = self._signed_percent_to_throttle(left_pct, self._m1_direction)
+        self._motor2.throttle = self._signed_percent_to_throttle(right_pct, self._m2_direction)
 
     def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
         """Движение вперед с заданной скоростью."""
@@ -178,11 +178,11 @@ class MotorController(MotorControllerProtocol):
 
         direction: float = -1.0 if effective_reverse else 1.0
         self._motor1.throttle = self._signed_percent_to_throttle(
-            int(direction * right_pct),
+            int(direction * left_pct),
             self._m1_direction,
         )
         self._motor2.throttle = self._signed_percent_to_throttle(
-            int(direction * left_pct),
+            int(direction * right_pct),
             self._m2_direction,
         )
 
