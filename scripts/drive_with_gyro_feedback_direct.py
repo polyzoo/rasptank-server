@@ -264,9 +264,7 @@ def main() -> int:
                 abs(args.percent) if args.return_percent is None else abs(args.return_percent)
             )
             return_duration = (
-                args.duration_sec
-                if args.return_duration_sec is None
-                else args.return_duration_sec
+                args.duration_sec if args.return_duration_sec is None else args.return_duration_sec
             )
             print(
                 f"return percent={-return_percent:+.1f}% duration={return_duration:.1f}s",

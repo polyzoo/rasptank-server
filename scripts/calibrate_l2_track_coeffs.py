@@ -297,9 +297,7 @@ def main() -> int:
                         track_percent=track_percent,
                         repeat_index=repeat_index,
                         stats=stats,
-                        distance_cm=_read_optional_distance_cm()
-                        if args.ask_distance
-                        else None,
+                        distance_cm=_read_optional_distance_cm() if args.ask_distance else None,
                         run_duration_sec=args.settle_sec + args.sample_sec,
                     )
                 )

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
 from unittest.mock import Mock, patch
 
 import anyio
 from fastapi import FastAPI
 
 from src.config.settings import Settings
-from src.main import _parse_cors_origins, create_app, lifespan
+from src.main import _configure_l123_debug_logging, _parse_cors_origins, create_app, lifespan
 
 
 class FakeDriveController:
@@ -121,3 +122,22 @@ def test_lifespan_ignores_missing_drive_controller() -> None:
             pass
 
     anyio.run(run)
+
+
+def test_configure_l123_debug_logging_returns_early_when_disabled() -> None:
+    """При выключенном флаге debug trace логгер не настраивается."""
+    settings: Settings = Settings(l123_debug_trace_enabled=False)
+    logger: logging.Logger = logging.getLogger("src.application.services.isolated_motion_service")
+    previous_level: int = logger.level
+    previous_handlers: list[logging.Handler] = list(logger.handlers)
+    previous_propagate: bool = logger.propagate
+
+    try:
+        _configure_l123_debug_logging(settings)
+        assert logger.level == previous_level
+        assert logger.handlers == previous_handlers
+        assert logger.propagate == previous_propagate
+    finally:
+        logger.setLevel(previous_level)
+        logger.handlers = previous_handlers
+        logger.propagate = previous_propagate

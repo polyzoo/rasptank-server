@@ -145,3 +145,20 @@ def test_reset_state_and_stop_keep_service_isolated() -> None:
     assert motor.commands[-1] == (0, 0)
     assert stopped_state.left_percent == pytest.approx(0.0)
     assert stopped_state.right_percent == pytest.approx(0.0)
+
+
+def test_update_from_l1_stationary_learns_accel_bias() -> None:
+    """В покое сервис дообучает bias акселерометра и не разгоняет интегратор."""
+    service, _ = _service_with_accel_fusion(alpha=1.0)
+
+    state = service.update_from_l1(
+        L1SensorSnapshot(
+            longitudinal_acceleration_m_s2=0.2,
+            angular_speed_z_deg_per_sec=0.0,
+        ),
+        dt_sec=1.0,
+    )
+
+    assert state.linear_speed_cm_per_sec == pytest.approx(0.0)
+    assert service._accel_longitudinal_bias_m_s2 == pytest.approx(0.004)
+    assert service._accel_integrated_speed_cm_per_sec == pytest.approx(0.0)
