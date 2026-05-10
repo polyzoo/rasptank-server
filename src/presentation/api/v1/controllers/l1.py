@@ -33,7 +33,8 @@ async def l1_state(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L1SensorStateResponseSchema:
     """Вернуть снимок датчиков нового уровня L1."""
-    return _to_response(isolated_motion.read_l1_state())
+    snapshot: L1SensorState = await asyncio.to_thread(isolated_motion.read_l1_state)
+    return _to_response(snapshot)
 
 
 @router.post("/tracks", description="Прямая команда левому и правому борту")
@@ -42,9 +43,10 @@ async def l1_tracks(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L1ActionResponseSchema:
     """Передать сырую команду бортам через новый L1."""
-    isolated_motion.apply_l1_track_command(
-        left_percent=body.left_percent,
-        right_percent=body.right_percent,
+    await asyncio.to_thread(
+        isolated_motion.apply_l1_track_command,
+        body.left_percent,
+        body.right_percent,
     )
     return L1ActionResponseSchema(status="accepted")
 
@@ -54,7 +56,7 @@ async def l1_stop(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L1ActionResponseSchema:
     """Остановить борта нового контура на уровне L1."""
-    isolated_motion.stop_l1()
+    await asyncio.to_thread(isolated_motion.stop_l1)
     return L1ActionResponseSchema(status="stopped")
 
 
@@ -67,7 +69,8 @@ async def l1_state_ws(websocket: WebSocket) -> None:
 
     try:
         while True:
-            await websocket.send_json(_to_response(isolated_motion.read_l1_state()).model_dump())
+            snapshot: L1SensorState = await asyncio.to_thread(isolated_motion.read_l1_state)
+            await websocket.send_json(_to_response(snapshot).model_dump())
             await asyncio.sleep(isolated_motion.update_interval_sec)
     except WebSocketDisconnect:
         return

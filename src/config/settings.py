@@ -180,6 +180,14 @@ class Settings(BaseSettings):
         validation_alias="L123_DEBUG_TRACE_EVERY_N_STEPS",
         description="Писать каждый N-й шаг debug-трейса L1->L2->L3.",
     )
+    motion_diag_logging_enabled: bool = Field(
+        default=True,
+        validation_alias="MOTION_DIAG_LOGGING_ENABLED",
+        description=(
+            "Диагностика L1 и sync L1→L2 в stderr (DEBUG/WARNING). "
+            "Отключить: MOTION_DIAG_LOGGING_ENABLED=false."
+        ),
+    )
     avoidance_scan_angle_deg: float = Field(
         default=45.0,
         ge=0,
@@ -543,4 +551,5 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from unittest.mock import patch
 
+import src.application.services.isolated_motion_service as isolated_motion_service_module
 from src.application.services.isolated_motion_service import (
     IsolatedMotionService,
     _fmt_optional,
@@ -430,6 +432,16 @@ def test_debug_trace_sampling_and_optional_formatter(caplog: Any) -> None:
     assert messages.count("L1->L2") == 1
     assert _fmt_optional(None) == "-"
     assert _fmt_optional(12.345) == "12.35"
+
+
+def test_sync_l2_from_l1_logs_warning_when_slow_threshold_zero(monkeypatch: Any) -> None:
+    """При total_ms >= SLOW_SYNC_L2_TOTAL_MS пишется WARNING (диагностика длительности sync)."""
+    service, _, _, _ = _service()
+    monkeypatch.setattr(IsolatedMotionService, "SLOW_SYNC_L2_TOTAL_MS", 0.0)
+    with patch.object(isolated_motion_service_module.logger, "warning") as mock_warning:
+        service.sync_l2_from_l1()
+
+    mock_warning.assert_called_once()
 
 
 def test_debug_trace_suppressed_when_l3_idle(caplog: Any) -> None:

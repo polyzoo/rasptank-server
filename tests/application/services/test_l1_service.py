@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+from unittest.mock import patch
+
+import src.application.services.l1_service as l1_service_module
 from src.application.services.l1_models import L1SensorState, L1TrackCommand
 from src.application.services.l1_service import L1Service
 
@@ -119,6 +123,17 @@ def test_apply_track_command_directly_passes_values_to_motor() -> None:
     service.apply_track_command(L1TrackCommand(left_percent=17, right_percent=-19))
 
     assert motor.track_commands == [(17, -19)]
+
+
+def test_read_sensors_logs_warning_when_ultrasonic_threshold_zero(monkeypatch: Any) -> None:
+    """При ultrasonic_ms >= SLOW_ULTRASONIC_RELATIVE_MS срабатывает WARNING."""
+    service, _, _, _, _ = _service()
+    monkeypatch.setattr(L1Service, "SLOW_ULTRASONIC_RELATIVE_MS", 0.0)
+
+    with patch.object(l1_service_module.logger, "warning") as mock_warning:
+        service.read_sensors()
+
+    mock_warning.assert_called_once()
 
 
 def test_read_sensors_returns_only_measured_values() -> None:

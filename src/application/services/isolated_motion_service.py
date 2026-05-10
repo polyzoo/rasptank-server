@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from threading import Event, RLock, Thread
-from typing import Callable
+from typing import Callable, ClassVar
 
 from src.application.services.l1_models import L1SensorState, L1TrackCommand
 from src.application.services.l1_service import L1Service
@@ -26,6 +27,9 @@ class IsolatedMotionService:
 
     # Сколько периодов обновления даём фоновой нити на корректное завершение.
     LOOP_THREAD_JOIN_TIMEOUT_MULTIPLIER: float = 2.0
+
+    # WARNING, если полный sync L1→L2 занял столько миллисекунд и больше.
+    SLOW_SYNC_L2_TOTAL_MS: ClassVar[float] = 350.0
 
     def __init__(
         self,
@@ -133,10 +137,13 @@ class IsolatedMotionService:
         Датчики читаются вне ``_state_lock``, чтобы фоновый цикл не блокировал HTTP
         на время ``read_sensors()`` (IMU, ультразвук).
         """
+        t0: float = time.perf_counter()
         with self._state_lock:
             actual_dt_sec: float = self._compute_dt_sec(dt_sec)
+        t_after_dt_lock: float = time.perf_counter()
 
         l1_state: L1SensorState = self._l1_service.read_sensors()
+        t_after_read: float = time.perf_counter()
 
         with self._state_lock:
             l2_state: L2State = self._l2_service.update_from_l1(
@@ -151,7 +158,37 @@ class IsolatedMotionService:
                 actual_dt_sec,
             )
             self._trace_l1_l2_math(l1_state=l1_state, l2_state=l2_state, dt_sec=actual_dt_sec)
-            return l2_state
+
+        t_end: float = time.perf_counter()
+        dt_lock_ms: float = (t_after_dt_lock - t0) * 1000.0
+        read_ms: float = (t_after_read - t_after_dt_lock) * 1000.0
+        apply_lock_ms: float = (t_end - t_after_read) * 1000.0
+        total_ms: float = (t_end - t0) * 1000.0
+
+        logger.debug(
+            "IsolatedMotion.sync_l2_from_l1 thread=%s dt_lock_ms=%.2f read_l1_ms=%.2f "
+            "apply_l2_lock_ms=%.2f total_ms=%.2f dt_sec=%.4f",
+            threading.current_thread().name,
+            dt_lock_ms,
+            read_ms,
+            apply_lock_ms,
+            total_ms,
+            actual_dt_sec,
+        )
+
+        if total_ms >= self.SLOW_SYNC_L2_TOTAL_MS:
+            logger.warning(
+                "IsolatedMotion.sync_l2_from_l1 медленно thread=%s total_ms=%.1f "
+                "dt_lock_ms=%.1f read_l1_ms=%.1f apply_l2_lock_ms=%.1f "
+                "(read_l1_ms: датчики L1; apply_*: конкуренция за lock)",
+                threading.current_thread().name,
+                total_ms,
+                dt_lock_ms,
+                read_ms,
+                apply_lock_ms,
+            )
+
+        return l2_state
 
     def get_l2_state(self) -> L2State:
         """Вернуть текущее состояние L2."""

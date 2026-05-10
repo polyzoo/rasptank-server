@@ -7,7 +7,13 @@ import anyio
 from fastapi import FastAPI
 
 from src.config.settings import Settings
-from src.main import _configure_l123_debug_logging, _parse_cors_origins, create_app, lifespan
+from src.main import (
+    _configure_l123_debug_logging,
+    _configure_motion_diag_logging,
+    _parse_cors_origins,
+    create_app,
+    lifespan,
+)
 
 
 class FakeDriveController:
@@ -94,6 +100,7 @@ def test_lifespan_destroys_drive_controller_on_shutdown() -> None:
         drive: FakeDriveController = FakeDriveController()
         isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
         motion_hardware: Mock = Mock()
+        app.state.settings = Settings(motion_diag_logging_enabled=False)
         app.state.drive_controller = drive
         app.state.isolated_motion = isolated_motion
         app.state.motion_hardware = motion_hardware
@@ -115,6 +122,7 @@ def test_lifespan_ignores_missing_drive_controller() -> None:
     async def run() -> None:
         """Пройти async context manager lifespan без контроллера."""
         app: Mock = Mock()
+        app.state.settings = Settings(motion_diag_logging_enabled=False)
         app.state.drive_controller = None
         app.state.isolated_motion = None
 
@@ -141,3 +149,149 @@ def test_configure_l123_debug_logging_returns_early_when_disabled() -> None:
         logger.setLevel(previous_level)
         logger.handlers = previous_handlers
         logger.propagate = previous_propagate
+
+
+def test_configure_l123_debug_logging_attaches_stream_handler_when_enabled() -> None:
+    """При включённом L123-трейсе логгер isolated_motion получает handler на stderr."""
+    settings: Settings = Settings(l123_debug_trace_enabled=True)
+    logger: logging.Logger = logging.getLogger("src.application.services.isolated_motion_service")
+    previous_level: int = logger.level
+    previous_handlers: list[logging.Handler] = list(logger.handlers)
+    previous_propagate: bool = logger.propagate
+
+    try:
+        logger.handlers.clear()
+        _configure_l123_debug_logging(settings)
+        assert logger.level == logging.INFO
+        assert len(logger.handlers) == 1
+        assert isinstance(logger.handlers[0], logging.StreamHandler)
+        assert logger.propagate is False
+    finally:
+        logger.handlers.clear()
+        logger.handlers.extend(previous_handlers)
+        logger.setLevel(previous_level)
+        logger.propagate = previous_propagate
+
+
+def test_configure_l123_debug_logging_skips_if_handler_already_present() -> None:
+    """Повторная настройка L123 не добавляет второй handler."""
+    settings: Settings = Settings(l123_debug_trace_enabled=True)
+    logger: logging.Logger = logging.getLogger("src.application.services.isolated_motion_service")
+    previous_level: int = logger.level
+    previous_handlers: list[logging.Handler] = list(logger.handlers)
+    previous_propagate: bool = logger.propagate
+
+    try:
+        logger.handlers.clear()
+        _configure_l123_debug_logging(settings)
+        first_count: int = len(logger.handlers)
+        _configure_l123_debug_logging(settings)
+        assert len(logger.handlers) == first_count == 1
+    finally:
+        logger.handlers.clear()
+        logger.handlers.extend(previous_handlers)
+        logger.setLevel(previous_level)
+        logger.propagate = previous_propagate
+
+
+def test_configure_motion_diag_logging_attaches_handlers_when_enabled() -> None:
+    """Диагностика движения по умолчанию вешает DEBUG-handler на L1 и isolated_motion."""
+    settings: Settings = Settings(motion_diag_logging_enabled=True)
+    names: tuple[str, ...] = (
+        "src.application.services.l1_service",
+        "src.application.services.isolated_motion_service",
+    )
+    snapshots: dict[str, tuple[int, list[logging.Handler], bool]] = {
+        name: (
+            logging.getLogger(name).level,
+            list(logging.getLogger(name).handlers),
+            logging.getLogger(name).propagate,
+        )
+        for name in names
+    }
+
+    try:
+        for name in names:
+            log: logging.Logger = logging.getLogger(name)
+            log.handlers.clear()
+
+        _configure_motion_diag_logging(settings)
+
+        for name in names:
+            log = logging.getLogger(name)
+            assert log.level == logging.DEBUG
+            assert len(log.handlers) == 1
+            assert isinstance(log.handlers[0], logging.StreamHandler)
+            assert log.propagate is False
+    finally:
+        for name in names:
+            log = logging.getLogger(name)
+            prev_level, prev_handlers, prev_propagate = snapshots[name]
+            log.handlers.clear()
+            log.handlers.extend(prev_handlers)
+            log.setLevel(prev_level)
+            log.propagate = prev_propagate
+
+
+def test_configure_motion_diag_logging_continue_when_handlers_already_present() -> None:
+    """Повторный вызов не дублирует diag-handlers."""
+    settings: Settings = Settings(motion_diag_logging_enabled=True)
+    names: tuple[str, ...] = (
+        "src.application.services.l1_service",
+        "src.application.services.isolated_motion_service",
+    )
+    snapshots: dict[str, tuple[int, list[logging.Handler], bool]] = {
+        name: (
+            logging.getLogger(name).level,
+            list(logging.getLogger(name).handlers),
+            logging.getLogger(name).propagate,
+        )
+        for name in names
+    }
+
+    try:
+        for name in names:
+            logging.getLogger(name).handlers.clear()
+
+        _configure_motion_diag_logging(settings)
+        counts: dict[str, int] = {name: len(logging.getLogger(name).handlers) for name in names}
+        _configure_motion_diag_logging(settings)
+        for name in names:
+            assert len(logging.getLogger(name).handlers) == counts[name]
+    finally:
+        for name in names:
+            log = logging.getLogger(name)
+            prev_level, prev_handlers, prev_propagate = snapshots[name]
+            log.handlers.clear()
+            log.handlers.extend(prev_handlers)
+            log.setLevel(prev_level)
+            log.propagate = prev_propagate
+
+
+def test_configure_motion_diag_logging_returns_early_when_disabled() -> None:
+    """При выключенной диагностике движения логгеры L1/sync не трогаем."""
+    settings: Settings = Settings(motion_diag_logging_enabled=False)
+    names: tuple[str, ...] = (
+        "src.application.services.l1_service",
+        "src.application.services.isolated_motion_service",
+    )
+    snapshots: dict[str, tuple[int, list[logging.Handler], bool]] = {}
+    for name in names:
+        log: logging.Logger = logging.getLogger(name)
+        snapshots[name] = (log.level, list(log.handlers), log.propagate)
+
+    try:
+        _configure_motion_diag_logging(settings)
+        for name in names:
+            log = logging.getLogger(name)
+            prev_level, prev_handlers, prev_propagate = snapshots[name]
+            assert log.level == prev_level
+            assert log.handlers == prev_handlers
+            assert log.propagate == prev_propagate
+    finally:
+        for name in names:
+            log = logging.getLogger(name)
+            prev_level, prev_handlers, prev_propagate = snapshots[name]
+            log.setLevel(prev_level)
+            log.handlers = prev_handlers
+            log.propagate = prev_propagate

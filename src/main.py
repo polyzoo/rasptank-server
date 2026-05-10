@@ -39,10 +39,31 @@ def _configure_l123_debug_logging(settings: Settings) -> None:
     log.propagate = False
 
 
+def _configure_motion_diag_logging(settings: Settings) -> None:
+    """Тайминги L1.read_sensors и sync L1→L2 в stderr (DEBUG/WARNING)."""
+    if not settings.motion_diag_logging_enabled:
+        return
+
+    formatter: logging.Formatter = logging.Formatter("%(levelname)s %(name)s: %(message)s")
+    for logger_name in (
+        "src.application.services.l1_service",
+        "src.application.services.isolated_motion_service",
+    ):
+        module_logger: logging.Logger = logging.getLogger(logger_name)
+        module_logger.setLevel(logging.DEBUG)
+        if module_logger.handlers:
+            continue
+        diag_handler: logging.StreamHandler = logging.StreamHandler()
+        diag_handler.setFormatter(formatter)
+        module_logger.addHandler(diag_handler)
+        module_logger.propagate = False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Управление жизненным циклом приложения."""
     _configure_l123_debug_logging(app.state.settings)
+    _configure_motion_diag_logging(app.state.settings)
     if app.state.isolated_motion is not None:
         app.state.isolated_motion.start()
 

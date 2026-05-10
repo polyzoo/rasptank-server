@@ -61,7 +61,8 @@ async def l3_state(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L3StateResponseSchema:
     """Вернуть текущее состояние нового уровня L3."""
-    return _to_response(isolated_motion.get_l3_state())
+    state: L3State = await asyncio.to_thread(isolated_motion.get_l3_state)
+    return _to_response(state)
 
 
 @router.post("/goal", description="Запустить движение к одной точке")
@@ -70,12 +71,13 @@ async def l3_goal(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L3StateResponseSchema:
     """Передать в новый L3 цель в виде одной точки."""
-    return _to_response(
-        isolated_motion.set_l3_goal(
+    state: L3State = await asyncio.to_thread(
+        lambda: isolated_motion.set_l3_goal(
             target=_to_target_point(body.target),
             obstacles=_to_obstacles(body.obstacles),
         )
     )
+    return _to_response(state)
 
 
 @router.post("/route", description="Запустить движение по маршруту из нескольких точек")
@@ -84,12 +86,13 @@ async def l3_route(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L3StateResponseSchema:
     """Передать в новый L3 маршрут из нескольких точек."""
-    return _to_response(
-        isolated_motion.set_l3_route(
+    state: L3State = await asyncio.to_thread(
+        lambda: isolated_motion.set_l3_route(
             route=TargetRoute(points=tuple(_to_target_point(point) for point in body.points)),
             obstacles=_to_obstacles(body.obstacles),
         )
     )
+    return _to_response(state)
 
 
 @router.post("/step", description="Выполнить один шаг уровня L3 вручную")
@@ -97,7 +100,8 @@ async def l3_step(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L3StateResponseSchema:
     """Выполнить один шаг нового уровня L3 и вернуть его состояние."""
-    return _to_response(isolated_motion.step_l3())
+    state: L3State = await asyncio.to_thread(isolated_motion.step_l3)
+    return _to_response(state)
 
 
 @router.post("/cancel", description="Отменить текущую цель или маршрут")
@@ -105,7 +109,8 @@ async def l3_cancel(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L3StateResponseSchema:
     """Отменить цель или маршрут нового уровня L3."""
-    return _to_response(isolated_motion.cancel_l3())
+    state: L3State = await asyncio.to_thread(isolated_motion.cancel_l3)
+    return _to_response(state)
 
 
 @router.websocket("/ws")
@@ -117,7 +122,8 @@ async def l3_state_ws(websocket: WebSocket) -> None:
 
     try:
         while True:
-            await websocket.send_json(_to_response(isolated_motion.get_l3_state()).model_dump())
+            state: L3State = await asyncio.to_thread(isolated_motion.get_l3_state)
+            await websocket.send_json(_to_response(state).model_dump())
             await asyncio.sleep(isolated_motion.update_interval_sec)
     except WebSocketDisconnect:
         return

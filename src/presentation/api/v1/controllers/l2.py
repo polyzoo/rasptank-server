@@ -36,7 +36,8 @@ async def l2_state(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L2StateResponseSchema:
     """Вернуть текущее состояние нового уровня L2."""
-    return _to_response(isolated_motion.get_l2_state())
+    state: L2State = await asyncio.to_thread(isolated_motion.get_l2_state)
+    return _to_response(state)
 
 
 @router.post("/cmd-vel", description="Команда скорости корпуса для уровня L2")
@@ -45,12 +46,12 @@ async def l2_cmd_vel(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L2StateResponseSchema:
     """Передать желаемую линейную и угловую скорость в новый L2."""
-    return _to_response(
-        isolated_motion.apply_l2_body_velocity(
-            linear_speed_cm_per_sec=body.linear_speed_cm_per_sec,
-            angular_speed_deg_per_sec=body.angular_speed_deg_per_sec,
-        )
+    state: L2State = await asyncio.to_thread(
+        isolated_motion.apply_l2_body_velocity,
+        body.linear_speed_cm_per_sec,
+        body.angular_speed_deg_per_sec,
     )
+    return _to_response(state)
 
 
 @router.post("/stop", description="Остановить уровень L2")
@@ -58,7 +59,8 @@ async def l2_stop(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L2StateResponseSchema:
     """Остановить новый уровень L2 и вернуть текущее состояние."""
-    return _to_response(isolated_motion.stop_l2())
+    state: L2State = await asyncio.to_thread(isolated_motion.stop_l2)
+    return _to_response(state)
 
 
 @router.post("/reset-state", description="Сбросить состояние уровня L2")
@@ -67,8 +69,8 @@ async def l2_reset_state(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L2StateResponseSchema:
     """Сбросить состояние нового уровня L2."""
-    return _to_response(
-        isolated_motion.reset_l2_state(
+    state: L2State = await asyncio.to_thread(
+        lambda: isolated_motion.reset_l2_state(
             x_cm=body.x_cm,
             y_cm=body.y_cm,
             heading_deg=body.heading_deg,
@@ -76,6 +78,7 @@ async def l2_reset_state(
             angular_speed_deg_per_sec=body.angular_speed_deg_per_sec,
         )
     )
+    return _to_response(state)
 
 
 @router.websocket("/ws")
@@ -87,7 +90,8 @@ async def l2_state_ws(websocket: WebSocket) -> None:
 
     try:
         while True:
-            await websocket.send_json(_to_response(isolated_motion.get_l2_state()).model_dump())
+            state: L2State = await asyncio.to_thread(isolated_motion.get_l2_state)
+            await websocket.send_json(_to_response(state).model_dump())
             await asyncio.sleep(isolated_motion.update_interval_sec)
     except WebSocketDisconnect:
         return
