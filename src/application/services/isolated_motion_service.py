@@ -108,9 +108,12 @@ class IsolatedMotionService:
             self._l1_service.destroy(release_devices=release_hardware)
 
     def read_l1_state(self) -> L1SensorState:
-        """Вернуть последний снимок датчиков нижнего уровня."""
-        with self._state_lock:
-            return self._l1_service.read_sensors()
+        """Вернуть снимок датчиков нижнего уровня.
+
+        Чтение выполняется без ``_state_lock``: оно может блокироваться на I²C/GPIO,
+        и удержание общего замка здесь блокировало все остальные ручки L1–L3.
+        """
+        return self._l1_service.read_sensors()
 
     def apply_l1_track_command(self, left_percent: int, right_percent: int) -> None:
         """Передать сырую команду непосредственно в L1."""
@@ -125,10 +128,17 @@ class IsolatedMotionService:
             self._l1_service.stop_motion()
 
     def sync_l2_from_l1(self, *, dt_sec: float | None = None) -> L2State:
-        """Считать датчики L1 и обновить состояние L2."""
+        """Считать датчики L1 и обновить состояние L2.
+
+        Датчики читаются вне ``_state_lock``, чтобы фоновый цикл не блокировал HTTP
+        на время ``read_sensors()`` (IMU, ультразвук).
+        """
         with self._state_lock:
             actual_dt_sec: float = self._compute_dt_sec(dt_sec)
-            l1_state: L1SensorState = self._l1_service.read_sensors()
+
+        l1_state: L1SensorState = self._l1_service.read_sensors()
+
+        with self._state_lock:
             l2_state: L2State = self._l2_service.update_from_l1(
                 L1SensorSnapshot(
                     angular_speed_z_deg_per_sec=l1_state.angular_speed_z_deg_per_sec,
@@ -208,8 +218,8 @@ class IsolatedMotionService:
 
     def step_l3(self) -> L3State:
         """Выполнить один шаг верхнего уровня после синхронизации L2 с датчиками."""
+        self.sync_l2_from_l1()
         with self._state_lock:
-            self.sync_l2_from_l1()
             l3_state: L3State = self._l3_service.step()
             self._trace_l3_math(l3_state=l3_state)
             return l3_state
@@ -230,7 +240,10 @@ class IsolatedMotionService:
             with self._state_lock:
                 if self._legacy_drive_exclusive_depth > 0:
                     continue
-                self.sync_l2_from_l1()
+
+            self.sync_l2_from_l1()
+
+            with self._state_lock:
                 l3_state: L3State = self._l3_service.step()
                 self._trace_l3_math(l3_state=l3_state)
 
