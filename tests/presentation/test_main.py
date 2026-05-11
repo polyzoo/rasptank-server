@@ -91,6 +91,35 @@ def test_create_app_sets_state_and_mounts_routes() -> None:
     assert "/v1/l3/state" in paths
 
 
+def test_docs_and_dashboard_endpoints() -> None:
+    """Проверка доступности кастомного /docs и /dashboard."""
+    settings: Settings = Settings()
+    with (
+        patch("src.main.create_shared_motion_hardware"),
+        patch("src.main.create_drive_controller"),
+        patch("src.main.create_isolated_motion_service"),
+    ):
+        app: FastAPI = create_app(settings)
+
+        async def run() -> None:
+            docs_endpoint = next(
+                route.endpoint for route in app.routes if getattr(route, "path", None) == "/docs"
+            )
+            dashboard_endpoint = next(
+                route.endpoint
+                for route in app.routes
+                if getattr(route, "path", None) == "/dashboard"
+            )
+
+            res_docs = await docs_endpoint()
+            assert "swagger-ui-bundle.js" in res_docs.body.decode()
+
+            res_dashboard = await dashboard_endpoint()
+            assert res_dashboard.path == "src/static/dashboard.html"
+
+        anyio.run(run)
+
+
 def test_lifespan_destroys_drive_controller_on_shutdown() -> None:
     """lifespan вызывает destroy у drive controller при остановке приложения."""
 

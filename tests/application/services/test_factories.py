@@ -91,6 +91,18 @@ def test_create_l2_service_builds_isolated_math_layer() -> None:
     assert motor.track_commands == [(0, 0)]
 
 
+def test_create_l2_service_with_feedback_controller() -> None:
+    """Фабрика L2 собирает сервис с контроллером обратной связи, если он включен."""
+    settings: Settings = Settings(L2_FEEDBACK_ENABLED=True)
+    motor: FakeMotor = FakeMotor()
+
+    service = create_l2_service(settings, motor)  # type: ignore[arg-type]
+
+    assert isinstance(service, L2Service)
+    assert service._feedback_controller is not None
+    assert service._feedback_controller._k_omega == settings.l2_feedback_k_omega
+
+
 def test_create_l1_service_builds_clean_hardware_layer() -> None:
     """Фабрика L1 собирает чистый сервис нового нижнего уровня."""
     settings: Settings = Settings()

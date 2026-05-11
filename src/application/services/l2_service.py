@@ -7,6 +7,7 @@ from src.application.services.kinematics import (
     DifferentialDriveKinematics,
     TrackCommand,
 )
+from src.application.services.l2_feedback_controller import L2FeedbackController
 from src.application.services.l2_models import BodyVelocityCommand, L1SensorSnapshot, L2State
 from src.application.services.pose_estimator import PoseEstimate, PoseEstimator
 from src.application.services.velocity_command_controller import (
@@ -31,6 +32,7 @@ class L2Service:
         pose_estimator: PoseEstimator,
         velocity_controller: VelocityCommandController,
         *,
+        feedback_controller: L2FeedbackController | None = None,
         accel_speed_fusion_enabled: bool = False,
         accel_speed_blend_alpha: float = DEFAULT_ACCEL_SPEED_BLEND_ALPHA,
         accel_stationary_threshold_m_s2: float = DEFAULT_ACCEL_STATIONARY_THRESHOLD_M_S2,
@@ -44,8 +46,12 @@ class L2Service:
         self._kinematics: DifferentialDriveKinematics = kinematics
         self._pose_estimator: PoseEstimator = pose_estimator
         self._velocity_controller: VelocityCommandController = velocity_controller
+        self._feedback_controller: L2FeedbackController | None = feedback_controller
         self._last_track_command: TrackCommand = TrackCommand(left_percent=0.0, right_percent=0.0)
         self._last_distance_cm: float | None = None
+        self._last_delta_u: float | None = None
+        self._last_omega_gyro_deg_per_sec: float = 0.0
+        self._last_body_velocity_command: BodyVelocityCommand | None = None
         self._accel_speed_fusion_enabled: bool = accel_speed_fusion_enabled
         self._accel_speed_blend_alpha: float = max(0.0, min(1.0, accel_speed_blend_alpha))
         self._accel_stationary_threshold_m_s2: float = max(0.0, accel_stationary_threshold_m_s2)
@@ -60,6 +66,15 @@ class L2Service:
 
     def apply_body_velocity(self, command: BodyVelocityCommand) -> L2State:
         """Принять желаемое движение корпуса и передать команды в нижний уровень."""
+        self._last_body_velocity_command = command
+
+        if self._feedback_controller is None:
+            return self._apply_body_velocity_open_loop(command)
+
+        return self._apply_body_velocity_closed_loop(command)
+
+    def _apply_body_velocity_open_loop(self, command: BodyVelocityCommand) -> L2State:
+        """Разомкнутое преобразование: кинематика → моторы без обратной связи."""
         applied: AppliedVelocityCommand = self._velocity_controller.apply_command(
             linear_speed_cm_per_sec=command.linear_speed_cm_per_sec,
             angular_speed_deg_per_sec=command.angular_speed_deg_per_sec,
@@ -69,6 +84,43 @@ class L2Service:
             left_percent=applied.left_percent,
             right_percent=applied.right_percent,
         )
+        self._last_delta_u = None
+
+        return self.get_state()
+
+    def _apply_body_velocity_closed_loop(self, command: BodyVelocityCommand) -> L2State:
+        """Замкнутое преобразование: кинематика → коррекция ΔU → моторы."""
+        feedback: L2FeedbackController = self._feedback_controller  # type: ignore[assignment]
+        pose: PoseEstimate = self._pose_estimator.snapshot()
+
+        if feedback.heading_ref_deg is None:
+            feedback.begin_motion(pose.heading_deg)
+
+        base_command: TrackCommand = self._velocity_controller.compute_command(
+            linear_speed_cm_per_sec=command.linear_speed_cm_per_sec,
+            angular_speed_deg_per_sec=command.angular_speed_deg_per_sec,
+        )
+
+        delta_u: float = feedback.compute_correction(
+            omega_des_deg_per_sec=command.angular_speed_deg_per_sec,
+            omega_gyro_deg_per_sec=self._last_omega_gyro_deg_per_sec,
+            theta_hat_deg=pose.heading_deg,
+            v_des_cm_per_sec=command.linear_speed_cm_per_sec,
+            dt_sec=0.0,
+        )
+        self._last_delta_u = delta_u
+
+        corrected_command: TrackCommand = TrackCommand(
+            left_percent=base_command.left_percent - delta_u,
+            right_percent=base_command.right_percent + delta_u,
+        )
+
+        normalized_command: TrackCommand = self._kinematics._normalize_track_command(
+            corrected_command
+        )
+        self._velocity_controller.send_track_command(normalized_command)
+
+        self._last_track_command = normalized_command
 
         return self.get_state()
 
@@ -77,6 +129,10 @@ class L2Service:
         self._velocity_controller.stop()
         self._last_track_command = TrackCommand(left_percent=0.0, right_percent=0.0)
         self._accel_integrated_speed_cm_per_sec = 0.0
+        self._last_delta_u = None
+        self._last_body_velocity_command = None
+        if self._feedback_controller is not None:
+            self._feedback_controller.reset()
         return self.get_state()
 
     def reset_state(
@@ -97,6 +153,10 @@ class L2Service:
             angular_speed_deg_per_sec=angular_speed_deg_per_sec,
         )
         self._accel_integrated_speed_cm_per_sec = linear_speed_cm_per_sec
+        self._last_delta_u = None
+        self._last_body_velocity_command = None
+        if self._feedback_controller is not None:
+            self._feedback_controller.reset()
         return self.get_state()
 
     def update_from_l1(self, snapshot: L1SensorSnapshot, dt_sec: float) -> L2State:
@@ -129,6 +189,10 @@ class L2Service:
             self._pose_estimator.correct_heading(snapshot.yaw_deg)
 
         self._last_distance_cm: float = snapshot.distance_cm
+
+        if snapshot.angular_speed_z_deg_per_sec is not None:
+            self._last_omega_gyro_deg_per_sec = snapshot.angular_speed_z_deg_per_sec
+
         return self.get_state()
 
     def _estimate_linear_speed_cm_per_sec(
@@ -199,6 +263,11 @@ class L2Service:
     def get_state(self) -> L2State:
         """Вернуть текущее состояние нового контура."""
         pose: PoseEstimate = self._pose_estimator.snapshot()
+
+        feedback_heading_ref_deg: float | None = None
+        if self._feedback_controller is not None:
+            feedback_heading_ref_deg = self._feedback_controller.heading_ref_deg
+
         return L2State(
             x_cm=pose.x_cm,
             y_cm=pose.y_cm,
@@ -208,4 +277,6 @@ class L2Service:
             left_percent=self._last_track_command.left_percent,
             right_percent=self._last_track_command.right_percent,
             distance_cm=self._last_distance_cm,
+            feedback_delta_u=self._last_delta_u,
+            feedback_heading_ref_deg=feedback_heading_ref_deg,
         )

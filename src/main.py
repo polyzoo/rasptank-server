@@ -5,6 +5,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
 from src.application.factories import (
@@ -86,8 +89,24 @@ def create_app(settings: Settings) -> FastAPI:
         version="1.0.0",
         description="Сервис для работы с RaspTank.",
         lifespan=lifespan,
-        docs_url="/docs",
+        docs_url=None,
     )
+
+    app.mount("/static", StaticFiles(directory="src/static"), name="static")
+
+    @app.get("/docs", include_in_schema=False)
+    async def custom_swagger_ui_html():
+        return get_swagger_ui_html(
+            openapi_url=app.openapi_url,
+            title=app.title + " - Swagger UI",
+            oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+            swagger_js_url="/static/swagger-ui-bundle.js",
+            swagger_css_url="/static/swagger-ui.css",
+        )
+
+    @app.get("/dashboard", include_in_schema=False)
+    async def get_dashboard():
+        return FileResponse("src/static/dashboard.html")
 
     app.state.settings = settings
     app.state.motion_events = MotionEventHub()

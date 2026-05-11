@@ -162,3 +162,117 @@ def test_update_from_l1_stationary_learns_accel_bias() -> None:
     assert state.linear_speed_cm_per_sec == pytest.approx(0.0)
     assert service._accel_longitudinal_bias_m_s2 == pytest.approx(0.004)
     assert service._accel_integrated_speed_cm_per_sec == pytest.approx(0.0)
+
+
+def _service_with_feedback(**fb_kwargs: object) -> tuple[L2Service, FakeMotor]:
+    """Создать L2 с включённой обратной связью по гироскопу."""
+    from src.application.services.l2_feedback_controller import L2FeedbackController
+
+    motor: FakeMotor = FakeMotor()
+    kinematics = DifferentialDriveKinematics(
+        track_width_cm=20.0,
+        left_track_max_speed_cm_per_sec=40.0,
+        right_track_max_speed_cm_per_sec=40.0,
+    )
+    defaults: dict[str, object] = {
+        "k_omega": 1.0,
+        "k_theta": 0.5,
+        "k_i": 0.0,
+        "i_max": 10.0,
+        "u_max_corr": 20.0,
+        "u_trim": 0.0,
+        "k_omega_turn": 0.5,
+        "u_max_turn": 15.0,
+    }
+    defaults.update(fb_kwargs)
+    feedback_controller = L2FeedbackController(**defaults)  # type: ignore[arg-type]
+    service = L2Service(
+        kinematics=kinematics,
+        pose_estimator=PoseEstimator(),
+        velocity_controller=VelocityCommandController(
+            motor_controller=motor,  # type: ignore[arg-type]
+            kinematics=kinematics,
+        ),
+        feedback_controller=feedback_controller,
+    )
+    return service, motor
+
+
+def test_feedback_modifies_motor_commands() -> None:
+    """С обратной связью и ω_gyro≠0 команды бортов отличаются от базовых."""
+    service, motor = _service_with_feedback(k_omega=2.0, k_theta=0.0, k_i=0.0)
+
+    service.update_from_l1(
+        L1SensorSnapshot(angular_speed_z_deg_per_sec=5.0),
+        dt_sec=0.1,
+    )
+
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
+    )
+
+    assert state.left_percent != pytest.approx(state.right_percent)
+    assert state.feedback_delta_u is not None
+    assert state.feedback_delta_u != pytest.approx(0.0)
+
+
+def test_feedback_heading_ref_auto_initialized() -> None:
+    """Начальный курс θ_ref запоминается автоматически при первом apply_body_velocity."""
+    service, _ = _service_with_feedback()
+
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=10.0, angular_speed_deg_per_sec=0.0)
+    )
+
+    assert state.feedback_heading_ref_deg is not None
+    assert state.feedback_heading_ref_deg == pytest.approx(0.0)
+
+
+def test_feedback_no_error_gives_equal_tracks() -> None:
+    """Без ошибок обратная связь не меняет команды бортов."""
+    service, motor = _service_with_feedback(k_omega=1.0, k_theta=1.0, k_i=0.0, u_trim=0.0)
+
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
+    )
+
+    assert state.left_percent == pytest.approx(state.right_percent)
+    assert state.feedback_delta_u == pytest.approx(0.0)
+
+
+def test_feedback_reset_on_stop() -> None:
+    """stop() сбрасывает feedback controller."""
+    service, _ = _service_with_feedback()
+
+    service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=10.0, angular_speed_deg_per_sec=0.0)
+    )
+    state = service.stop()
+
+    assert state.feedback_delta_u is None
+    assert state.feedback_heading_ref_deg is None
+
+
+def test_feedback_reset_on_reset_state() -> None:
+    """reset_state() сбрасывает feedback controller."""
+    service, _ = _service_with_feedback()
+
+    service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=10.0, angular_speed_deg_per_sec=0.0)
+    )
+    state = service.reset_state()
+
+    assert state.feedback_delta_u is None
+    assert state.feedback_heading_ref_deg is None
+
+
+def test_without_feedback_state_has_none_delta_u() -> None:
+    """Без feedback controller диагностические поля равны None."""
+    service, _ = _service()
+
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
+    )
+
+    assert state.feedback_delta_u is None
+    assert state.feedback_heading_ref_deg is None

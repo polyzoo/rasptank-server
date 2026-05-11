@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RaspTank Motion Dashboard</title>
+    <script src="/static/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-l1: #38bdf8;
+            --accent-l2: #a78bfa;
+            --accent-l3: #f472b6;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at top right, #1e293b, var(--bg-color));
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(to right, #38bdf8, #a78bfa, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        p.subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.6);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .card h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card h2::before {
+            content: '';
+            display: block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .card.l1 h2::before { background-color: var(--accent-l1); box-shadow: 0 0 10px var(--accent-l1); }
+        .card.l2 h2::before { background-color: var(--accent-l2); box-shadow: 0 0 10px var(--accent-l2); }
+        .card.l3 h2::before { background-color: var(--accent-l3); box-shadow: 0 0 10px var(--accent-l3); }
+
+        .chart-container {
+            position: relative;
+            height: 250px;
+            width: 100%;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            background: rgba(255,255,255,0.1);
+            margin-bottom: 1rem;
+        }
+        
+        .status-badge.connected { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
+        .status-badge.disconnected { color: #f87171; background: rgba(248, 113, 113, 0.1); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Многоуровневая телеметрия (L1-L3)</h1>
+        <p class="subtitle">Мониторинг параметров управления в реальном времени</p>
+    </header>
+
+    <div class="dashboard-grid">
+        <!-- L1 Card -->
+        <div class="card l1">
+            <h2>L1: Аппаратный уровень</h2>
+            <div id="status-l1" class="status-badge disconnected">Отключено</div>
+            <div class="chart-container">
+                <canvas id="chartL1"></canvas>
+            </div>
+        </div>
+
+        <!-- L2 Card -->
+        <div class="card l2">
+            <h2>L2: Кинематика и Обратная связь</h2>
+            <div id="status-l2" class="status-badge disconnected">Отключено</div>
+            <div class="chart-container">
+                <canvas id="chartL2"></canvas>
+            </div>
+        </div>
+
+        <!-- L3 Card -->
+        <div class="card l3">
+            <h2>L3: Планирование и Профилирование</h2>
+            <div id="status-l3" class="status-badge disconnected">Отключено</div>
+            <div class="chart-container">
+                <canvas id="chartL3"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Общие настройки графиков
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                duration: 0 // Отключаем анимацию для плавности реального времени
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    display: false, // скрываем ось X для эффекта "бегущей" ленты
+                    min: -50,
+                    max: 0
+                },
+                y: {
+                    grid: { color: 'rgba(255,255,255,0.05)' }
+                }
+            },
+            plugins: {
+                legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8 } }
+            }
+        };
+
+        const MAX_POINTS = 50;
+
+        // Создаем графики
+        const ctxL1 = document.getElementById('chartL1').getContext('2d');
+        const chartL1 = new Chart(ctxL1, {
+            type: 'line',
+            data: {
+                datasets: [
+                    { label: 'Accel X', borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.1)', data: [], fill: true, tension: 0.4 },
+                    { label: 'Accel Y', borderColor: '#818cf8', backgroundColor: 'rgba(129, 140, 248, 0.1)', data: [], fill: true, tension: 0.4 }
+                ]
+            },
+            options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, min: -15, max: 15 } } }
+        });
+
+        const ctxL2 = document.getElementById('chartL2').getContext('2d');
+        const chartL2 = new Chart(ctxL2, {
+            type: 'line',
+            data: {
+                datasets: [
+                    { label: 'Линейная скорость', borderColor: '#a78bfa', backgroundColor: 'rgba(167, 139, 250, 0.1)', data: [], fill: true, tension: 0.4 },
+                    { label: 'Мотор Лев (%)', borderColor: '#f472b6', data: [], tension: 0.4 },
+                    { label: 'Мотор Прав (%)', borderColor: '#fb7185', data: [], tension: 0.4 }
+                ]
+            },
+            options: { ...commonOptions }
+        });
+
+        const ctxL3 = document.getElementById('chartL3').getContext('2d');
+        const chartL3 = new Chart(ctxL3, {
+            type: 'line',
+            data: {
+                datasets: [
+                    { label: 'Текущая скор.', borderColor: '#f472b6', data: [], tension: 0.4 },
+                    { label: 'Целевая скор.', borderColor: '#cbd5e1', borderDash: [5, 5], data: [], tension: 0 },
+                    { label: 'Ошибка дистанц.', borderColor: '#fbbf24', data: [], tension: 0.4 }
+                ]
+            },
+            options: { ...commonOptions }
+        });
+
+        function updateChartData(chart, index, value, timeOffset) {
+            const dataset = chart.data.datasets[index];
+            dataset.data.push({ x: timeOffset, y: value });
+            
+            // Сдвигаем все точки
+            dataset.data.forEach(p => p.x -= 1);
+            // Удаляем старые
+            if (dataset.data.length > MAX_POINTS) {
+                dataset.data.shift();
+            }
+        }
+
+        // Подключение WebSocket
+        function connectWS(path, chartUpdateFn, statusElId) {
+            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            // Для разработки если открыт локально без сервера - мокаем хост
+            const host = window.location.host || 'localhost:8000';
+            const ws = new WebSocket(`${proto}//${host}${path}`);
+            
+            const statusEl = document.getElementById(statusElId);
+
+            ws.onopen = () => {
+                statusEl.textContent = 'Подключено';
+                statusEl.className = 'status-badge connected';
+            };
+
+            ws.onclose = () => {
+                statusEl.textContent = 'Отключено';
+                statusEl.className = 'status-badge disconnected';
+                setTimeout(() => connectWS(path, chartUpdateFn, statusElId), 3000);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                chartUpdateFn(data);
+            };
+        }
+
+        // Подключаем L1
+        connectWS('/v1/l1/ws', (data) => {
+            updateChartData(chartL1, 0, data.accel_x_m_s2, 0);
+            updateChartData(chartL1, 1, data.accel_y_m_s2, 0);
+            chartL1.update('none');
+        }, 'status-l1');
+
+        // Подключаем L2
+        connectWS('/v1/l2/ws', (data) => {
+            updateChartData(chartL2, 0, data.linear_speed_cm_per_sec, 0);
+            updateChartData(chartL2, 1, data.left_percent, 0);
+            updateChartData(chartL2, 2, data.right_percent, 0);
+            chartL2.update('none');
+        }, 'status-l2');
+
+        // Подключаем L3
+        connectWS('/v1/l3/ws', (data) => {
+            updateChartData(chartL3, 0, data.linear_speed_cm_per_sec, 0);
+            updateChartData(chartL3, 1, data.desired_linear_speed_cm_per_sec, 0);
+            updateChartData(chartL3, 2, data.distance_error_cm, 0);
+            chartL3.update('none');
+        }, 'status-l3');
+
+    </script>
+</body>
+</html>

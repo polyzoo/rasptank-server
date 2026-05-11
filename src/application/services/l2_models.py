@@ -36,3 +36,5 @@ class L2State:
     left_percent: float
     right_percent: float
     distance_cm: float | None = None
+    feedback_delta_u: float | None = None
+    feedback_heading_ref_deg: float | None = None

@@ -463,6 +463,67 @@ class Settings(BaseSettings):
         validation_alias="L2_ACCEL_SPEED_LIMIT_FACTOR",
         description="Лимит интегральной accel-скорости относительно max скорости борта.",
     )
+    l2_feedback_enabled: bool = Field(
+        default=False,
+        validation_alias="L2_FEEDBACK_ENABLED",
+        description="Включить обратную связь по гироскопу в L2.",
+    )
+    l2_feedback_k_omega: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=10.0,
+        validation_alias="L2_FEEDBACK_K_OMEGA",
+        description="Коэффициент P по ошибке угловой скорости (прямолинейное движение).",
+    )
+    l2_feedback_k_theta: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=10.0,
+        validation_alias="L2_FEEDBACK_K_THETA",
+        description="Коэффициент P по ошибке угла к начальному курсу.",
+    )
+    l2_feedback_k_i: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=5.0,
+        validation_alias="L2_FEEDBACK_K_I",
+        description="Коэффициент I по накопленной ошибке.",
+    )
+    l2_feedback_i_max: float = Field(
+        default=10.0,
+        ge=0.0,
+        le=100.0,
+        validation_alias="L2_FEEDBACK_I_MAX",
+        description="Лимит интегратора (антивайндап).",
+    )
+    l2_feedback_u_max_corr: float = Field(
+        default=20.0,
+        ge=0.0,
+        le=100.0,
+        validation_alias="L2_FEEDBACK_U_MAX_CORR",
+        description="Максимальная коррекция ΔU для прямолинейного движения (%).",
+    )
+    l2_feedback_u_trim: float = Field(
+        default=0.0,
+        ge=-20.0,
+        le=20.0,
+        validation_alias="L2_FEEDBACK_U_TRIM",
+        description="Постоянная поправка асимметрии гусениц (%).",
+    )
+    l2_feedback_k_omega_turn: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=10.0,
+        validation_alias="L2_FEEDBACK_K_OMEGA_TURN",
+        description="Коэффициент P по ошибке угловой скорости (поворот на месте).",
+    )
+    l2_feedback_u_max_turn: float = Field(
+        default=15.0,
+        ge=0.0,
+        le=100.0,
+        validation_alias="L2_FEEDBACK_U_MAX_TURN",
+        description="Максимальная коррекция ΔU для поворота на месте (%).",
+    )
     l3_position_tolerance_cm: float = Field(
         default=5.0,
         gt=0.0,

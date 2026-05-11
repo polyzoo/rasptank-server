@@ -8,6 +8,7 @@ from src.application.services.goal_point_controller import GoalPointController
 from src.application.services.isolated_motion_service import IsolatedMotionService
 from src.application.services.kinematics import DifferentialDriveKinematics
 from src.application.services.l1_service import L1Service
+from src.application.services.l2_feedback_controller import L2FeedbackController
 from src.application.services.l2_service import L2Service
 from src.application.services.l3_service import L3Service
 from src.application.services.motion_config import MotionConfig
@@ -163,10 +164,25 @@ def create_l2_service(
         motor_controller=motor_controller,
         kinematics=kinematics,
     )
+
+    feedback_controller: L2FeedbackController | None = None
+    if settings.l2_feedback_enabled:
+        feedback_controller = L2FeedbackController(
+            k_omega=settings.l2_feedback_k_omega,
+            k_theta=settings.l2_feedback_k_theta,
+            k_i=settings.l2_feedback_k_i,
+            i_max=settings.l2_feedback_i_max,
+            u_max_corr=settings.l2_feedback_u_max_corr,
+            u_trim=settings.l2_feedback_u_trim,
+            k_omega_turn=settings.l2_feedback_k_omega_turn,
+            u_max_turn=settings.l2_feedback_u_max_turn,
+        )
+
     return L2Service(
         kinematics=kinematics,
         pose_estimator=pose_estimator,
         velocity_controller=velocity_controller,
+        feedback_controller=feedback_controller,
         accel_speed_fusion_enabled=settings.l2_accel_speed_fusion_enabled,
         accel_speed_blend_alpha=settings.l2_accel_speed_blend_alpha,
         accel_stationary_threshold_m_s2=settings.l2_accel_stationary_threshold_m_s2,
