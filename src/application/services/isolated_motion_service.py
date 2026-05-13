@@ -233,6 +233,11 @@ class IsolatedMotionService:
                 angular_speed_deg_per_sec=angular_speed_deg_per_sec,
             )
 
+    def configure_l2_state_space(self, enabled: bool, t_v: float, t_w: float) -> None:
+        """Настроить параметры LQR/МПС на уровне L2."""
+        with self._state_lock:
+            self._l2_service.configure_state_space(enabled, t_v, t_w)
+
     def set_l3_goal(
         self,
         target: TargetPoint,

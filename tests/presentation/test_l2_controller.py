@@ -10,6 +10,7 @@ from fastapi import WebSocketDisconnect
 from src.application.services.l2_models import L2State
 from src.presentation.api.v1.controllers.l2 import (
     l2_cmd_vel,
+    l2_config_state_space,
     l2_reset_state,
     l2_state,
     l2_state_ws,
@@ -19,6 +20,7 @@ from src.presentation.api.v1.schemas.l2 import (
     L2BodyVelocityRequestSchema,
     L2ResetStateRequestSchema,
     L2StateResponseSchema,
+    StateSpaceConfigRequestSchema,
 )
 
 
@@ -64,6 +66,10 @@ class FakeIsolatedMotion:
         """Сохранить сброс состояния L2."""
         self.reset_calls.append(kwargs)
         return self.state
+
+    def configure_l2_state_space(self, enabled: bool, t_v: float, t_w: float) -> None:
+        """Сохранить конфигурацию МПС."""
+        self.mps_config = (enabled, t_v, t_w)
 
 
 class FakeWebSocket:
@@ -133,6 +139,23 @@ def test_l2_cmd_vel_stop_and_reset_forward_commands() -> None:
         assert isolated_motion.cmd_vel_calls == [(10.0, 20.0)]
         assert isolated_motion.stop_calls == 1
         assert isolated_motion.reset_calls[0]["heading_deg"] == 7.0
+
+    anyio.run(run)
+
+
+def test_l2_config_state_space_forwards_config() -> None:
+    """REST-обработчик настройки МПС корректно передает параметры."""
+
+    async def run() -> None:
+        isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
+        response = await l2_config_state_space(
+            body=StateSpaceConfigRequestSchema(enabled=True, t_v=0.7, t_w=0.4),
+            isolated_motion=isolated_motion,  # type: ignore[arg-type]
+        )
+        assert response["status"] == "success"
+        assert response["mode"] == "MPS (State-Space)"
+        assert hasattr(isolated_motion, "mps_config")
+        assert isolated_motion.mps_config == (True, 0.7, 0.4)
 
     anyio.run(run)
 

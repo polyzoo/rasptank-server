@@ -13,3 +13,5 @@ RPi.GPIO>=0.7.0; sys_platform == "linux"
 pigpio>=1.78; sys_platform == "linux"
 lgpio>=0.2.2.0; sys_platform == "linux"
 smbus2>=0.4.0; sys_platform == "linux"
+numpy>=1.26.0
+scipy>=1.11.0

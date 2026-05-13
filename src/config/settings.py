@@ -543,6 +543,25 @@ class Settings(BaseSettings):
         validation_alias="L2_FEEDBACK_U_MAX_TURN",
         description="Максимальная коррекция ΔU для поворота на месте (%).",
     )
+    l2_state_space_enabled: bool = Field(
+        default=False,
+        validation_alias="L2_STATE_SPACE_ENABLED",
+        description="Включить новый алгоритм МПС (LQR) в контуре L2.",
+    )
+    l2_state_space_t_v: float = Field(
+        default=0.8,
+        gt=0.0,
+        le=5.0,
+        validation_alias="L2_STATE_SPACE_T_V",
+        description="Постоянная времени T_v для МПС.",
+    )
+    l2_state_space_t_w: float = Field(
+        default=0.55,
+        gt=0.0,
+        le=5.0,
+        validation_alias="L2_STATE_SPACE_T_W",
+        description="Постоянная времени T_w для МПС.",
+    )
     l3_position_tolerance_cm: float = Field(
         default=5.0,
         gt=0.0,

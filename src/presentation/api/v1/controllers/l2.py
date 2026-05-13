@@ -12,6 +12,7 @@ from src.presentation.api.v1.schemas.l2 import (
     L2BodyVelocityRequestSchema,
     L2ResetStateRequestSchema,
     L2StateResponseSchema,
+    StateSpaceConfigRequestSchema,
 )
 
 router: APIRouter = APIRouter()
@@ -79,6 +80,21 @@ async def l2_reset_state(
         )
     )
     return _to_response(state)
+
+
+@router.post("/config-state-space", description="Настроить режим МПС (LQR)")
+async def l2_config_state_space(
+    body: StateSpaceConfigRequestSchema,
+    isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
+) -> dict[str, str]:
+    """Динамически включить/выключить МПС и обновить константы инерции."""
+    await asyncio.to_thread(
+        isolated_motion.configure_l2_state_space,
+        body.enabled,
+        body.t_v,
+        body.t_w,
+    )
+    return {"status": "success", "mode": "MPS (State-Space)" if body.enabled else "PID"}
 
 
 @router.websocket("/ws")

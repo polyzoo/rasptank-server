@@ -9,6 +9,7 @@ from src.application.services.kinematics import (
 )
 from src.application.services.l2_feedback_controller import L2FeedbackController
 from src.application.services.l2_models import BodyVelocityCommand, L1SensorSnapshot, L2State
+from src.application.services.l2_state_space_controller import L2StateSpaceController
 from src.application.services.pose_estimator import PoseEstimate, PoseEstimator
 from src.application.services.velocity_command_controller import (
     AppliedVelocityCommand,
@@ -63,10 +64,42 @@ class L2Service:
         self._accel_speed_limit_factor: float = max(0.1, accel_speed_limit_factor)
         self._accel_longitudinal_bias_m_s2: float = 0.0
         self._accel_integrated_speed_cm_per_sec: float = 0.0
+        self._state_space_controller: L2StateSpaceController | None = None
+        self._use_state_space: bool = False
+        self._mps_heading_ref_deg: float | None = None
+
+    def enable_state_space_control(self, controller: L2StateSpaceController) -> None:
+        """Активировать управление на базе МПС (LQR)."""
+        self._state_space_controller = controller
+        self._use_state_space = True
+
+    def disable_state_space_control(self) -> None:
+        """Отключить управление на базе МПС (LQR)."""
+        self._use_state_space = False
+
+    def configure_state_space(self, enabled: bool, t_v: float, t_w: float) -> None:
+        """Динамически настроить параметры МПС."""
+        if not enabled:
+            self.disable_state_space_control()
+            return
+
+        if self._state_space_controller is None:
+            from src.application.services.l2_state_space_controller import L2StateSpaceController
+
+            self._state_space_controller = L2StateSpaceController(t_v=t_v, t_w=t_w)
+        else:
+            self._state_space_controller.t_v = max(0.01, t_v)
+            self._state_space_controller.t_w = max(0.01, t_w)
+            self._state_space_controller._K = None  # Принудительно пересчитать матрицу K
+
+        self.enable_state_space_control(self._state_space_controller)
 
     def apply_body_velocity(self, command: BodyVelocityCommand) -> L2State:
         """Принять желаемое движение корпуса и передать команды в нижний уровень."""
         self._last_body_velocity_command = command
+
+        if self._use_state_space and self._state_space_controller is not None:
+            return self._apply_body_velocity_state_space(command)
 
         if self._feedback_controller is None:
             return self._apply_body_velocity_open_loop(command)
@@ -85,6 +118,54 @@ class L2Service:
             right_percent=applied.right_percent,
         )
         self._last_delta_u = None
+
+        return self.get_state()
+
+    def _apply_body_velocity_state_space(self, command: BodyVelocityCommand) -> L2State:
+        """Замкнутое преобразование: кинематика + LQR контроллер (МПС)."""
+        controller = self._state_space_controller
+        pose: PoseEstimate = self._pose_estimator.snapshot()
+
+        if self._mps_heading_ref_deg is None:
+            self._mps_heading_ref_deg = pose.heading_deg
+
+        v_des = command.linear_speed_cm_per_sec
+        omega_des = command.angular_speed_deg_per_sec
+
+        # Упрощенные ошибки состояния: пока удерживаем только курс и скорости.
+        x_err, y_err = 0.0, 0.0
+
+        # Ошибка по курсу
+        half_turn, full_turn = 180.0, 360.0
+        angle_diff = self._mps_heading_ref_deg - pose.heading_deg
+        theta_err = ((angle_diff + half_turn) % full_turn) - half_turn
+
+        # Ошибка по скоростям
+        v_err = v_des - pose.linear_speed_cm_per_sec
+        omega_err = omega_des - self._last_omega_gyro_deg_per_sec
+
+        v_cmd_corr, omega_cmd_corr = controller.compute_control(
+            x_err=x_err,
+            y_err=y_err,
+            theta_err=theta_err,
+            v_err=v_err,
+            omega_err=omega_err,
+            v0=v_des if abs(v_des) > 1.0 else 1.0,  # Защита от 0 в знаменателе
+        )
+
+        final_v_cmd = v_des + v_cmd_corr
+        final_omega_cmd = omega_des + omega_cmd_corr
+
+        base_command: TrackCommand = self._velocity_controller.compute_command(
+            linear_speed_cm_per_sec=final_v_cmd,
+            angular_speed_deg_per_sec=final_omega_cmd,
+        )
+
+        normalized_command: TrackCommand = self._kinematics._normalize_track_command(base_command)
+        self._velocity_controller.send_track_command(normalized_command)
+
+        self._last_track_command = normalized_command
+        self._last_delta_u = v_cmd_corr  # Логируем коррекцию линейной скорости
 
         return self.get_state()
 
@@ -131,6 +212,7 @@ class L2Service:
         self._accel_integrated_speed_cm_per_sec = 0.0
         self._last_delta_u = None
         self._last_body_velocity_command = None
+        self._mps_heading_ref_deg = None
         if self._feedback_controller is not None:
             self._feedback_controller.reset()
         return self.get_state()
@@ -155,6 +237,7 @@ class L2Service:
         self._accel_integrated_speed_cm_per_sec = linear_speed_cm_per_sec
         self._last_delta_u = None
         self._last_body_velocity_command = None
+        self._mps_heading_ref_deg = None
         if self._feedback_controller is not None:
             self._feedback_controller.reset()
         return self.get_state()

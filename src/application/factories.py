@@ -10,6 +10,7 @@ from src.application.services.kinematics import DifferentialDriveKinematics
 from src.application.services.l1_service import L1Service
 from src.application.services.l2_feedback_controller import L2FeedbackController
 from src.application.services.l2_service import L2Service
+from src.application.services.l2_state_space_controller import L2StateSpaceController
 from src.application.services.l3_service import L3Service
 from src.application.services.motion_config import MotionConfig
 from src.application.services.motion_events import MotionEventHub
@@ -179,7 +180,7 @@ def create_l2_service(
             u_max_turn=settings.l2_feedback_u_max_turn,
         )
 
-    return L2Service(
+    l2_service = L2Service(
         kinematics=kinematics,
         pose_estimator=pose_estimator,
         velocity_controller=velocity_controller,
@@ -191,6 +192,15 @@ def create_l2_service(
         accel_bias_learning_rate=settings.l2_accel_bias_learning_rate,
         accel_speed_limit_factor=settings.l2_accel_speed_limit_factor,
     )
+
+    if settings.l2_state_space_enabled:
+        state_space_controller = L2StateSpaceController(
+            t_v=settings.l2_state_space_t_v,
+            t_w=settings.l2_state_space_t_w,
+        )
+        l2_service.enable_state_space_control(state_space_controller)
+
+    return l2_service
 
 
 def create_l1_service(settings: Settings) -> L1Service:

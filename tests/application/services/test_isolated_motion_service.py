@@ -453,3 +453,16 @@ def test_debug_trace_suppressed_when_l3_idle(caplog: Any) -> None:
     with caplog.at_level(logging.INFO, logger="src.application.services.isolated_motion_service"):
         service.sync_l2_from_l1()
     assert caplog.messages == []
+
+
+def test_configure_l2_state_space() -> None:
+    """Координатор может настраивать параметры МПС в L2."""
+    service, _, l2_service, _ = _service()
+
+    # Мокнем метод
+    l2_service.configure_state_space = lambda enabled, t_v, t_w: setattr(
+        l2_service, "configured", (enabled, t_v, t_w)
+    )
+
+    service.configure_l2_state_space(enabled=True, t_v=0.9, t_w=0.6)
+    assert l2_service.configured == (True, 0.9, 0.6)

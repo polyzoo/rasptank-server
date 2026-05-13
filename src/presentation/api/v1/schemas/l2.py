@@ -34,3 +34,11 @@ class L2StateResponseSchema(BaseModel):
     left_percent: float
     right_percent: float
     distance_cm: float | None = None
+
+
+class StateSpaceConfigRequestSchema(BaseModel):
+    """Настройка параметров МПС (LQR)."""
+
+    enabled: bool = Field(True, description="Включить МПС.")
+    t_v: float = Field(0.8, description="Постоянная времени T_v.")
+    t_w: float = Field(0.55, description="Постоянная времени T_w.")

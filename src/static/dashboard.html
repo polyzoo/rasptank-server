@@ -3,283 +3,652 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RaspTank Motion Dashboard</title>
+    <title>RaspTank Control Center</title>
     <script src="/static/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <script>
+        if (!window.Chart) {
+            document.write('<script src="chart.js"><\/script>');
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --accent-l1: #38bdf8;
-            --accent-l2: #a78bfa;
-            --accent-l3: #f472b6;
-            --border: rgba(255, 255, 255, 0.1);
-        }
-        
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+            --bg-body: #F4F6F8;
+            --bg-card: #FFFFFF;
+            --text-primary: #111827;
+            --text-secondary: #6B7280;
+            --text-tertiary: #9CA3AF;
+            --accent: #10B981;
+            --accent-hover: #059669;
+            --accent-soft: #ECFDF5;
+            --danger: #EF4444;
+            --danger-soft: #FEF2F2;
+            --border: #E5E7EB;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
+            --radius-lg: 24px;
+            --radius-md: 16px;
+            --radius-sm: 10px;
         }
 
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: 'Inter', sans-serif;
-            background: radial-gradient(circle at top right, #1e293b, var(--bg-color));
-            color: var(--text-main);
-            min-height: 100vh;
-            padding: 2rem;
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
             display: flex;
             flex-direction: column;
             gap: 2rem;
         }
 
-        header {
-            text-align: center;
+        /* ----- HEADERS ----- */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             margin-bottom: 1rem;
         }
 
-        h1 {
-            font-size: 2.5rem;
-            font-weight: 800;
-            background: linear-gradient(to right, #38bdf8, #a78bfa, #f472b6);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
         }
 
-        p.subtitle {
-            color: var(--text-muted);
-            font-size: 1.1rem;
+        .logo {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #34D399, #10B981);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 1.25rem;
+            box-shadow: 0 8px 16px rgba(16, 185, 129, 0.2);
         }
 
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 2rem;
+        .title h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
         }
 
+        .title p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-top: 0.2rem;
+        }
+
+        /* ----- CARDS ----- */
         .card {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 1.5rem;
-            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(10px);
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(255, 255, 255, 0.5);
             transition: transform 0.3s ease, box-shadow 0.3s ease;
+            position: relative;
+            overflow: hidden;
         }
 
         .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.6);
-            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-2px);
         }
 
-        .card h2 {
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
+        .card-header {
+            padding: 1.5rem 2rem 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .badge {
+            padding: 0.3rem 0.8rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            background: #F3F4F6;
+            color: var(--text-secondary);
+        }
+        .badge.active { background: var(--accent-soft); color: var(--accent); }
+
+        /* ----- LAYOUTS ----- */
+        .control-panel {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            min-height: 400px;
+        }
+
+        .inputs-section {
+            padding: 2rem;
+            border-right: 1px solid var(--border);
+            background: #FAFAFA;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .math-section {
+            padding: 2rem;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            justify-content: center;
+            overflow-x: auto;
         }
 
-        .card h2::before {
-            content: '';
+        /* ----- INPUTS & BUTTONS ----- */
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        .form-group label {
             display: block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0.4rem;
         }
 
-        .card.l1 h2::before { background-color: var(--accent-l1); box-shadow: 0 0 10px var(--accent-l1); }
-        .card.l2 h2::before { background-color: var(--accent-l2); box-shadow: 0 0 10px var(--accent-l2); }
-        .card.l3 h2::before { background-color: var(--accent-l3); box-shadow: 0 0 10px var(--accent-l3); }
-
-        .chart-container {
+        .input-wrap {
             position: relative;
+        }
+
+        .input-wrap input {
+            width: 100%;
+            height: 44px;
+            padding: 0 1rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: white;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .input-wrap input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px var(--accent-soft);
+        }
+
+        .input-wrap .unit {
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-tertiary);
+            font-size: 0.8rem;
+            pointer-events: none;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .btn-group {
+            margin-top: auto;
+            padding-top: 1.5rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        .btn {
+            height: 44px;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-primary { background: var(--accent); color: white; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); }
+        .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .btn-danger { background: white; color: var(--danger); border: 1px solid var(--danger-soft); }
+        .btn-danger:hover { background: var(--danger-soft); }
+
+        /* ----- MATH EQUATION BEAUTIFICATION ----- */
+        .equation-box {
+            font-family: 'JetBrains Mono', monospace;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+        }
+
+        .matrix-wrap {
+            position: relative;
+            padding: 0.5rem 1rem;
+        }
+
+        /* Beautiful thin brackets */
+        .matrix-wrap::before, .matrix-wrap::after {
+            content: '';
+            position: absolute;
+            top: 0; bottom: 0;
+            width: 10px;
+            border: 1.5px solid #D1D5DB;
+            border-radius: 6px;
+        }
+        .matrix-wrap::before { left: 0; border-right: none; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+        .matrix-wrap::after { right: 0; border-left: none; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+
+        .matrix-wrap.active-vector {
+            background: #F9FAFB;
+            border-radius: 8px;
+        }
+        .matrix-wrap.active-vector::before, .matrix-wrap.active-vector::after { border-color: var(--accent); }
+
+        .matrix {
+            display: grid;
+            gap: 0.75rem 1.5rem;
+            text-align: center;
+        }
+        .matrix-5x5 { grid-template-columns: repeat(5, 1fr); }
+        .matrix-5x2 { grid-template-columns: repeat(2, 1fr); }
+        .vector { grid-template-columns: 1fr; }
+
+        .math-val { color: var(--text-primary); font-weight: 500; }
+        
+        .live-val {
+            color: var(--accent);
+            font-weight: 600;
+            transition: color 0.15s, transform 0.15s;
+            display: inline-block;
+        }
+        .live-val.ping { color: var(--text-primary); transform: scale(1.1); }
+        .operator { color: var(--text-tertiary); font-weight: 300; font-size: 1.5rem; }
+
+        /* ----- CHARTS ----- */
+        .charts-wrapper {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+
+        .chart-card {
+            padding-bottom: 1.5rem;
+        }
+
+        .chart-area {
             height: 250px;
             width: 100%;
+            padding: 0 1rem;
+            margin-top: 1rem;
         }
-        
-        .status-badge {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 999px;
-            font-size: 0.875rem;
-            font-weight: 600;
-            background: rgba(255,255,255,0.1);
-            margin-bottom: 1rem;
+
+        @media (max-width: 1200px) {
+            .control-panel { grid-template-columns: 1fr; }
+            .inputs-section { border-right: none; border-bottom: 1px solid var(--border); }
+            .charts-wrapper { grid-template-columns: 1fr; }
+            .math-section { padding: 2rem 1rem; justify-content: flex-start; }
         }
-        
-        .status-badge.connected { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
-        .status-badge.disconnected { color: #f87171; background: rgba(248, 113, 113, 0.1); }
     </style>
 </head>
 <body>
 
-    <header>
-        <h1>Многоуровневая телеметрия (L1-L3)</h1>
-        <p class="subtitle">Мониторинг параметров управления в реальном времени</p>
-    </header>
+<div class="container">
+    <div class="header">
+        <div class="brand">
+            <div class="logo">RT</div>
+            <div class="title">
+                <h1>RaspTank Dashboard</h1>
+            </div>
+        </div>
+        <div id="masterStatus" class="badge">Сервер Ожидает</div>
+    </div>
 
-    <div class="dashboard-grid">
-        <!-- L1 Card -->
-        <div class="card l1">
-            <h2>L1: Аппаратный уровень</h2>
-            <div id="status-l1" class="status-badge disconnected">Отключено</div>
-            <div class="chart-container">
-                <canvas id="chartL1"></canvas>
+    <!-- MAIN CONTROL PANEL -->
+    <div class="card control-panel">
+        <div class="inputs-section">
+            <div class="form-group">
+                <label>Номинальная линейная скорость</label>
+                <div class="input-wrap">
+                    <input type="number" id="v0Param" step="0.1" value="18.0">
+                    <span class="unit">см/с</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Желаемая линейная скорость</label>
+                <div class="input-wrap">
+                    <input type="number" id="vDesParam" step="0.1" value="18.0">
+                    <span class="unit">см/с</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Желаемая угловая скорость</label>
+                <div class="input-wrap">
+                    <input type="number" id="omega0Param" step="0.1" value="0.0">
+                    <span class="unit">°/с</span>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Линейная инерция</label>
+                    <div class="input-wrap">
+                        <input type="number" id="tvParam" min="0.01" step="0.01" value="0.80">
+                        <span class="unit">с</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Угловая инерция</label>
+                    <div class="input-wrap">
+                        <input type="number" id="twParam" min="0.01" step="0.01" value="0.55">
+                        <span class="unit">с</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button id="startMotion" class="btn btn-primary">Запустить двигатели</button>
+                <button id="stopMotion" class="btn btn-danger">Стоп</button>
             </div>
         </div>
 
-        <!-- L2 Card -->
-        <div class="card l2">
-            <h2>L2: Кинематика и Обратная связь</h2>
-            <div id="status-l2" class="status-badge disconnected">Отключено</div>
-            <div class="chart-container">
-                <canvas id="chartL2"></canvas>
-            </div>
-        </div>
+        <div class="math-section">
+            <div class="equation-box">
+                <!-- dX/dt -->
+                <div class="matrix-wrap">
+                    <div class="matrix vector">
+                        <span>ẋ</span><span>ẏ</span><span>θ̇</span><span>v̇</span><span>ω̇</span>
+                    </div>
+                </div>
+                
+                <span class="operator">=</span>
+                
+                <!-- Matrix A -->
+                <div class="matrix-wrap">
+                    <div class="matrix matrix-5x5 math-val">
+                        <span>0</span><span>0</span><span>0</span><span>1</span><span>0</span>
+                        <span>0</span><span>0</span><span id="f-v0" class="live-val">18.0</span><span>0</span><span>0</span>
+                        <span>0</span><span>0</span><span>0</span><span>0</span><span>1</span>
+                        <span>0</span><span>0</span><span>0</span><span id="f-tv" class="live-val">-1.25</span><span>0</span>
+                        <span>0</span><span>0</span><span>0</span><span>0</span><span id="f-tw" class="live-val">-1.82</span>
+                    </div>
+                </div>
+                
+                <!-- Vector X (Live) -->
+                <div class="matrix-wrap active-vector">
+                    <div class="matrix vector">
+                        <span id="live-x" class="live-val">0.00</span>
+                        <span id="live-y" class="live-val">0.00</span>
+                        <span id="live-theta" class="live-val">0.00</span>
+                        <span id="live-v" class="live-val">0.00</span>
+                        <span id="live-omega" class="live-val">0.00</span>
+                    </div>
+                </div>
 
-        <!-- L3 Card -->
-        <div class="card l3">
-            <h2>L3: Планирование и Профилирование</h2>
-            <div id="status-l3" class="status-badge disconnected">Отключено</div>
-            <div class="chart-container">
-                <canvas id="chartL3"></canvas>
+                <span class="operator">+</span>
+                
+                <!-- Matrix B -->
+                <div class="matrix-wrap">
+                    <div class="matrix matrix-5x2 math-val">
+                        <span>0</span><span>0</span>
+                        <span>0</span><span>0</span>
+                        <span>0</span><span>0</span>
+                        <span id="f-btv" class="live-val">1.25</span><span>0</span>
+                        <span>0</span><span id="f-btw" class="live-val">1.82</span>
+                    </div>
+                </div>
+
+                <!-- Vector U -->
+                <div class="matrix-wrap">
+                    <div class="matrix vector">
+                        <span id="f-vdes" class="live-val">18.0</span>
+                        <span id="f-omegades" class="live-val">0.0</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <script>
-        // Общие настройки графиков
-        Chart.defaults.color = '#94a3b8';
+    <!-- CHARTS -->
+    <div class="charts-wrapper">
+        <div class="card chart-card">
+            <div class="card-header">
+                <span class="card-title">IMU Датчики</span>
+                <span id="badge-l1" class="badge">Отключено</span>
+            </div>
+            <div class="chart-area"><canvas id="chartL1"></canvas></div>
+        </div>
+
+        <div class="card chart-card">
+            <div class="card-header">
+                <span class="card-title">Кинематика</span>
+                <span id="badge-l2" class="badge">Отключено</span>
+            </div>
+            <div class="chart-area"><canvas id="chartL2"></canvas></div>
+        </div>
+
+        <div class="card chart-card">
+            <div class="card-header">
+                <span class="card-title">Профилирование</span>
+                <span id="badge-l3" class="badge">Отключено</span>
+            </div>
+            <div class="chart-area"><canvas id="chartL3"></canvas></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const MAX_POINTS = 50;
+    let chartL1, chartL2, chartL3;
+
+    function fmt(val, dec = 2) { return Number(val).toFixed(dec); }
+
+    // Synchronize Form Inputs with Math Formula
+    function updateFormula() {
+        const v0 = parseFloat(document.getElementById('v0Param').value) || 0;
+        const vDes = parseFloat(document.getElementById('vDesParam').value) || 0;
+        const omegaDes = parseFloat(document.getElementById('omega0Param').value) || 0;
+        const tv = Math.max(parseFloat(document.getElementById('tvParam').value) || 1, 0.01);
+        const tw = Math.max(parseFloat(document.getElementById('twParam').value) || 1, 0.01);
+        
+        document.getElementById('f-v0').textContent = fmt(v0, 1);
+        document.getElementById('f-tv').textContent = fmt(-1/tv, 2);
+        document.getElementById('f-tw').textContent = fmt(-1/tw, 2);
+        document.getElementById('f-btv').textContent = fmt(1/tv, 2);
+        document.getElementById('f-btw').textContent = fmt(1/tw, 2);
+        document.getElementById('f-vdes').textContent = fmt(vDes, 1);
+        document.getElementById('f-omegades').textContent = fmt(omegaDes, 1);
+    }
+
+    ['v0Param', 'vDesParam', 'omega0Param', 'tvParam', 'twParam'].forEach(id => {
+        document.getElementById(id).addEventListener('input', updateFormula);
+    });
+
+    // Create Beautiful Gradients for Charts
+    function createGradient(ctx, colorBase) {
+        const gradient = ctx.createLinearGradient(0, 0, 0, 250);
+        gradient.addColorStop(0, colorBase.replace('1)', '0.2)'));
+        gradient.addColorStop(1, colorBase.replace('1)', '0)'));
+        return gradient;
+    }
+
+    function setupCharts() {
+        if (!window.Chart) return;
+
+        Chart.defaults.color = '#9CA3AF';
         Chart.defaults.font.family = "'Inter', sans-serif";
-        const commonOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: {
-                duration: 0 // Отключаем анимацию для плавности реального времени
-            },
-            scales: {
-                x: {
-                    type: 'linear',
-                    display: false, // скрываем ось X для эффекта "бегущей" ленты
-                    min: -50,
-                    max: 0
-                },
-                y: {
-                    grid: { color: 'rgba(255,255,255,0.05)' }
-                }
-            },
-            plugins: {
-                legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8 } }
-            }
-        };
+        Chart.defaults.plugins.legend.position = 'bottom';
+        Chart.defaults.plugins.legend.labels.usePointStyle = true;
+        Chart.defaults.plugins.legend.labels.boxWidth = 6;
+        Chart.defaults.plugins.tooltip.mode = 'index';
+        Chart.defaults.plugins.tooltip.intersect = false;
+        Chart.defaults.elements.point.radius = 0;
+        Chart.defaults.elements.point.hoverRadius = 4;
+        Chart.defaults.elements.line.borderWidth = 2.5;
+        Chart.defaults.elements.line.tension = 0.4; // Smooth curves!
 
-        const MAX_POINTS = 50;
+        const gridOpts = { color: '#F3F4F6', drawBorder: false };
+        const xOpts = { display: false, min: -MAX_POINTS, max: 0 };
 
-        // Создаем графики
         const ctxL1 = document.getElementById('chartL1').getContext('2d');
-        const chartL1 = new Chart(ctxL1, {
+        chartL1 = new Chart(ctxL1, {
             type: 'line',
-            data: {
-                datasets: [
-                    { label: 'Accel X', borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.1)', data: [], fill: true, tension: 0.4 },
-                    { label: 'Accel Y', borderColor: '#818cf8', backgroundColor: 'rgba(129, 140, 248, 0.1)', data: [], fill: true, tension: 0.4 }
-                ]
-            },
-            options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, min: -15, max: 15 } } }
+            data: { datasets: [
+                { label: 'Ускорение X', yAxisID: 'y', borderColor: 'rgba(16, 185, 129, 1)', backgroundColor: createGradient(ctxL1, 'rgba(16, 185, 129, 1)'), fill: true, data: [] },
+                { label: 'Ускорение Y', yAxisID: 'y', borderColor: 'rgba(59, 130, 246, 1)', data: [] },
+                { label: 'Гироскоп Z', yAxisID: 'y1', borderColor: 'rgba(245, 158, 11, 1)', borderDash: [5,5], data: [] }
+            ]},
+            options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                scales: {
+                    x: xOpts,
+                    y: { position: 'left', grid: gridOpts },
+                    y1: { position: 'right', grid: {drawOnChartArea: false} }
+                }
+            }
         });
 
         const ctxL2 = document.getElementById('chartL2').getContext('2d');
-        const chartL2 = new Chart(ctxL2, {
+        chartL2 = new Chart(ctxL2, {
             type: 'line',
-            data: {
-                datasets: [
-                    { label: 'Линейная скорость', borderColor: '#a78bfa', backgroundColor: 'rgba(167, 139, 250, 0.1)', data: [], fill: true, tension: 0.4 },
-                    { label: 'Мотор Лев (%)', borderColor: '#f472b6', data: [], tension: 0.4 },
-                    { label: 'Мотор Прав (%)', borderColor: '#fb7185', data: [], tension: 0.4 }
-                ]
-            },
-            options: { ...commonOptions }
+            data: { datasets: [
+                { label: 'Скорость', yAxisID: 'y', borderColor: 'rgba(16, 185, 129, 1)', backgroundColor: createGradient(ctxL2, 'rgba(16, 185, 129, 1)'), fill: true, data: [] },
+                { label: 'Левый мотор', yAxisID: 'y1', borderColor: 'rgba(139, 92, 246, 1)', data: [] },
+                { label: 'Правый мотор', yAxisID: 'y1', borderColor: 'rgba(236, 72, 153, 1)', data: [] }
+            ]},
+            options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                scales: {
+                    x: xOpts,
+                    y: { position: 'left', grid: gridOpts },
+                    y1: { position: 'right', grid: {drawOnChartArea: false}, min: -100, max: 100 }
+                }
+            }
         });
 
         const ctxL3 = document.getElementById('chartL3').getContext('2d');
-        const chartL3 = new Chart(ctxL3, {
+        chartL3 = new Chart(ctxL3, {
             type: 'line',
-            data: {
-                datasets: [
-                    { label: 'Текущая скор.', borderColor: '#f472b6', data: [], tension: 0.4 },
-                    { label: 'Целевая скор.', borderColor: '#cbd5e1', borderDash: [5, 5], data: [], tension: 0 },
-                    { label: 'Ошибка дистанц.', borderColor: '#fbbf24', data: [], tension: 0.4 }
-                ]
-            },
-            options: { ...commonOptions }
+            data: { datasets: [
+                { label: 'Текущая', yAxisID: 'y', borderColor: 'rgba(16, 185, 129, 1)', data: [] },
+                { label: 'Целевая', yAxisID: 'y', borderColor: 'rgba(156, 163, 175, 1)', borderDash: [4,4], data: [] },
+                { label: 'Дистанция', yAxisID: 'y1', borderColor: 'rgba(239, 68, 68, 1)', backgroundColor: createGradient(ctxL3, 'rgba(239, 68, 68, 1)'), fill: true, data: [] }
+            ]},
+            options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                scales: {
+                    x: xOpts,
+                    y: { position: 'left', grid: gridOpts },
+                    y1: { position: 'right', grid: {drawOnChartArea: false} }
+                }
+            }
+        });
+    }
+
+    function pushData(chart, idx, val) {
+        if(!chart) return;
+        const ds = chart.data.datasets[idx];
+        ds.data.push({ x: 0, y: val });
+        ds.data.forEach(p => p.x -= 1);
+        if(ds.data.length > MAX_POINTS) ds.data.shift();
+    }
+
+    function updateLiveVector(data) {
+        const ids = ['live-x', 'live-y', 'live-theta', 'live-v', 'live-omega'];
+        const vals = [ data.x_cm, data.y_cm, data.heading_deg, data.linear_speed_cm_per_sec, data.angular_speed_deg_per_sec ];
+        ids.forEach((id, i) => {
+            const el = document.getElementById(id);
+            el.textContent = fmt(vals[i] || 0);
+            el.classList.add('ping');
+            setTimeout(() => el.classList.remove('ping'), 100);
+        });
+    }
+
+    function setMasterStatus(text, isActive) {
+        const el = document.getElementById('masterStatus');
+        el.textContent = text;
+        if(isActive) el.classList.add('active'); else el.classList.remove('active');
+    }
+
+    function connectWS(path, onData, badgeId) {
+        const host = window.location.host || 'localhost:8000';
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${proto}//${host}${path}`);
+        const badge = document.getElementById(badgeId);
+
+        ws.onopen = () => { badge.textContent = 'В сети'; badge.classList.add('active'); };
+        ws.onclose = () => { badge.textContent = 'Отключено'; badge.classList.remove('active'); setTimeout(() => connectWS(path, onData, badgeId), 3000); };
+        ws.onmessage = (e) => onData(JSON.parse(e.data));
+    }
+
+    document.getElementById('startMotion').onclick = async () => {
+        const vDes = parseFloat(document.getElementById('vDesParam').value) || 0;
+        const omegaDes = parseFloat(document.getElementById('omega0Param').value) || 0;
+        const tv = parseFloat(document.getElementById('tvParam').value) || 0.8;
+        const tw = parseFloat(document.getElementById('twParam').value) || 0.55;
+
+        setMasterStatus('В движении', true);
+
+        // Включаем и настраиваем МПС
+        await fetch(`http://${window.location.host || 'localhost:8000'}/v1/l2/config-state-space`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({enabled: true, t_v: tv, t_w: tw})
         });
 
-        function updateChartData(chart, index, value, timeOffset) {
-            const dataset = chart.data.datasets[index];
-            dataset.data.push({ x: timeOffset, y: value });
-            
-            // Сдвигаем все точки
-            dataset.data.forEach(p => p.x -= 1);
-            // Удаляем старые
-            if (dataset.data.length > MAX_POINTS) {
-                dataset.data.shift();
-            }
-        }
+        // Отправляем команду
+        fetch(`http://${window.location.host || 'localhost:8000'}/v1/l2/cmd-vel`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({linear_speed_cm_per_sec: vDes, angular_speed_deg_per_sec: omegaDes})
+        });
+    };
 
-        // Подключение WebSocket
-        function connectWS(path, chartUpdateFn, statusElId) {
-            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            // Для разработки если открыт локально без сервера - мокаем хост
-            const host = window.location.host || 'localhost:8000';
-            const ws = new WebSocket(`${proto}//${host}${path}`);
-            
-            const statusEl = document.getElementById(statusElId);
+    document.getElementById('stopMotion').onclick = () => {
+        setMasterStatus('Остановлено', false);
+        fetch(`http://${window.location.host || 'localhost:8000'}/v1/l2/stop`, { method: 'POST' });
+    };
 
-            ws.onopen = () => {
-                statusEl.textContent = 'Подключено';
-                statusEl.className = 'status-badge connected';
-            };
+    setupCharts();
+    updateFormula();
 
-            ws.onclose = () => {
-                statusEl.textContent = 'Отключено';
-                statusEl.className = 'status-badge disconnected';
-                setTimeout(() => connectWS(path, chartUpdateFn, statusElId), 3000);
-            };
+    connectWS('/v1/l1/ws', d => {
+        pushData(chartL1, 0, d.accel_x_m_s2); pushData(chartL1, 1, d.accel_y_m_s2); pushData(chartL1, 2, d.angular_speed_z_deg_per_sec);
+        chartL1.update();
+    }, 'badge-l1');
 
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                chartUpdateFn(data);
-            };
-        }
+    connectWS('/v1/l2/ws', d => {
+        pushData(chartL2, 0, d.linear_speed_cm_per_sec); pushData(chartL2, 1, d.left_percent); pushData(chartL2, 2, d.right_percent);
+        chartL2.update(); updateLiveVector(d); 
+    }, 'badge-l2');
 
-        // Подключаем L1
-        connectWS('/v1/l1/ws', (data) => {
-            updateChartData(chartL1, 0, data.accel_x_m_s2, 0);
-            updateChartData(chartL1, 1, data.accel_y_m_s2, 0);
-            chartL1.update('none');
-        }, 'status-l1');
+    connectWS('/v1/l3/ws', d => {
+        pushData(chartL3, 0, d.linear_speed_cm_per_sec); pushData(chartL3, 1, d.desired_linear_speed_cm_per_sec); pushData(chartL3, 2, d.distance_error_cm);
+        chartL3.update();
+    }, 'badge-l3');
 
-        // Подключаем L2
-        connectWS('/v1/l2/ws', (data) => {
-            updateChartData(chartL2, 0, data.linear_speed_cm_per_sec, 0);
-            updateChartData(chartL2, 1, data.left_percent, 0);
-            updateChartData(chartL2, 2, data.right_percent, 0);
-            chartL2.update('none');
-        }, 'status-l2');
-
-        // Подключаем L3
-        connectWS('/v1/l3/ws', (data) => {
-            updateChartData(chartL3, 0, data.linear_speed_cm_per_sec, 0);
-            updateChartData(chartL3, 1, data.desired_linear_speed_cm_per_sec, 0);
-            updateChartData(chartL3, 2, data.distance_error_cm, 0);
-            chartL3.update('none');
-        }, 'status-l3');
-
-    </script>
+</script>
 </body>
 </html>

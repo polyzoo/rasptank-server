@@ -276,3 +276,48 @@ def test_without_feedback_state_has_none_delta_u() -> None:
 
     assert state.feedback_delta_u is None
     assert state.feedback_heading_ref_deg is None
+
+
+def test_configure_state_space() -> None:
+    service, _ = _service()
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=2.0)
+    assert service._use_state_space is True
+    assert service._state_space_controller is not None
+    assert service._state_space_controller.t_v == 1.0
+    assert service._state_space_controller.t_w == 2.0
+
+    service.configure_state_space(enabled=True, t_v=3.0, t_w=4.0)
+    assert service._state_space_controller.t_v == 3.0
+    assert service._state_space_controller.t_w == 4.0
+    assert service._state_space_controller._K is None
+
+    service.configure_state_space(enabled=False, t_v=3.0, t_w=4.0)
+    assert service._use_state_space is False
+
+
+def test_apply_body_velocity_state_space(monkeypatch) -> None:
+    service, motor = _service()
+
+    # Mock the controller entirely so we don't rely on scipy/numpy availability
+
+    class MockL2StateSpaceController:
+        def __init__(self, t_v, t_w):
+            self.t_v = t_v
+            self.t_w = t_w
+            self._K = None
+
+        def compute_control(self, **kwargs):
+            return (1.0, 2.0)
+
+    monkeypatch.setattr(
+        "src.application.services.l2_service.L2StateSpaceController", MockL2StateSpaceController
+    )
+
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
+    )
+
+    assert state is not None
+    assert service._mps_heading_ref_deg == 0.0
