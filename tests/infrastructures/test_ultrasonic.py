@@ -4,7 +4,7 @@ import threading
 from typing import Any
 
 from src.infrastructures import ultrasonic as ultrasonic_module
-from src.infrastructures.ultrasonic import UltrasonicSensor
+from src.infrastructures.ultrasonic import DisabledUltrasonicSensor, UltrasonicSensor
 
 
 class FakeDistanceSensor:
@@ -203,3 +203,14 @@ def test_destroy_clears_state_when_close_fails(monkeypatch: Any) -> None:
 
     assert sensor._sensor is None
     assert sensor._is_initialized is False
+
+
+def test_disabled_ultrasonic_returns_fallback_without_gpio(monkeypatch: Any) -> None:
+    """Отключенный УЗ-датчик не трогает hardware и возвращает безопасную дальность."""
+    monkeypatch.setattr(ultrasonic_module, "_HARDWARE_AVAILABLE", True)
+    sensor: DisabledUltrasonicSensor = DisabledUltrasonicSensor()
+
+    distance_cm: float = sensor.measure_distance_cm()
+    sensor.destroy()
+
+    assert distance_cm == UltrasonicSensor.FALLBACK_DISTANCE_CM

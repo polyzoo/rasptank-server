@@ -19,7 +19,6 @@ BCM numbering is used. Default HC-SR04 wiring in this project:
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 from dataclasses import dataclass
 from typing import Protocol

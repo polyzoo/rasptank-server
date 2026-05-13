@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.application.protocols import MotorControllerProtocol
+from src.application.protocols import MotorControllerProtocol, UltrasonicSensorProtocol
 from src.application.services.drive_controller import DriveController
 from src.application.services.goal_point_controller import GoalPointController
 from src.application.services.isolated_motion_service import IsolatedMotionService
@@ -20,7 +20,7 @@ from src.config.settings import Settings
 from src.infrastructures.head_servo import HeadServoController
 from src.infrastructures.imu import IMUSensor
 from src.infrastructures.motor import MotorController
-from src.infrastructures.ultrasonic import UltrasonicSensor
+from src.infrastructures.ultrasonic import DisabledUltrasonicSensor, UltrasonicSensor
 
 
 @dataclass(slots=True)
@@ -29,7 +29,7 @@ class SharedMotionHardware:
 
     motor_controller: MotorController
     gyroscope: IMUSensor
-    ultrasonic_sensor: UltrasonicSensor
+    ultrasonic_sensor: UltrasonicSensorProtocol
     head_servo: HeadServoController
 
     def destroy(self) -> None:
@@ -45,6 +45,7 @@ def create_shared_motion_hardware(settings: Settings) -> SharedMotionHardware:
 
     Параметры ``IMUSensor`` (DLPF, частота выборки, EMA, EKF) берутся из ``settings.imu_*``.
     """
+    ultrasonic_sensor: UltrasonicSensorProtocol = _create_ultrasonic_sensor(settings)
     return SharedMotionHardware(
         motor_controller=MotorController(
             tl_left_offset=settings.tl_left_offset,
@@ -64,7 +65,7 @@ def create_shared_motion_hardware(settings: Settings) -> SharedMotionHardware:
             ekf_r_accel=settings.imu_ekf_r_accel,
             ekf_accel_gate=settings.imu_ekf_accel_gate,
         ),
-        ultrasonic_sensor=UltrasonicSensor(),
+        ultrasonic_sensor=ultrasonic_sensor,
         head_servo=HeadServoController(
             channel=settings.head_servo_channel,
             home_angle_deg=settings.head_servo_home_angle_deg,
@@ -209,7 +210,7 @@ def create_l1_service(settings: Settings) -> L1Service:
         ekf_r_accel=settings.imu_ekf_r_accel,
         ekf_accel_gate=settings.imu_ekf_accel_gate,
     )
-    ultrasonic_sensor: UltrasonicSensor = UltrasonicSensor()
+    ultrasonic_sensor: UltrasonicSensorProtocol = _create_ultrasonic_sensor(settings)
     head_servo: HeadServoController = HeadServoController(
         channel=settings.head_servo_channel,
         home_angle_deg=settings.head_servo_home_angle_deg,
@@ -226,6 +227,17 @@ def create_l1_service(settings: Settings) -> L1Service:
         ultrasonic_sensor=ultrasonic_sensor,
         head_servo=head_servo,
     )
+
+
+def _create_ultrasonic_sensor(settings: Settings) -> UltrasonicSensorProtocol:
+    """Создать HC-SR04 или безопасную заглушку по настройкам."""
+    if not settings.ultrasonic_enabled:
+        return DisabledUltrasonicSensor()
+
+    sensor = UltrasonicSensor()
+    sensor.TRIGGER_PIN = settings.ultrasonic_trigger_pin
+    sensor.ECHO_PIN = settings.ultrasonic_echo_pin
+    return sensor
 
 
 def create_goal_point_controller(settings: Settings) -> GoalPointController:

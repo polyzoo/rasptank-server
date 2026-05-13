@@ -39,6 +39,25 @@ class Settings(BaseSettings):
         validation_alias="HEAD_SERVO_HOME_ANGLE_DEG",
         description="Угол фиксации головы перед стартом движения.",
     )
+    ultrasonic_enabled: bool = Field(
+        default=True,
+        validation_alias="ULTRASONIC_ENABLED",
+        description="Включить HC-SR04. Отключить: ULTRASONIC_ENABLED=false.",
+    )
+    ultrasonic_trigger_pin: int = Field(
+        default=23,
+        ge=0,
+        le=27,
+        validation_alias="ULTRASONIC_TRIGGER_PIN",
+        description="BCM-пин TRIG HC-SR04.",
+    )
+    ultrasonic_echo_pin: int = Field(
+        default=24,
+        ge=0,
+        le=27,
+        validation_alias="ULTRASONIC_ECHO_PIN",
+        description="BCM-пин ECHO HC-SR04.",
+    )
     gyro_yaw_integration_deadband_deg_per_sec: float = Field(
         default=0.2,
         ge=0.0,

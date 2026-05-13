@@ -37,7 +37,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from src.infrastructures.ultrasonic import UltrasonicSensor
+from src.infrastructures.ultrasonic import UltrasonicSensor  # noqa: E402
 
 # Типовые пары для ручного перебора (не исчерпывающий список — допишите свои).
 _DEFAULT_PAIRS: tuple[tuple[int, int], ...] = (

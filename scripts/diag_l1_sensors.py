@@ -39,14 +39,14 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from typing import TypeVar
+from collections.abc import Callable  # noqa: E402
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+from typing import TypeVar  # noqa: E402
 
-from src.application.factories import create_shared_motion_hardware
-from src.application.services.l1_service import L1Service
-from src.config.settings import Settings
-from src.infrastructures.ultrasonic import UltrasonicSensor
+from src.application.factories import create_shared_motion_hardware  # noqa: E402
+from src.application.services.l1_service import L1Service  # noqa: E402
+from src.config.settings import Settings  # noqa: E402
+from src.infrastructures.ultrasonic import UltrasonicSensor  # noqa: E402
 
 T = TypeVar("T")
 
@@ -95,7 +95,12 @@ def main() -> int:
         action="store_true",
         help="Выполнить калибровку IMU при старте (~1 с и дольше).",
     )
-    parser.add_argument("--imu-warmup-sec", type=float, default=0.25, help="Пауза после старта IMU.")
+    parser.add_argument(
+        "--imu-warmup-sec",
+        type=float,
+        default=0.25,
+        help="Пауза после старта IMU.",
+    )
     parser.add_argument("--repeat", type=int, default=5, help="Сколько раз повторить каждый замер.")
     parser.add_argument(
         "--us-timeout-sec",
@@ -164,7 +169,8 @@ def main() -> int:
                 f"  [{i + 1}/{args.repeat}] TIMEOUT после {elapsed:.0f} ms — нет импульса ECHO за "
                 f"{args.us_timeout_sec} с. Проверьте: TRIGGER={args.us_trigger} "
                 f"ECHO={args.us_echo}, делитель 5 V→3.3 V на ECHO, "
-                "общую землю; для gpiozero часто нужен pin factory pigpio (см. предупреждение PWMSoftwareFallback).",
+                "общую землю; для gpiozero часто нужен pin factory pigpio "
+                "(см. предупреждение PWMSoftwareFallback).",
                 file=sys.stderr,
             )
             l1.destroy()

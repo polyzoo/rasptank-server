@@ -127,3 +127,18 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
                 self.TRIGGER_PIN,
             )
             self._sensor: object | None = None
+
+
+@final
+class DisabledUltrasonicSensor(UltrasonicSensorProtocol):
+    """Безопасная заглушка HC-SR04, когда датчик отключён в настройках."""
+
+    FALLBACK_DISTANCE_CM: float = UltrasonicSensor.FALLBACK_DISTANCE_CM
+
+    def measure_distance_cm(self) -> float:
+        """Вернуть «далеко», не обращаясь к GPIO."""
+        return self.FALLBACK_DISTANCE_CM
+
+    def destroy(self) -> None:
+        """Заглушка не держит ресурсов."""
+        return
