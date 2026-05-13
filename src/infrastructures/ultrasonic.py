@@ -75,11 +75,24 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
                 return self.FALLBACK_DISTANCE_CM
 
     def destroy(self) -> None:
-        """Освобождение ресурсов GPIO."""
+        """Освобождение ресурсов GPIO.
+
+        Если :meth:`measure_distance_cm` ещё выполняется (другой поток держит ``_lock``),
+        блокирующий ``with self._lock`` здесь привёл бы к взаимной блокировке с обёрткой
+        таймаута. Неблокирующий ``acquire`` позволяет корректно выйти из диагностических
+        сценариев без ``Ctrl+C``.
+        """
         if not _HARDWARE_AVAILABLE:
             return
 
-        with self._lock:
+        if not self._lock.acquire(blocking=False):
+            logger.warning(
+                "UltrasonicSensor: destroy пропущен — занят замер расстояния "
+                "(часто после TimeoutError, пока gpiozero ждёт ECHO). "
+                "GPIO остаётся открытым до завершения потока или перезапуска процесса."
+            )
+            return
+        try:
             if self._sensor is not None:
                 try:
                     self._sensor.close()
@@ -88,6 +101,8 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
                 finally:
                     self._sensor: object | None = None
                     self._is_initialized: bool = False
+        finally:
+            self._lock.release()
 
     def _setup(self) -> None:
         """Однократная инициализация датчика."""

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from src.infrastructures import ultrasonic as ultrasonic_module
@@ -158,6 +159,38 @@ def test_destroy_closes_sensor(monkeypatch: Any) -> None:
     assert created.close_called is True
     assert sensor._sensor is None
     assert sensor._is_initialized is False
+
+
+def test_destroy_skips_when_measurement_lock_held(monkeypatch: Any) -> None:
+    """destroy не блокируется, если другой поток держит lock на время замера."""
+    _enable_fake_hardware(monkeypatch, FakeDistanceSensor)
+    sensor: UltrasonicSensor = UltrasonicSensor()
+    sensor._setup()
+    created: FakeDistanceSensor = FakeDistanceSensor.instances[0]
+    hold_event = threading.Event()
+    release_event = threading.Event()
+
+    def hold_lock() -> None:
+        with sensor._lock:
+            hold_event.set()
+            release_event.wait(timeout=2.0)
+
+    thread: threading.Thread = threading.Thread(target=hold_lock, daemon=True)
+    thread.start()
+    hold_event.wait(timeout=2.0)
+    try:
+        sensor.destroy()
+    finally:
+        release_event.set()
+        thread.join(timeout=2.0)
+
+    assert created.close_called is False
+    assert sensor._sensor is not None
+    assert sensor._is_initialized is True
+
+    sensor.destroy()
+    assert created.close_called is True
+    assert sensor._sensor is None
 
 
 def test_destroy_clears_state_when_close_fails(monkeypatch: Any) -> None:
