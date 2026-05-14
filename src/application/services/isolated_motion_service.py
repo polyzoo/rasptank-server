@@ -159,6 +159,7 @@ class IsolatedMotionService:
                 actual_dt_sec,
             )
             self._trace_l1_l2_math(l1_state=l1_state, l2_state=l2_state, dt_sec=actual_dt_sec)
+            self._log_l2_diagnostics(l2_state=l2_state, dt_sec=actual_dt_sec)
 
         t_end: float = time.perf_counter()
         dt_lock_ms: float = (t_after_dt_lock - t0) * 1000.0
@@ -334,6 +335,27 @@ class IsolatedMotionService:
             l2_state.angular_speed_deg_per_sec,
             l2_state.left_percent,
             l2_state.right_percent,
+        )
+
+    def _log_l2_diagnostics(self, *, l2_state: L2State, dt_sec: float) -> None:
+        """Записать компактную диагностику L2 для ручных тестов без дашборда."""
+        control_u = l2_state.state_space_control_u or (None, None)
+        logger.info(
+            (
+                "L2_DIAG dt=%.3f pose=(x=%.2f,y=%.2f,theta=%.2f) "
+                "vel=(v=%.2f,w=%.2f) tracks=(L=%.1f,R=%.1f) "
+                "mps_u=(v=%s,w=%s)"
+            ),
+            dt_sec,
+            l2_state.x_cm,
+            l2_state.y_cm,
+            l2_state.heading_deg,
+            l2_state.linear_speed_cm_per_sec,
+            l2_state.angular_speed_deg_per_sec,
+            l2_state.left_percent,
+            l2_state.right_percent,
+            _fmt_optional(control_u[0]),
+            _fmt_optional(control_u[1]),
         )
 
     def _trace_l3_math(self, *, l3_state: L3State) -> None:

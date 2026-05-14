@@ -224,12 +224,9 @@ def test_configure_l123_debug_logging_skips_if_handler_already_present() -> None
 
 
 def test_configure_motion_diag_logging_attaches_handlers_when_enabled() -> None:
-    """Диагностика движения по умолчанию вешает DEBUG-handler на L1 и isolated_motion."""
+    """Диагностика движения по умолчанию вешает INFO-handler только на L2 sync."""
     settings: Settings = Settings(motion_diag_logging_enabled=True)
-    names: tuple[str, ...] = (
-        "src.application.services.l1_service",
-        "src.application.services.isolated_motion_service",
-    )
+    names: tuple[str, ...] = ("src.application.services.isolated_motion_service",)
     snapshots: dict[str, tuple[int, list[logging.Handler], bool]] = {
         name: (
             logging.getLogger(name).level,
@@ -248,7 +245,7 @@ def test_configure_motion_diag_logging_attaches_handlers_when_enabled() -> None:
 
         for name in names:
             log = logging.getLogger(name)
-            assert log.level == logging.DEBUG
+            assert log.level == logging.INFO
             assert len(log.handlers) == 1
             assert isinstance(log.handlers[0], logging.StreamHandler)
             assert log.propagate is False
@@ -265,10 +262,7 @@ def test_configure_motion_diag_logging_attaches_handlers_when_enabled() -> None:
 def test_configure_motion_diag_logging_continue_when_handlers_already_present() -> None:
     """Повторный вызов не дублирует diag-handlers."""
     settings: Settings = Settings(motion_diag_logging_enabled=True)
-    names: tuple[str, ...] = (
-        "src.application.services.l1_service",
-        "src.application.services.isolated_motion_service",
-    )
+    names: tuple[str, ...] = ("src.application.services.isolated_motion_service",)
     snapshots: dict[str, tuple[int, list[logging.Handler], bool]] = {
         name: (
             logging.getLogger(name).level,
@@ -298,12 +292,9 @@ def test_configure_motion_diag_logging_continue_when_handlers_already_present() 
 
 
 def test_configure_motion_diag_logging_returns_early_when_disabled() -> None:
-    """При выключенной диагностике движения логгеры L1/sync не трогаем."""
+    """При выключенной диагностике движения логгер sync не трогаем."""
     settings: Settings = Settings(motion_diag_logging_enabled=False)
-    names: tuple[str, ...] = (
-        "src.application.services.l1_service",
-        "src.application.services.isolated_motion_service",
-    )
+    names: tuple[str, ...] = ("src.application.services.isolated_motion_service",)
     snapshots: dict[str, tuple[int, list[logging.Handler], bool]] = {}
     for name in names:
         log: logging.Logger = logging.getLogger(name)

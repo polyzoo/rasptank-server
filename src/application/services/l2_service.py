@@ -30,6 +30,7 @@ class L2Service:
     DEFAULT_STATE_SPACE_MAX_LINEAR_CORR_CM_PER_SEC: ClassVar[float] = 20.0
     DEFAULT_STATE_SPACE_MAX_ANGULAR_CORR_DEG_PER_SEC: ClassVar[float] = 90.0
     DEFAULT_STATE_SPACE_MAX_TRACK_DELTA_PERCENT: ClassVar[float] = 5.0
+    DEFAULT_STATE_SPACE_MIN_MOVING_TRACK_PERCENT: ClassVar[float] = 15.0
 
     def __init__(
         self,
@@ -53,6 +54,9 @@ class L2Service:
             DEFAULT_STATE_SPACE_MAX_ANGULAR_CORR_DEG_PER_SEC
         ),
         state_space_max_track_delta_percent: float = DEFAULT_STATE_SPACE_MAX_TRACK_DELTA_PERCENT,
+        state_space_min_moving_track_percent: float = (
+            DEFAULT_STATE_SPACE_MIN_MOVING_TRACK_PERCENT
+        ),
     ) -> None:
         """Сохранить составные части уровня L2."""
         self._kinematics: DifferentialDriveKinematics = kinematics
@@ -89,6 +93,10 @@ class L2Service:
         self._state_space_max_track_delta_percent: float = max(
             0.0,
             state_space_max_track_delta_percent,
+        )
+        self._state_space_min_moving_track_percent: float = max(
+            0.0,
+            state_space_min_moving_track_percent,
         )
 
     def enable_state_space_control(self, controller: L2StateSpaceController) -> None:
@@ -330,7 +338,7 @@ class L2Service:
         if max_delta <= 0.0:
             return target
 
-        return TrackCommand(
+        limited = TrackCommand(
             left_percent=self._slew_value(
                 current=self._last_track_command.left_percent,
                 target=target.left_percent,
@@ -342,10 +350,41 @@ class L2Service:
                 max_delta=max_delta,
             ),
         )
+        return self._apply_min_moving_track_percent(limited, target)
 
     def _slew_value(self, *, current: float, target: float, max_delta: float) -> float:
         """Сдвинуть значение к цели не быстрее заданного шага."""
         return current + self._clamp(target - current, -max_delta, max_delta)
+
+    def _apply_min_moving_track_percent(
+        self,
+        limited: TrackCommand,
+        target: TrackCommand,
+    ) -> TrackCommand:
+        """Поднять ненулевые команды выше deadzone моторов."""
+        min_percent = self._state_space_min_moving_track_percent
+        if min_percent <= 0.0:
+            return limited
+
+        return TrackCommand(
+            left_percent=self._lift_track_percent(
+                value=limited.left_percent,
+                target=target.left_percent,
+                min_percent=min_percent,
+            ),
+            right_percent=self._lift_track_percent(
+                value=limited.right_percent,
+                target=target.right_percent,
+                min_percent=min_percent,
+            ),
+        )
+
+    def _lift_track_percent(self, *, value: float, target: float, min_percent: float) -> float:
+        """Сохранить знак команды, но не давать ненулевому борту оставаться ниже deadzone."""
+        if abs(target) <= 0.0 or abs(value) >= min_percent:
+            return value
+        sign = 1.0 if target > 0.0 else -1.0
+        return sign * min(abs(target), min_percent)
 
     def _estimate_linear_speed_cm_per_sec(
         self,

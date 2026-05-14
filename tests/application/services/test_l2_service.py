@@ -436,6 +436,49 @@ def test_state_space_limits_track_command_jumps(monkeypatch) -> None:
         BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
     )
 
+    assert motor.commands[-1] == (15, 15)
+    assert state.left_percent == pytest.approx(15.0)
+    assert state.right_percent == pytest.approx(15.0)
+
+
+def test_state_space_min_moving_track_percent_can_be_disabled(monkeypatch) -> None:
+    service, motor = _service()
+    service._state_space_min_moving_track_percent = 0.0
+
+    class MockL2StateSpaceController:
+        def __init__(self, t_v, t_w):
+            self.t_v = t_v
+            self.t_w = t_w
+            self._K = None
+            self.gain_matrix = None
+            self.last_error_state = None
+            self.last_control_u = None
+
+        def compute_control(self, **kwargs):
+            return (0.0, 0.0)
+
+        def reset_gains(self):
+            self._K = None
+
+    monkeypatch.setattr(
+        "src.application.services.l2_state_space_controller.L2StateSpaceController",
+        MockL2StateSpaceController,
+    )
+
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
+    )
+
     assert motor.commands[-1] == (5, 5)
-    assert state.left_percent == pytest.approx(5.0)
-    assert state.right_percent == pytest.approx(5.0)
+
+
+def test_lift_track_percent_keeps_zero_or_already_moving_command() -> None:
+    service, _ = _service()
+
+    assert service._lift_track_percent(value=0.0, target=0.0, min_percent=15.0) == pytest.approx(
+        0.0
+    )
+    assert service._lift_track_percent(value=20.0, target=25.0, min_percent=15.0) == pytest.approx(
+        20.0
+    )

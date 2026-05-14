@@ -192,6 +192,7 @@ def create_l2_service(
         accel_bias_learning_rate=settings.l2_accel_bias_learning_rate,
         accel_speed_limit_factor=settings.l2_accel_speed_limit_factor,
         state_space_max_track_delta_percent=settings.l2_state_space_max_track_delta_percent,
+        state_space_min_moving_track_percent=settings.l2_state_space_min_moving_track_percent,
     )
 
     if settings.l2_state_space_enabled:

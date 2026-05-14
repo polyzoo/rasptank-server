@@ -78,13 +78,17 @@ def test_create_velocity_command_controller_builds_controller() -> None:
 
 def test_create_l2_service_builds_isolated_math_layer() -> None:
     """Фабрика L2 собирает единый изолированный сервис нового контура."""
-    settings: Settings = Settings(L2_STATE_SPACE_MAX_TRACK_DELTA_PERCENT=7.0)
+    settings: Settings = Settings(
+        L2_STATE_SPACE_MAX_TRACK_DELTA_PERCENT=7.0,
+        L2_STATE_SPACE_MIN_MOVING_TRACK_PERCENT=12.0,
+    )
     motor: FakeMotor = FakeMotor()
 
     service = create_l2_service(settings, motor)  # type: ignore[arg-type]
 
     assert isinstance(service, L2Service)
     assert service._state_space_max_track_delta_percent == 7.0
+    assert service._state_space_min_moving_track_percent == 12.0
     state = service.apply_body_velocity(
         BodyVelocityCommand(linear_speed_cm_per_sec=0.0, angular_speed_deg_per_sec=0.0)
     )
@@ -204,3 +208,4 @@ def test_settings_defaults_are_safe_for_l2_hardware_trials() -> None:
     assert settings.update_interval_sec == 0.2
     assert settings.l2_accel_speed_fusion_enabled is False
     assert settings.l2_state_space_max_track_delta_percent == 5.0
+    assert settings.l2_state_space_min_moving_track_percent == 15.0

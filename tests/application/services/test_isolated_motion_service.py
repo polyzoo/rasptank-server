@@ -444,6 +444,31 @@ def test_sync_l2_from_l1_logs_warning_when_slow_threshold_zero(monkeypatch: Any)
     mock_warning.assert_called_once()
 
 
+def test_sync_l2_from_l1_logs_compact_l2_diagnostics(caplog: Any) -> None:
+    """Каждый sync пишет компактный L2_DIAG для ручной проверки без дашборда."""
+    service, _, l2_service, _ = _service()
+    l2_service.state = L2State(
+        x_cm=12.0,
+        y_cm=-3.0,
+        heading_deg=4.0,
+        linear_speed_cm_per_sec=5.0,
+        angular_speed_deg_per_sec=6.0,
+        left_percent=7.0,
+        right_percent=8.0,
+        state_space_control_u=(9.0, 10.0),
+    )
+
+    with caplog.at_level(logging.INFO, logger="src.application.services.isolated_motion_service"):
+        service.sync_l2_from_l1(dt_sec=0.2)
+
+    messages: str = "\n".join(caplog.messages)
+    assert "L2_DIAG dt=0.200" in messages
+    assert "pose=(x=12.00,y=-3.00,theta=4.00)" in messages
+    assert "vel=(v=5.00,w=6.00)" in messages
+    assert "tracks=(L=7.0,R=8.0)" in messages
+    assert "mps_u=(v=9.00,w=10.00)" in messages
+
+
 def test_debug_trace_suppressed_when_l3_idle(caplog: Any) -> None:
     """При idle-режиме L3 debug-трейс не печатается даже если включен."""
     service, _, _, _ = _service(
@@ -452,7 +477,7 @@ def test_debug_trace_suppressed_when_l3_idle(caplog: Any) -> None:
     )
     with caplog.at_level(logging.INFO, logger="src.application.services.isolated_motion_service"):
         service.sync_l2_from_l1()
-    assert caplog.messages == []
+    assert not any(message.startswith("L3->L2") for message in caplog.messages)
 
 
 def test_configure_l2_state_space() -> None:

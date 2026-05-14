@@ -203,7 +203,7 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="MOTION_DIAG_LOGGING_ENABLED",
         description=(
-            "Диагностика L1 и sync L1→L2 в stderr (DEBUG/WARNING). "
+            "Компактная диагностика движения L2_DIAG и предупреждения в stderr. "
             "Отключить: MOTION_DIAG_LOGGING_ENABLED=false."
         ),
     )
@@ -570,6 +570,13 @@ class Settings(BaseSettings):
         le=100.0,
         validation_alias="L2_STATE_SPACE_MAX_TRACK_DELTA_PERCENT",
         description="Максимальный скачок команды каждой гусеницы за один шаг МПС (%).",
+    )
+    l2_state_space_min_moving_track_percent: float = Field(
+        default=15.0,
+        ge=0.0,
+        le=100.0,
+        validation_alias="L2_STATE_SPACE_MIN_MOVING_TRACK_PERCENT",
+        description="Минимальная ненулевая команда гусеницы в МПС, чтобы пройти deadzone мотора.",
     )
     l3_position_tolerance_cm: float = Field(
         default=5.0,

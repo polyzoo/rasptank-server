@@ -43,23 +43,21 @@ def _configure_l123_debug_logging(settings: Settings) -> None:
 
 
 def _configure_motion_diag_logging(settings: Settings) -> None:
-    """Тайминги L1.read_sensors и sync L1→L2 в stderr (DEBUG/WARNING)."""
+    """Компактная диагностика движения в stderr без шумного DEBUG по умолчанию."""
     if not settings.motion_diag_logging_enabled:
         return
 
     formatter: logging.Formatter = logging.Formatter("%(levelname)s %(name)s: %(message)s")
-    for logger_name in (
-        "src.application.services.l1_service",
+    module_logger: logging.Logger = logging.getLogger(
         "src.application.services.isolated_motion_service",
-    ):
-        module_logger: logging.Logger = logging.getLogger(logger_name)
-        module_logger.setLevel(logging.DEBUG)
-        if module_logger.handlers:
-            continue
-        diag_handler: logging.StreamHandler = logging.StreamHandler()
-        diag_handler.setFormatter(formatter)
-        module_logger.addHandler(diag_handler)
-        module_logger.propagate = False
+    )
+    module_logger.setLevel(logging.INFO)
+    if module_logger.handlers:
+        return
+    diag_handler: logging.StreamHandler = logging.StreamHandler()
+    diag_handler.setFormatter(formatter)
+    module_logger.addHandler(diag_handler)
+    module_logger.propagate = False
 
 
 @asynccontextmanager
