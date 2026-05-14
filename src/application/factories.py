@@ -191,6 +191,7 @@ def create_l2_service(
         gyro_stationary_threshold_deg_per_sec=settings.l2_gyro_stationary_threshold_deg_per_sec,
         accel_bias_learning_rate=settings.l2_accel_bias_learning_rate,
         accel_speed_limit_factor=settings.l2_accel_speed_limit_factor,
+        state_space_max_track_delta_percent=settings.l2_state_space_max_track_delta_percent,
     )
 
     if settings.l2_state_space_enabled:

@@ -302,7 +302,7 @@ def test_public_methods_forward_commands_and_states() -> None:
     assert l3_service.route_calls[0][0] == TargetRoute(points=(TargetPoint(x_cm=3.0, y_cm=4.0),))
     assert l3_service.step_calls == 1
     assert l3_service.cancel_calls == 1
-    assert l2_service.update_snapshots[1][1] == 0.5
+    assert l2_service.update_snapshots[1][1] == 0.25
     assert (
         synced_state
         == l2_state
@@ -366,7 +366,7 @@ def test_sync_l2_respects_explicit_dt_and_background_loop_runs_one_iteration() -
 
     assert len(l2_service.update_snapshots) == 2
     assert l3_service.step_calls == 1
-    assert l2_service.update_snapshots[1][1] == 3.0
+    assert l2_service.update_snapshots[1][1] == 0.25
     assert l1_service.sensor_state.angular_speed_z_deg_per_sec == 12.0
 
 

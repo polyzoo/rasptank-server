@@ -319,6 +319,7 @@ def test_apply_body_velocity_state_space(monkeypatch) -> None:
         "src.application.services.l2_state_space_controller.L2StateSpaceController",
         MockL2StateSpaceController,
     )
+    service._state_space_max_track_delta_percent = 0.0
 
     service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
 
@@ -354,6 +355,7 @@ def test_state_space_uses_actual_minus_reference_errors(monkeypatch) -> None:
         "src.application.services.l2_state_space_controller.L2StateSpaceController",
         MockL2StateSpaceController,
     )
+    service._state_space_max_track_delta_percent = 0.0
 
     service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
     service.reset_state(heading_deg=10.0, linear_speed_cm_per_sec=5.0)
@@ -393,6 +395,7 @@ def test_state_space_recomputes_after_l1_update(monkeypatch) -> None:
         "src.application.services.l2_state_space_controller.L2StateSpaceController",
         MockL2StateSpaceController,
     )
+    service._state_space_max_track_delta_percent = 0.0
 
     service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
     service.apply_body_velocity(
@@ -403,3 +406,36 @@ def test_state_space_recomputes_after_l1_update(monkeypatch) -> None:
     assert len(calls) == 2
     assert calls[1]["omega_err_rad_per_sec"] == pytest.approx(0.0872664626)
     assert motor.commands[-1] == (50, 50)
+
+
+def test_state_space_limits_track_command_jumps(monkeypatch) -> None:
+    service, motor = _service()
+
+    class MockL2StateSpaceController:
+        def __init__(self, t_v, t_w):
+            self.t_v = t_v
+            self.t_w = t_w
+            self._K = None
+            self.gain_matrix = None
+            self.last_error_state = None
+            self.last_control_u = None
+
+        def compute_control(self, **kwargs):
+            return (0.0, 0.0)
+
+        def reset_gains(self):
+            self._K = None
+
+    monkeypatch.setattr(
+        "src.application.services.l2_state_space_controller.L2StateSpaceController",
+        MockL2StateSpaceController,
+    )
+
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
+    )
+
+    assert motor.commands[-1] == (5, 5)
+    assert state.left_percent == pytest.approx(5.0)
+    assert state.right_percent == pytest.approx(5.0)

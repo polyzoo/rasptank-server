@@ -558,7 +558,7 @@
         Chart.defaults.elements.line.tension = 0.4; // Smooth curves!
 
         const gridOpts = { color: '#F3F4F6', drawBorder: false };
-        const xOpts = { display: false, min: -MAX_POINTS, max: 0 };
+        const xOpts = { display: false };
 
         const ctxL1 = document.getElementById('chartL1').getContext('2d');
         chartL1 = new Chart(ctxL1, {
@@ -617,10 +617,13 @@
 
     function pushData(chart, idx, val) {
         if(!chart) return;
+        const numericValue = Number(val);
+        if (!Number.isFinite(numericValue)) return;
         const ds = chart.data.datasets[idx];
-        ds.data.push({ x: 0, y: val });
-        ds.data.forEach(p => p.x -= 1);
+        ds.data.push(numericValue);
+        if (idx === 0) chart.data.labels.push('');
         if(ds.data.length > MAX_POINTS) ds.data.shift();
+        if(chart.data.labels.length > MAX_POINTS) chart.data.labels.shift();
     }
 
     function updateLiveVector(data) {
@@ -685,6 +688,12 @@
         const tw = parseFloat(document.getElementById('twParam').value) || 0.55;
 
         setMasterStatus('В движении', true);
+
+        await fetch(`http://${window.location.host || 'localhost:8000'}/v1/l2/reset-state`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
 
         // Включаем и настраиваем МПС
         await fetch(`http://${window.location.host || 'localhost:8000'}/v1/l2/config-state-space`, {

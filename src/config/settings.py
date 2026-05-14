@@ -181,7 +181,7 @@ class Settings(BaseSettings):
         description="Поправка последнего поворота (°).",
     )
     update_interval_sec: float = Field(
-        default=0.1,
+        default=0.2,
         gt=0,
         le=1.0,
         validation_alias="UPDATE_INTERVAL_SEC",
@@ -285,18 +285,18 @@ class Settings(BaseSettings):
         description="Смещение правого мотора.",
     )
     m1_direction: int = Field(
-        default=-1,
+        default=1,
         validation_alias="M1_DIRECTION",
         description=(
             "Направление канала M1 (PCA9685): 1 или −1. "
-            "По умолчанию −1 под типичную сборку RaspTank; "
-            "для обратной полярности задайте M1_DIRECTION=1 и M2_DIRECTION=-1."
+            "По умолчанию 1; для обратной полярности задайте M1_DIRECTION=-1 "
+            "и M2_DIRECTION=1."
         ),
     )
     m2_direction: int = Field(
-        default=1,
+        default=-1,
         validation_alias="M2_DIRECTION",
-        description="Направление канала M2: 1 или −1 (по умолчанию 1, противоположно M1).",
+        description="Направление канала M2: 1 или −1 (по умолчанию -1, противоположно M1).",
     )
 
     @field_validator("m1_direction", "m2_direction", mode="before")
@@ -368,8 +368,7 @@ class Settings(BaseSettings):
         validation_alias="HEADING_HOLD_INVERT_STEER",
         description=(
             "Инверсия знака руления для удержания курса. "
-            "При дефолтных M1_DIRECTION=-1 и M2_DIRECTION=1 оставьте false; "
-            "при классической паре 1/-1 часто нужно true — см. доку по моторам."
+            "При дефолтных M1_DIRECTION=1 и M2_DIRECTION=-1 оставьте false."
         ),
     )
     forward_soft_start_sec: float = Field(
@@ -443,9 +442,12 @@ class Settings(BaseSettings):
         ),
     )
     l2_accel_speed_fusion_enabled: bool = Field(
-        default=True,
+        default=False,
         validation_alias="L2_ACCEL_SPEED_FUSION_ENABLED",
-        description="Включить мягкую коррекцию скорости L2 по акселерометру.",
+        description=(
+            "Включить мягкую коррекцию скорости L2 по акселерометру. По умолчанию выключено: "
+            "на гусеничной базе вибрации легко разгоняют оценку координат."
+        ),
     )
     l2_accel_speed_blend_alpha: float = Field(
         default=0.05,
@@ -561,6 +563,13 @@ class Settings(BaseSettings):
         le=5.0,
         validation_alias="L2_STATE_SPACE_T_W",
         description="Постоянная времени T_w для МПС.",
+    )
+    l2_state_space_max_track_delta_percent: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=100.0,
+        validation_alias="L2_STATE_SPACE_MAX_TRACK_DELTA_PERCENT",
+        description="Максимальный скачок команды каждой гусеницы за один шаг МПС (%).",
     )
     l3_position_tolerance_cm: float = Field(
         default=5.0,

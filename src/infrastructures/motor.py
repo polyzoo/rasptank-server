@@ -46,8 +46,8 @@ class MotorController(MotorControllerProtocol):
     MOTOR_M2_IN2: int = 11
 
     # Дефолты для конструктора (на проде совпадают с Settings; можно переопределить).
-    _DEFAULT_M1_DIRECTION: int = -1
-    _DEFAULT_M2_DIRECTION: int = 1
+    _DEFAULT_M1_DIRECTION: int = 1
+    _DEFAULT_M2_DIRECTION: int = -1
 
     # Настройки PWM-контроллера PCA9685
     PWM_FREQUENCY: int = 50

@@ -29,6 +29,7 @@ class L2Service:
     DEFAULT_ACCEL_SPEED_LIMIT_FACTOR: ClassVar[float] = 1.2
     DEFAULT_STATE_SPACE_MAX_LINEAR_CORR_CM_PER_SEC: ClassVar[float] = 20.0
     DEFAULT_STATE_SPACE_MAX_ANGULAR_CORR_DEG_PER_SEC: ClassVar[float] = 90.0
+    DEFAULT_STATE_SPACE_MAX_TRACK_DELTA_PERCENT: ClassVar[float] = 5.0
 
     def __init__(
         self,
@@ -51,6 +52,7 @@ class L2Service:
         state_space_max_angular_corr_deg_per_sec: float = (
             DEFAULT_STATE_SPACE_MAX_ANGULAR_CORR_DEG_PER_SEC
         ),
+        state_space_max_track_delta_percent: float = DEFAULT_STATE_SPACE_MAX_TRACK_DELTA_PERCENT,
     ) -> None:
         """Сохранить составные части уровня L2."""
         self._kinematics: DifferentialDriveKinematics = kinematics
@@ -83,6 +85,10 @@ class L2Service:
         self._state_space_max_angular_corr_deg_per_sec: float = max(
             0.0,
             state_space_max_angular_corr_deg_per_sec,
+        )
+        self._state_space_max_track_delta_percent: float = max(
+            0.0,
+            state_space_max_track_delta_percent,
         )
 
     def enable_state_space_control(self, controller: L2StateSpaceController) -> None:
@@ -189,9 +195,10 @@ class L2Service:
         )
 
         normalized_command: TrackCommand = self._kinematics._normalize_track_command(base_command)
-        self._velocity_controller.send_track_command(normalized_command)
+        applied_command: TrackCommand = self._limit_track_delta(normalized_command)
+        self._velocity_controller.send_track_command(applied_command)
 
-        self._last_track_command = normalized_command
+        self._last_track_command = applied_command
         self._last_delta_u = v_cmd_corr  # Логируем коррекцию линейной скорости
 
         return self.get_state()
@@ -316,6 +323,29 @@ class L2Service:
     def _clamp(self, value: float, lower: float, upper: float) -> float:
         """Ограничить значение указанными пределами."""
         return max(lower, min(upper, value))
+
+    def _limit_track_delta(self, target: TrackCommand) -> TrackCommand:
+        """Ограничить скачок команд гусениц между соседними шагами МПС."""
+        max_delta = self._state_space_max_track_delta_percent
+        if max_delta <= 0.0:
+            return target
+
+        return TrackCommand(
+            left_percent=self._slew_value(
+                current=self._last_track_command.left_percent,
+                target=target.left_percent,
+                max_delta=max_delta,
+            ),
+            right_percent=self._slew_value(
+                current=self._last_track_command.right_percent,
+                target=target.right_percent,
+                max_delta=max_delta,
+            ),
+        )
+
+    def _slew_value(self, *, current: float, target: float, max_delta: float) -> float:
+        """Сдвинуть значение к цели не быстрее заданного шага."""
+        return current + self._clamp(target - current, -max_delta, max_delta)
 
     def _estimate_linear_speed_cm_per_sec(
         self,

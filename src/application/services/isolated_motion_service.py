@@ -30,6 +30,7 @@ class IsolatedMotionService:
 
     # WARNING, если полный sync L1→L2 занял столько миллисекунд и больше.
     SLOW_SYNC_L2_TOTAL_MS: ClassVar[float] = 350.0
+    MAX_SYNC_DT_SEC: ClassVar[float] = 0.25
 
     def __init__(
         self,
@@ -300,7 +301,10 @@ class IsolatedMotionService:
             self._last_sync_time_sec: float = now_sec
             return 0.0
 
-        actual_dt_sec: float = max(0.0, now_sec - self._last_sync_time_sec)
+        actual_dt_sec: float = min(
+            self.MAX_SYNC_DT_SEC,
+            max(0.0, now_sec - self._last_sync_time_sec),
+        )
         self._last_sync_time_sec: float = now_sec
         return actual_dt_sec
 
