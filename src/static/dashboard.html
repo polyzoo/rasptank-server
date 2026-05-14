@@ -152,6 +152,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            flex-direction: column;
+            gap: 1.5rem;
             overflow-x: auto;
         }
 
@@ -274,7 +276,19 @@
         }
         .matrix-5x5 { grid-template-columns: repeat(5, 1fr); }
         .matrix-5x2 { grid-template-columns: repeat(2, 1fr); }
+        .matrix-2x5 { grid-template-columns: repeat(5, 1fr); }
         .vector { grid-template-columns: 1fr; }
+
+        .state-space-box {
+            width: 100%;
+            justify-content: center;
+            font-size: 0.95rem;
+        }
+
+        .formula-label {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
 
         .math-val { color: var(--text-primary); font-weight: 500; }
         
@@ -427,6 +441,38 @@
                     <div class="matrix vector">
                         <span id="f-vdes" class="live-val">18.0</span>
                         <span id="f-omegades" class="live-val">0.0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="equation-box state-space-box">
+                <span class="formula-label">u</span>
+                <span class="operator">=</span>
+                <span class="operator">-</span>
+
+                <div class="matrix-wrap">
+                    <div class="matrix matrix-2x5 math-val">
+                        <span id="k00" class="live-val">—</span><span id="k01" class="live-val">—</span><span id="k02" class="live-val">—</span><span id="k03" class="live-val">—</span><span id="k04" class="live-val">—</span>
+                        <span id="k10" class="live-val">—</span><span id="k11" class="live-val">—</span><span id="k12" class="live-val">—</span><span id="k13" class="live-val">—</span><span id="k14" class="live-val">—</span>
+                    </div>
+                </div>
+
+                <div class="matrix-wrap active-vector">
+                    <div class="matrix vector">
+                        <span id="err-x" class="live-val">0.00</span>
+                        <span id="err-y" class="live-val">0.00</span>
+                        <span id="err-theta" class="live-val">0.00</span>
+                        <span id="err-v" class="live-val">0.00</span>
+                        <span id="err-omega" class="live-val">0.00</span>
+                    </div>
+                </div>
+
+                <span class="operator">=</span>
+
+                <div class="matrix-wrap">
+                    <div class="matrix vector">
+                        <span id="u-v" class="live-val">0.00</span>
+                        <span id="u-omega" class="live-val">0.00</span>
                     </div>
                 </div>
             </div>
@@ -588,6 +634,33 @@
         });
     }
 
+    function updateStateSpaceFormula(data) {
+        const k = data.state_space_gain_k;
+        if (Array.isArray(k)) {
+            k.forEach((row, rowIdx) => {
+                row.forEach((value, colIdx) => {
+                    const el = document.getElementById(`k${rowIdx}${colIdx}`);
+                    if (el) el.textContent = fmt(value, 2);
+                });
+            });
+        }
+
+        const errorIds = ['err-x', 'err-y', 'err-theta', 'err-v', 'err-omega'];
+        const errorState = data.state_space_error_x;
+        if (Array.isArray(errorState)) {
+            errorIds.forEach((id, i) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = fmt(errorState[i], 2);
+            });
+        }
+
+        const controlU = data.state_space_control_u;
+        if (Array.isArray(controlU)) {
+            document.getElementById('u-v').textContent = fmt(controlU[0], 2);
+            document.getElementById('u-omega').textContent = fmt(controlU[1], 2);
+        }
+    }
+
     function setMasterStatus(text, isActive) {
         const el = document.getElementById('masterStatus');
         el.textContent = text;
@@ -641,7 +714,7 @@
 
     connectWS('/v1/l2/ws', d => {
         pushData(chartL2, 0, d.linear_speed_cm_per_sec); pushData(chartL2, 1, d.left_percent); pushData(chartL2, 2, d.right_percent);
-        chartL2.update(); updateLiveVector(d); 
+        chartL2.update(); updateLiveVector(d); updateStateSpaceFormula(d);
     }, 'badge-l2');
 
     connectWS('/v1/l3/ws', d => {

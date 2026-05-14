@@ -29,6 +29,9 @@ def _to_response(state: L2State) -> L2StateResponseSchema:
         left_percent=state.left_percent,
         right_percent=state.right_percent,
         distance_cm=state.distance_cm,
+        state_space_gain_k=state.state_space_gain_k,
+        state_space_error_x=state.state_space_error_x,
+        state_space_control_u=state.state_space_control_u,
     )
 
 

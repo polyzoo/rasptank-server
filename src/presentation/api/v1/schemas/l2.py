@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+from typing import TypeAlias
+
 from pydantic import BaseModel, Field
+
+StateSpaceGainMatrix: TypeAlias = tuple[
+    tuple[float, float, float, float, float],
+    tuple[float, float, float, float, float],
+]
 
 
 class L2BodyVelocityRequestSchema(BaseModel):
@@ -34,6 +41,9 @@ class L2StateResponseSchema(BaseModel):
     left_percent: float
     right_percent: float
     distance_cm: float | None = None
+    state_space_gain_k: StateSpaceGainMatrix | None = None
+    state_space_error_x: tuple[float, float, float, float, float] | None = None
+    state_space_control_u: tuple[float, float] | None = None
 
 
 class StateSpaceConfigRequestSchema(BaseModel):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import ClassVar
 
 from src.application.services.kinematics import (
@@ -26,6 +27,8 @@ class L2Service:
     DEFAULT_GYRO_STATIONARY_THRESHOLD_DEG_PER_SEC: ClassVar[float] = 2.0
     DEFAULT_ACCEL_BIAS_LEARNING_RATE: ClassVar[float] = 0.02
     DEFAULT_ACCEL_SPEED_LIMIT_FACTOR: ClassVar[float] = 1.2
+    DEFAULT_STATE_SPACE_MAX_LINEAR_CORR_CM_PER_SEC: ClassVar[float] = 20.0
+    DEFAULT_STATE_SPACE_MAX_ANGULAR_CORR_DEG_PER_SEC: ClassVar[float] = 90.0
 
     def __init__(
         self,
@@ -42,6 +45,12 @@ class L2Service:
         ),
         accel_bias_learning_rate: float = DEFAULT_ACCEL_BIAS_LEARNING_RATE,
         accel_speed_limit_factor: float = DEFAULT_ACCEL_SPEED_LIMIT_FACTOR,
+        state_space_max_linear_corr_cm_per_sec: float = (
+            DEFAULT_STATE_SPACE_MAX_LINEAR_CORR_CM_PER_SEC
+        ),
+        state_space_max_angular_corr_deg_per_sec: float = (
+            DEFAULT_STATE_SPACE_MAX_ANGULAR_CORR_DEG_PER_SEC
+        ),
     ) -> None:
         """Сохранить составные части уровня L2."""
         self._kinematics: DifferentialDriveKinematics = kinematics
@@ -67,6 +76,14 @@ class L2Service:
         self._state_space_controller: L2StateSpaceController | None = None
         self._use_state_space: bool = False
         self._mps_heading_ref_deg: float | None = None
+        self._state_space_max_linear_corr_cm_per_sec: float = max(
+            0.0,
+            state_space_max_linear_corr_cm_per_sec,
+        )
+        self._state_space_max_angular_corr_deg_per_sec: float = max(
+            0.0,
+            state_space_max_angular_corr_deg_per_sec,
+        )
 
     def enable_state_space_control(self, controller: L2StateSpaceController) -> None:
         """Активировать управление на базе МПС (LQR)."""
@@ -90,7 +107,7 @@ class L2Service:
         else:
             self._state_space_controller.t_v = max(0.01, t_v)
             self._state_space_controller.t_w = max(0.01, t_w)
-            self._state_space_controller._K = None  # Принудительно пересчитать матрицу K
+            self._state_space_controller.reset_gains()
 
         self.enable_state_space_control(self._state_space_controller)
 
@@ -135,22 +152,32 @@ class L2Service:
         # Упрощенные ошибки состояния: пока удерживаем только курс и скорости.
         x_err, y_err = 0.0, 0.0
 
-        # Ошибка по курсу
-        half_turn, full_turn = 180.0, 360.0
-        angle_diff = self._mps_heading_ref_deg - pose.heading_deg
-        theta_err = ((angle_diff + half_turn) % full_turn) - half_turn
+        # Ошибка по курсу: actual - reference, в радианах для state-space модели.
+        theta_err_deg = self._normalize_angle_deg(pose.heading_deg - self._mps_heading_ref_deg)
+        theta_err_rad = math.radians(theta_err_deg)
 
-        # Ошибка по скоростям
-        v_err = v_des - pose.linear_speed_cm_per_sec
-        omega_err = omega_des - self._last_omega_gyro_deg_per_sec
+        # Ошибка по скоростям: actual - reference.
+        v_err = pose.linear_speed_cm_per_sec - v_des
+        omega_err_rad_per_sec = math.radians(self._last_omega_gyro_deg_per_sec - omega_des)
 
-        v_cmd_corr, omega_cmd_corr = controller.compute_control(
+        v_cmd_corr, omega_cmd_corr_rad_per_sec = controller.compute_control(
             x_err=x_err,
             y_err=y_err,
-            theta_err=theta_err,
+            theta_err_rad=theta_err_rad,
             v_err=v_err,
-            omega_err=omega_err,
+            omega_err_rad_per_sec=omega_err_rad_per_sec,
             v0=v_des if abs(v_des) > 1.0 else 1.0,  # Защита от 0 в знаменателе
+        )
+
+        v_cmd_corr = self._clamp(
+            v_cmd_corr,
+            -self._state_space_max_linear_corr_cm_per_sec,
+            self._state_space_max_linear_corr_cm_per_sec,
+        )
+        omega_cmd_corr = self._clamp(
+            math.degrees(omega_cmd_corr_rad_per_sec),
+            -self._state_space_max_angular_corr_deg_per_sec,
+            self._state_space_max_angular_corr_deg_per_sec,
         )
 
         final_v_cmd = v_des + v_cmd_corr
@@ -276,7 +303,19 @@ class L2Service:
         if snapshot.angular_speed_z_deg_per_sec is not None:
             self._last_omega_gyro_deg_per_sec = snapshot.angular_speed_z_deg_per_sec
 
+        if self._use_state_space and self._last_body_velocity_command is not None:
+            return self._apply_body_velocity_state_space(self._last_body_velocity_command)
+
         return self.get_state()
+
+    def _normalize_angle_deg(self, angle_deg: float) -> float:
+        """Нормализовать угол в диапазон [-180, 180)."""
+        half_turn, full_turn = 180.0, 360.0
+        return ((angle_deg + half_turn) % full_turn) - half_turn
+
+    def _clamp(self, value: float, lower: float, upper: float) -> float:
+        """Ограничить значение указанными пределами."""
+        return max(lower, min(upper, value))
 
     def _estimate_linear_speed_cm_per_sec(
         self,
@@ -351,6 +390,14 @@ class L2Service:
         if self._feedback_controller is not None:
             feedback_heading_ref_deg = self._feedback_controller.heading_ref_deg
 
+        state_space_gain_k = None
+        state_space_error_x = None
+        state_space_control_u = None
+        if self._use_state_space and self._state_space_controller is not None:
+            state_space_gain_k = self._state_space_controller.gain_matrix
+            state_space_error_x = self._state_space_controller.last_error_state
+            state_space_control_u = self._state_space_controller.last_control_u
+
         return L2State(
             x_cm=pose.x_cm,
             y_cm=pose.y_cm,
@@ -362,4 +409,7 @@ class L2Service:
             distance_cm=self._last_distance_cm,
             feedback_delta_u=self._last_delta_u,
             feedback_heading_ref_deg=feedback_heading_ref_deg,
+            state_space_gain_k=state_space_gain_k,
+            state_space_error_x=state_space_error_x,
+            state_space_control_u=state_space_control_u,
         )

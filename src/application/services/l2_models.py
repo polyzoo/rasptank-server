@@ -38,3 +38,9 @@ class L2State:
     distance_cm: float | None = None
     feedback_delta_u: float | None = None
     feedback_heading_ref_deg: float | None = None
+    state_space_gain_k: (
+        tuple[tuple[float, float, float, float, float], tuple[float, float, float, float, float]]
+        | None
+    ) = None
+    state_space_error_x: tuple[float, float, float, float, float] | None = None
+    state_space_control_u: tuple[float, float] | None = None

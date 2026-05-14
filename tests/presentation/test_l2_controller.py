@@ -42,6 +42,12 @@ class FakeIsolatedMotion:
             left_percent=6.0,
             right_percent=7.0,
             distance_cm=8.0,
+            state_space_gain_k=(
+                (1.0, 0.0, 0.0, 2.0, 0.0),
+                (0.0, 1.0, 3.0, 0.0, 4.0),
+            ),
+            state_space_error_x=(0.0, 0.0, 1.0, 2.0, 3.0),
+            state_space_control_u=(-2.0, -3.0),
         )
 
     def get_l2_state(self) -> L2State:
@@ -109,6 +115,9 @@ def test_l2_state_returns_current_snapshot() -> None:
 
         assert response.x_cm == 1.0
         assert response.distance_cm == 8.0
+        assert response.state_space_gain_k is not None
+        assert response.state_space_gain_k[1][4] == 4.0
+        assert response.state_space_control_u == (-2.0, -3.0)
 
     anyio.run(run)
 
@@ -175,5 +184,6 @@ def test_l2_ws_sends_state_snapshot() -> None:
 
         assert websocket.accepted is True
         assert websocket.sent[0]["heading_deg"] == 3.0
+        assert websocket.sent[0]["state_space_error_x"] == (0.0, 0.0, 1.0, 2.0, 3.0)
 
     anyio.run(run)

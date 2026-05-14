@@ -305,12 +305,19 @@ def test_apply_body_velocity_state_space(monkeypatch) -> None:
             self.t_v = t_v
             self.t_w = t_w
             self._K = None
+            self.gain_matrix = None
+            self.last_error_state = None
+            self.last_control_u = None
 
         def compute_control(self, **kwargs):
             return (1.0, 2.0)
 
+        def reset_gains(self):
+            self._K = None
+
     monkeypatch.setattr(
-        "src.application.services.l2_service.L2StateSpaceController", MockL2StateSpaceController
+        "src.application.services.l2_state_space_controller.L2StateSpaceController",
+        MockL2StateSpaceController,
     )
 
     service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
@@ -321,3 +328,78 @@ def test_apply_body_velocity_state_space(monkeypatch) -> None:
 
     assert state is not None
     assert service._mps_heading_ref_deg == 0.0
+
+
+def test_state_space_uses_actual_minus_reference_errors(monkeypatch) -> None:
+    service, motor = _service()
+    captured: dict[str, float] = {}
+
+    class MockL2StateSpaceController:
+        def __init__(self, t_v, t_w):
+            self.t_v = t_v
+            self.t_w = t_w
+            self._K = None
+            self.gain_matrix = None
+            self.last_error_state = None
+            self.last_control_u = None
+
+        def compute_control(self, **kwargs):
+            captured.update(kwargs)
+            return (2.0, 0.1)
+
+        def reset_gains(self):
+            self._K = None
+
+    monkeypatch.setattr(
+        "src.application.services.l2_state_space_controller.L2StateSpaceController",
+        MockL2StateSpaceController,
+    )
+
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    service.reset_state(heading_deg=10.0, linear_speed_cm_per_sec=5.0)
+    service.update_from_l1(L1SensorSnapshot(angular_speed_z_deg_per_sec=4.0), dt_sec=0.1)
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=6.0)
+    )
+
+    assert captured["theta_err_rad"] == pytest.approx(0.0)
+    assert captured["v_err"] == pytest.approx(-20.0)
+    assert captured["omega_err_rad_per_sec"] == pytest.approx(-0.034906585, rel=1e-6)
+    assert state.left_percent < state.right_percent
+    assert motor.commands[-1][0] < motor.commands[-1][1]
+
+
+def test_state_space_recomputes_after_l1_update(monkeypatch) -> None:
+    service, motor = _service()
+    calls: list[dict[str, float]] = []
+
+    class MockL2StateSpaceController:
+        def __init__(self, t_v, t_w):
+            self.t_v = t_v
+            self.t_w = t_w
+            self._K = None
+            self.gain_matrix = None
+            self.last_error_state = None
+            self.last_control_u = None
+
+        def compute_control(self, **kwargs):
+            calls.append(kwargs)
+            return (0.0, 0.0)
+
+        def reset_gains(self):
+            self._K = None
+
+    monkeypatch.setattr(
+        "src.application.services.l2_state_space_controller.L2StateSpaceController",
+        MockL2StateSpaceController,
+    )
+
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    service.apply_body_velocity(
+        BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
+    )
+    service.update_from_l1(L1SensorSnapshot(angular_speed_z_deg_per_sec=5.0), dt_sec=0.1)
+
+    assert len(calls) == 2
+    assert calls[1]["omega_err_rad_per_sec"] == pytest.approx(0.0872664626)
+    assert motor.commands[-1] == (50, 50)
