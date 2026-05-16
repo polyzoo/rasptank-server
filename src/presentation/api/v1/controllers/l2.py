@@ -30,7 +30,10 @@ def _to_response(state: L2State) -> L2StateResponseSchema:
         right_percent=state.right_percent,
         distance_cm=state.distance_cm,
         state_space_gain_k=state.state_space_gain_k,
+        state_space_real_x=state.state_space_real_x,
+        state_space_desired_x=state.state_space_desired_x,
         state_space_error_x=state.state_space_error_x,
+        state_space_target_ab=state.state_space_target_ab,
         state_space_control_u=state.state_space_control_u,
     )
 
@@ -54,6 +57,9 @@ async def l2_cmd_vel(
         isolated_motion.apply_l2_body_velocity,
         body.linear_speed_cm_per_sec,
         body.angular_speed_deg_per_sec,
+        body.target_x_cm,
+        body.target_y_cm,
+        body.nominal_linear_speed_cm_per_sec,
     )
     return _to_response(state)
 

@@ -129,6 +129,8 @@ def test_step_tracks_target_through_l2() -> None:
     assert len(l2_service.applied_commands) == 1
     assert l2_service.applied_commands[0].linear_speed_cm_per_sec == 20.0
     assert l2_service.applied_commands[0].angular_speed_deg_per_sec == 0.0
+    assert l2_service.applied_commands[0].target_x_cm == 50.0
+    assert l2_service.applied_commands[0].target_y_cm == 0.0
 
 
 def test_step_marks_target_reached_and_clears_it() -> None:

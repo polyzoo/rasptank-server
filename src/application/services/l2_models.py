@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+StateVector5 = tuple[float, float, float, float, float]
+
 
 @dataclass(frozen=True, slots=True)
 class BodyVelocityCommand:
@@ -9,6 +11,9 @@ class BodyVelocityCommand:
 
     linear_speed_cm_per_sec: float
     angular_speed_deg_per_sec: float
+    nominal_linear_speed_cm_per_sec: float | None = None
+    target_x_cm: float | None = None
+    target_y_cm: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,5 +47,8 @@ class L2State:
         tuple[tuple[float, float, float, float, float], tuple[float, float, float, float, float]]
         | None
     ) = None
-    state_space_error_x: tuple[float, float, float, float, float] | None = None
+    state_space_real_x: StateVector5 | None = None
+    state_space_desired_x: StateVector5 | None = None
+    state_space_error_x: StateVector5 | None = None
+    state_space_target_ab: tuple[float, float] | None = None
     state_space_control_u: tuple[float, float] | None = None

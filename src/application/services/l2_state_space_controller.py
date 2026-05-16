@@ -52,6 +52,8 @@ class L2StateSpaceController:
 
         self._K: np.ndarray | None = None
         self._last_v0: float | None = None
+        self._last_real_state: np.ndarray | None = None
+        self._last_desired_state: np.ndarray | None = None
         self._last_error_state: np.ndarray | None = None
         self._last_control_u: np.ndarray | None = None
 
@@ -103,11 +105,13 @@ class L2StateSpaceController:
         v_err: float,
         omega_err_rad_per_sec: float,
         v0: float,
+        real_state: tuple[float, float, float, float, float] | None = None,
+        desired_state: tuple[float, float, float, float, float] | None = None,
     ) -> tuple[float, float]:
         """Вычислить корректировки v_cmd и omega_cmd_rad_s по ошибке состояния.
 
-        Вектор ошибки задаётся как actual - reference, поэтому стабилизирующее
-        управление рассчитывается стандартно: u = -Kx.
+        Вектор ошибки задаётся как reference - actual, поэтому корректирующее
+        управление рассчитывается как u = Kx.
         """
         if not SCIPY_AVAILABLE or self.Q is None or self.R is None:
             return 0.0, 0.0
@@ -116,11 +120,17 @@ class L2StateSpaceController:
         if self._K is None or self._last_v0 is None or abs(self._last_v0 - v0) > 0.5:
             self.compute_gains(v0)
 
-        # Вектор ошибки состояний
+        # Вектор ошибки состояний: X = X* - X_real.
         error_state = np.array([x_err, y_err, theta_err_rad, v_err, omega_err_rad_per_sec])
 
-        # Управляющее воздействие: u = -K * e
-        u = -self._K @ error_state
+        # Управляющее воздействие: u = K * X.
+        u = self._K @ error_state
+        self._last_real_state = (
+            np.array(real_state, dtype=float) if real_state is not None else None
+        )
+        self._last_desired_state = (
+            np.array(desired_state, dtype=float) if desired_state is not None else None
+        )
         self._last_error_state = error_state
         self._last_control_u = u
 
@@ -142,6 +152,20 @@ class L2StateSpaceController:
         if self._last_error_state is None:
             return None
         return tuple(float(value) for value in self._last_error_state)  # type: ignore[return-value]
+
+    @property
+    def last_real_state(self) -> tuple[float, float, float, float, float] | None:
+        """Вернуть последний реальный вектор состояния X_real."""
+        if self._last_real_state is None:
+            return None
+        return tuple(float(value) for value in self._last_real_state)  # type: ignore[return-value]
+
+    @property
+    def last_desired_state(self) -> tuple[float, float, float, float, float] | None:
+        """Вернуть последний желаемый вектор состояния X*."""
+        if self._last_desired_state is None:
+            return None
+        return tuple(float(value) for value in self._last_desired_state)  # type: ignore[return-value]
 
     @property
     def last_control_u(self) -> tuple[float, float] | None:

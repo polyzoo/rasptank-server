@@ -331,7 +331,7 @@ def test_apply_body_velocity_state_space(monkeypatch) -> None:
     assert service._mps_heading_ref_deg == 0.0
 
 
-def test_state_space_uses_actual_minus_reference_errors(monkeypatch) -> None:
+def test_state_space_uses_reference_minus_actual_errors(monkeypatch) -> None:
     service, motor = _service()
     captured: dict[str, float] = {}
 
@@ -365,10 +365,172 @@ def test_state_space_uses_actual_minus_reference_errors(monkeypatch) -> None:
     )
 
     assert captured["theta_err_rad"] == pytest.approx(0.0)
-    assert captured["v_err"] == pytest.approx(-20.0)
-    assert captured["omega_err_rad_per_sec"] == pytest.approx(-0.034906585, rel=1e-6)
+    assert captured["v_err"] == pytest.approx(20.0)
+    assert captured["omega_err_rad_per_sec"] == pytest.approx(0.034906585, rel=1e-6)
     assert state.left_percent < state.right_percent
     assert motor.commands[-1][0] < motor.commands[-1][1]
+
+
+def test_state_space_does_not_boost_linear_speed_above_desired(monkeypatch) -> None:
+    service, motor = _service()
+
+    class MockL2StateSpaceController:
+        def __init__(self, t_v, t_w):
+            self.t_v = t_v
+            self.t_w = t_w
+            self._K = None
+            self.gain_matrix = None
+            self.last_error_state = None
+            self.last_control_u = None
+
+        def compute_control(self, **kwargs):
+            return (200.0, 0.0)
+
+        def reset_gains(self):
+            self._K = None
+
+    monkeypatch.setattr(
+        "src.application.services.l2_state_space_controller.L2StateSpaceController",
+        MockL2StateSpaceController,
+    )
+    service._state_space_max_track_delta_percent = 0.0
+    service._state_space_min_moving_track_percent = 0.0
+
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(
+            linear_speed_cm_per_sec=10.0,
+            angular_speed_deg_per_sec=0.0,
+            target_x_cm=100.0,
+            target_y_cm=0.0,
+        )
+    )
+
+    assert motor.commands[-1] == (25, 25)
+    assert state.left_percent == pytest.approx(25.0)
+    assert state.right_percent == pytest.approx(25.0)
+
+
+def test_state_space_linear_speed_cap_handles_reverse_and_zero() -> None:
+    service, _ = _service()
+
+    assert service._cap_linear_speed_to_desired(
+        desired_linear_speed_cm_per_sec=-10.0,
+        corrected_linear_speed_cm_per_sec=-30.0,
+    ) == pytest.approx(-10.0)
+    assert service._cap_linear_speed_to_desired(
+        desired_linear_speed_cm_per_sec=-10.0,
+        corrected_linear_speed_cm_per_sec=5.0,
+    ) == pytest.approx(0.0)
+    assert service._cap_linear_speed_to_desired(
+        desired_linear_speed_cm_per_sec=0.0,
+        corrected_linear_speed_cm_per_sec=10.0,
+    ) == pytest.approx(0.0)
+
+
+def test_state_space_builds_screenshot_state_vector_from_target(monkeypatch) -> None:
+    service, motor = _service()
+    captured: dict[str, object] = {}
+
+    class MockL2StateSpaceController:
+        def __init__(self, t_v, t_w):
+            self.t_v = t_v
+            self.t_w = t_w
+            self._K = None
+            self.gain_matrix = None
+            self.last_error_state = None
+            self.last_control_u = None
+
+        def compute_control(self, **kwargs):
+            captured.update(kwargs)
+            return (0.0, 0.0)
+
+        def reset_gains(self):
+            self._K = None
+
+    monkeypatch.setattr(
+        "src.application.services.l2_state_space_controller.L2StateSpaceController",
+        MockL2StateSpaceController,
+    )
+    service._state_space_max_track_delta_percent = 0.0
+
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    service.reset_state(x_cm=10.0, y_cm=20.0, heading_deg=0.0)
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(
+            linear_speed_cm_per_sec=20.0,
+            angular_speed_deg_per_sec=0.0,
+            nominal_linear_speed_cm_per_sec=18.0,
+            target_x_cm=40.0,
+            target_y_cm=60.0,
+        )
+    )
+
+    assert captured["x_err"] == pytest.approx(0.0)
+    assert captured["y_err"] == pytest.approx(-10.17206231)
+    assert captured["theta_err_rad"] == pytest.approx(0.982793723, rel=1e-6)
+    assert captured["v_err"] == pytest.approx(20.0)
+    assert captured["omega_err_rad_per_sec"] == pytest.approx(0.0)
+    assert captured["v0"] == pytest.approx(18.0)
+    assert captured["real_state"] == pytest.approx((10.0, 20.0, 0.0, 0.0, 0.0))
+    assert captured["desired_state"] == pytest.approx(
+        (10.0, 9.82793723, 0.982793723, 20.0, 0.0)
+    )
+    assert state.state_space_target_ab == pytest.approx((60.0, 40.0))
+
+
+def test_state_space_desired_line_state_calculates_x_star_from_line() -> None:
+    service, _ = _service()
+    service.reset_state(x_cm=10.0, y_cm=20.0)
+    pose = service._pose_estimator.snapshot()
+
+    desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm = service._state_space_desired_line_state(
+        pose=pose,
+        target_x_cm=40.0,
+        target_y_cm=60.0,
+    )
+
+    assert desired_x_cm == pytest.approx(10.0)
+    assert desired_y_cm == pytest.approx(9.82793723)
+    assert theta_des_deg == pytest.approx(56.30993247)
+    assert a_cm == pytest.approx(60.0)
+    assert b_cm == pytest.approx(40.0)
+
+
+def test_state_space_desired_line_state_handles_vertical_line() -> None:
+    service, _ = _service()
+    service.reset_state(x_cm=10.0, y_cm=20.0)
+    pose = service._pose_estimator.snapshot()
+
+    desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm = service._state_space_desired_line_state(
+        pose=pose,
+        target_x_cm=0.0,
+        target_y_cm=60.0,
+    )
+
+    assert desired_x_cm == pytest.approx(10.0)
+    assert desired_y_cm == pytest.approx(15.70796327)
+    assert theta_des_deg == pytest.approx(90.0)
+    assert a_cm == pytest.approx(60.0)
+    assert b_cm == pytest.approx(0.0)
+
+
+def test_state_space_desired_line_state_keeps_horizontal_x_star_near_real_x() -> None:
+    service, _ = _service()
+    service.reset_state(x_cm=17.0, y_cm=-0.06)
+    pose = service._pose_estimator.snapshot()
+
+    desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm = service._state_space_desired_line_state(
+        pose=pose,
+        target_x_cm=100000.0,
+        target_y_cm=0.0,
+    )
+
+    assert desired_x_cm == pytest.approx(17.0)
+    assert desired_y_cm == pytest.approx(0.0)
+    assert theta_des_deg == pytest.approx(0.0)
+    assert a_cm == pytest.approx(0.0)
+    assert b_cm == pytest.approx(100000.0)
 
 
 def test_state_space_recomputes_after_l1_update(monkeypatch) -> None:
@@ -404,7 +566,7 @@ def test_state_space_recomputes_after_l1_update(monkeypatch) -> None:
     service.update_from_l1(L1SensorSnapshot(angular_speed_z_deg_per_sec=5.0), dt_sec=0.1)
 
     assert len(calls) == 2
-    assert calls[1]["omega_err_rad_per_sec"] == pytest.approx(0.0872664626)
+    assert calls[1]["omega_err_rad_per_sec"] == pytest.approx(-0.0872664626)
     assert motor.commands[-1] == (50, 50)
 
 

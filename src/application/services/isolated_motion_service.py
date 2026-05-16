@@ -201,6 +201,9 @@ class IsolatedMotionService:
         self,
         linear_speed_cm_per_sec: float,
         angular_speed_deg_per_sec: float,
+        target_x_cm: float | None = None,
+        target_y_cm: float | None = None,
+        nominal_linear_speed_cm_per_sec: float | None = None,
     ) -> L2State:
         """Передать желаемую скорость корпуса в L2."""
         with self._state_lock:
@@ -208,6 +211,9 @@ class IsolatedMotionService:
                 BodyVelocityCommand(
                     linear_speed_cm_per_sec=linear_speed_cm_per_sec,
                     angular_speed_deg_per_sec=angular_speed_deg_per_sec,
+                    nominal_linear_speed_cm_per_sec=nominal_linear_speed_cm_per_sec,
+                    target_x_cm=target_x_cm,
+                    target_y_cm=target_y_cm,
                 )
             )
 

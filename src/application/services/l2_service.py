@@ -31,6 +31,7 @@ class L2Service:
     DEFAULT_STATE_SPACE_MAX_ANGULAR_CORR_DEG_PER_SEC: ClassVar[float] = 90.0
     DEFAULT_STATE_SPACE_MAX_TRACK_DELTA_PERCENT: ClassVar[float] = 5.0
     DEFAULT_STATE_SPACE_MIN_MOVING_TRACK_PERCENT: ClassVar[float] = 15.0
+    STATE_SPACE_LINE_EPSILON_CM: ClassVar[float] = 1e-6
 
     def __init__(
         self,
@@ -82,6 +83,7 @@ class L2Service:
         self._state_space_controller: L2StateSpaceController | None = None
         self._use_state_space: bool = False
         self._mps_heading_ref_deg: float | None = None
+        self._last_state_space_target_ab: tuple[float, float] | None = None
         self._state_space_max_linear_corr_cm_per_sec: float = max(
             0.0,
             state_space_max_linear_corr_cm_per_sec,
@@ -162,17 +164,50 @@ class L2Service:
 
         v_des = command.linear_speed_cm_per_sec
         omega_des = command.angular_speed_deg_per_sec
+        v0 = self._state_space_nominal_speed(command)
+        omega_real_deg_per_sec = self._last_omega_gyro_deg_per_sec
 
-        # Упрощенные ошибки состояния: пока удерживаем только курс и скорости.
-        x_err, y_err = 0.0, 0.0
+        real_state = (
+            pose.x_cm,
+            pose.y_cm,
+            math.radians(pose.heading_deg),
+            pose.linear_speed_cm_per_sec,
+            math.radians(omega_real_deg_per_sec),
+        )
 
-        # Ошибка по курсу: actual - reference, в радианах для state-space модели.
-        theta_err_deg = self._normalize_angle_deg(pose.heading_deg - self._mps_heading_ref_deg)
-        theta_err_rad = math.radians(theta_err_deg)
+        target_ab: tuple[float, float] | None = None
+        if command.target_x_cm is not None and command.target_y_cm is not None:
+            desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm = (
+                self._state_space_desired_line_state(
+                    pose=pose,
+                    target_x_cm=command.target_x_cm,
+                    target_y_cm=command.target_y_cm,
+                )
+            )
+            target_ab = (a_cm, b_cm)
+            desired_state = (
+                desired_x_cm,
+                desired_y_cm,
+                math.radians(theta_des_deg),
+                v_des,
+                0.0,
+            )
+        else:
+            desired_state = (
+                pose.x_cm,
+                pose.y_cm,
+                math.radians(self._mps_heading_ref_deg),
+                v_des,
+                math.radians(omega_des),
+            )
 
-        # Ошибка по скоростям: actual - reference.
-        v_err = pose.linear_speed_cm_per_sec - v_des
-        omega_err_rad_per_sec = math.radians(self._last_omega_gyro_deg_per_sec - omega_des)
+        x_err = desired_state[0] - real_state[0]
+        y_err = desired_state[1] - real_state[1]
+        theta_err_rad = math.radians(
+            self._normalize_angle_deg(math.degrees(desired_state[2]) - math.degrees(real_state[2]))
+        )
+        v_err = desired_state[3] - real_state[3]
+        omega_err_rad_per_sec = desired_state[4] - real_state[4]
 
         v_cmd_corr, omega_cmd_corr_rad_per_sec = controller.compute_control(
             x_err=x_err,
@@ -180,8 +215,11 @@ class L2Service:
             theta_err_rad=theta_err_rad,
             v_err=v_err,
             omega_err_rad_per_sec=omega_err_rad_per_sec,
-            v0=v_des if abs(v_des) > 1.0 else 1.0,  # Защита от 0 в знаменателе
+            v0=v0,
+            real_state=real_state,
+            desired_state=desired_state,
         )
+        self._last_state_space_target_ab = target_ab
 
         v_cmd_corr = self._clamp(
             v_cmd_corr,
@@ -194,7 +232,10 @@ class L2Service:
             self._state_space_max_angular_corr_deg_per_sec,
         )
 
-        final_v_cmd = v_des + v_cmd_corr
+        final_v_cmd = self._cap_linear_speed_to_desired(
+            desired_linear_speed_cm_per_sec=v_des,
+            corrected_linear_speed_cm_per_sec=v_des + v_cmd_corr,
+        )
         final_omega_cmd = omega_des + omega_cmd_corr
 
         base_command: TrackCommand = self._velocity_controller.compute_command(
@@ -255,6 +296,7 @@ class L2Service:
         self._last_delta_u = None
         self._last_body_velocity_command = None
         self._mps_heading_ref_deg = None
+        self._last_state_space_target_ab = None
         if self._feedback_controller is not None:
             self._feedback_controller.reset()
         return self.get_state()
@@ -280,6 +322,7 @@ class L2Service:
         self._last_delta_u = None
         self._last_body_velocity_command = None
         self._mps_heading_ref_deg = None
+        self._last_state_space_target_ab = None
         if self._feedback_controller is not None:
             self._feedback_controller.reset()
         return self.get_state()
@@ -331,6 +374,56 @@ class L2Service:
     def _clamp(self, value: float, lower: float, upper: float) -> float:
         """Ограничить значение указанными пределами."""
         return max(lower, min(upper, value))
+
+    def _cap_linear_speed_to_desired(
+        self,
+        *,
+        desired_linear_speed_cm_per_sec: float,
+        corrected_linear_speed_cm_per_sec: float,
+    ) -> float:
+        """Не давать МПС разгонять корпус быстрее заданной пользователем скорости."""
+        if desired_linear_speed_cm_per_sec > 0.0:
+            return self._clamp(
+                corrected_linear_speed_cm_per_sec,
+                0.0,
+                desired_linear_speed_cm_per_sec,
+            )
+        if desired_linear_speed_cm_per_sec < 0.0:
+            return self._clamp(
+                corrected_linear_speed_cm_per_sec,
+                desired_linear_speed_cm_per_sec,
+                0.0,
+            )
+        return 0.0
+
+    def _state_space_nominal_speed(self, command: BodyVelocityCommand) -> float:
+        """Выбрать скорость v0 для линеаризации МПС."""
+        speed = (
+            command.nominal_linear_speed_cm_per_sec
+            if command.nominal_linear_speed_cm_per_sec is not None
+            else command.linear_speed_cm_per_sec
+        )
+        return speed if abs(speed) > 1.0 else 1.0
+
+    def _state_space_desired_line_state(
+        self,
+        *,
+        pose: PoseEstimate,
+        target_x_cm: float,
+        target_y_cm: float,
+    ) -> tuple[float, float, float, float, float]:
+        """Рассчитать X* для МПС по прямой из скриншота."""
+        b_cm = target_x_cm
+        a_cm = target_y_cm
+        theta_des_rad = math.atan2(a_cm, b_cm)
+        theta_des_deg = math.degrees(theta_des_rad)
+
+        desired_x_cm = pose.x_cm
+        if abs(theta_des_rad) <= self.STATE_SPACE_LINE_EPSILON_CM:
+            return desired_x_cm, 0.0, theta_des_deg, a_cm, b_cm
+
+        desired_y_cm = theta_des_rad * desired_x_cm
+        return desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm
 
     def _limit_track_delta(self, target: TrackCommand) -> TrackCommand:
         """Ограничить скачок команд гусениц между соседними шагами МПС."""
@@ -460,11 +553,21 @@ class L2Service:
             feedback_heading_ref_deg = self._feedback_controller.heading_ref_deg
 
         state_space_gain_k = None
+        state_space_real_x = None
+        state_space_desired_x = None
         state_space_error_x = None
+        state_space_target_ab = None
         state_space_control_u = None
         if self._use_state_space and self._state_space_controller is not None:
             state_space_gain_k = self._state_space_controller.gain_matrix
+            state_space_real_x = getattr(self._state_space_controller, "last_real_state", None)
+            state_space_desired_x = getattr(
+                self._state_space_controller,
+                "last_desired_state",
+                None,
+            )
             state_space_error_x = self._state_space_controller.last_error_state
+            state_space_target_ab = getattr(self, "_last_state_space_target_ab", None)
             state_space_control_u = self._state_space_controller.last_control_u
 
         return L2State(
@@ -479,6 +582,9 @@ class L2Service:
             feedback_delta_u=self._last_delta_u,
             feedback_heading_ref_deg=feedback_heading_ref_deg,
             state_space_gain_k=state_space_gain_k,
+            state_space_real_x=state_space_real_x,
+            state_space_desired_x=state_space_desired_x,
             state_space_error_x=state_space_error_x,
+            state_space_target_ab=state_space_target_ab,
             state_space_control_u=state_space_control_u,
         )

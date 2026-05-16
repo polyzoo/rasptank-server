@@ -30,7 +30,7 @@ class FakeIsolatedMotion:
     def __init__(self) -> None:
         """Подготовить состояние вызовов."""
         self.update_interval_sec: float = 0.01
-        self.cmd_vel_calls: list[tuple[float, float]] = []
+        self.cmd_vel_calls: list[tuple[float, float, float | None, float | None]] = []
         self.stop_calls: int = 0
         self.reset_calls: list[dict[str, float]] = []
         self.state: L2State = L2State(
@@ -47,6 +47,9 @@ class FakeIsolatedMotion:
                 (0.0, 1.0, 3.0, 0.0, 4.0),
             ),
             state_space_error_x=(0.0, 0.0, 1.0, 2.0, 3.0),
+            state_space_real_x=(1.0, 2.0, 0.1, 4.0, 0.2),
+            state_space_desired_x=(10.0, 20.0, 0.3, 6.0, 0.0),
+            state_space_target_ab=(18.0, 9.0),
             state_space_control_u=(-2.0, -3.0),
         )
 
@@ -58,9 +61,20 @@ class FakeIsolatedMotion:
         self,
         linear_speed_cm_per_sec: float,
         angular_speed_deg_per_sec: float,
+        target_x_cm: float | None = None,
+        target_y_cm: float | None = None,
+        nominal_linear_speed_cm_per_sec: float | None = None,
     ) -> L2State:
         """Сохранить команду корпуса."""
-        self.cmd_vel_calls.append((linear_speed_cm_per_sec, angular_speed_deg_per_sec))
+        self.cmd_vel_calls.append(
+            (
+                linear_speed_cm_per_sec,
+                angular_speed_deg_per_sec,
+                target_x_cm,
+                target_y_cm,
+                nominal_linear_speed_cm_per_sec,
+            )
+        )
         return self.state
 
     def stop_l2(self) -> L2State:
@@ -117,6 +131,8 @@ def test_l2_state_returns_current_snapshot() -> None:
         assert response.distance_cm == 8.0
         assert response.state_space_gain_k is not None
         assert response.state_space_gain_k[1][4] == 4.0
+        assert response.state_space_desired_x == (10.0, 20.0, 0.3, 6.0, 0.0)
+        assert response.state_space_target_ab == (18.0, 9.0)
         assert response.state_space_control_u == (-2.0, -3.0)
 
     anyio.run(run)
@@ -133,6 +149,9 @@ def test_l2_cmd_vel_stop_and_reset_forward_commands() -> None:
             body=L2BodyVelocityRequestSchema(
                 linear_speed_cm_per_sec=10.0,
                 angular_speed_deg_per_sec=20.0,
+                nominal_linear_speed_cm_per_sec=18.0,
+                target_x_cm=30.0,
+                target_y_cm=40.0,
             ),
             isolated_motion=isolated_motion,  # type: ignore[arg-type]
         )
@@ -145,7 +164,7 @@ def test_l2_cmd_vel_stop_and_reset_forward_commands() -> None:
         assert cmd_response.left_percent == 6.0
         assert stop_response.right_percent == 7.0
         assert reset_response.heading_deg == 3.0
-        assert isolated_motion.cmd_vel_calls == [(10.0, 20.0)]
+        assert isolated_motion.cmd_vel_calls == [(10.0, 20.0, 30.0, 40.0, 18.0)]
         assert isolated_motion.stop_calls == 1
         assert isolated_motion.reset_calls[0]["heading_deg"] == 7.0
 

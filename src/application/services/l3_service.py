@@ -260,6 +260,8 @@ class L3Service:
         body_velocity_command: BodyVelocityCommand = BodyVelocityCommand(
             linear_speed_cm_per_sec=tracking_command.command.linear_speed_cm_per_sec,
             angular_speed_deg_per_sec=tracking_command.command.angular_speed_deg_per_sec,
+            target_x_cm=current_target.x_cm,
+            target_y_cm=current_target.y_cm,
         )
         updated_state: L2State = self._l2_service.apply_body_velocity(body_velocity_command)
         new_tracking_state: L3State = self._build_state(

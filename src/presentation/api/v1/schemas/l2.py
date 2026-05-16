@@ -14,10 +14,16 @@ class L2BodyVelocityRequestSchema(BaseModel):
     """Запрос желаемой линейной и угловой скорости корпуса."""
 
     linear_speed_cm_per_sec: float = Field(..., description="Желаемая линейная скорость корпуса.")
+    nominal_linear_speed_cm_per_sec: float | None = Field(
+        None,
+        description="Номинальная скорость v0 для линеаризации МПС.",
+    )
     angular_speed_deg_per_sec: float = Field(
         ...,
         description="Желаемая угловая скорость корпуса.",
     )
+    target_x_cm: float | None = Field(None, description="Целевая координата X для МПС.")
+    target_y_cm: float | None = Field(None, description="Целевая координата Y для МПС.")
 
 
 class L2ResetStateRequestSchema(BaseModel):
@@ -42,7 +48,10 @@ class L2StateResponseSchema(BaseModel):
     right_percent: float
     distance_cm: float | None = None
     state_space_gain_k: StateSpaceGainMatrix | None = None
+    state_space_real_x: tuple[float, float, float, float, float] | None = None
+    state_space_desired_x: tuple[float, float, float, float, float] | None = None
     state_space_error_x: tuple[float, float, float, float, float] | None = None
+    state_space_target_ab: tuple[float, float] | None = None
     state_space_control_u: tuple[float, float] | None = None
 
 

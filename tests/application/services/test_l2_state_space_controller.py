@@ -65,6 +65,29 @@ def test_compute_control():
     assert controller.last_control_u == (v_cmd, omega_cmd)
 
 
+def test_compute_control_stores_real_and_desired_states() -> None:
+    if not SCIPY_AVAILABLE:
+        pytest.skip("scipy is not available")
+
+    controller = L2StateSpaceController(t_v=0.8, t_w=0.55)
+    real_state = (1.0, 2.0, 0.1, 3.0, 0.2)
+    desired_state = (10.0, 20.0, 0.3, 12.0, 0.0)
+
+    controller.compute_control(
+        x_err=9.0,
+        y_err=18.0,
+        theta_err_rad=0.2,
+        v_err=9.0,
+        omega_err_rad_per_sec=-0.2,
+        v0=12.0,
+        real_state=real_state,
+        desired_state=desired_state,
+    )
+
+    assert controller.last_real_state == real_state
+    assert controller.last_desired_state == desired_state
+
+
 def test_control_signs_reduce_speed_and_omega_errors() -> None:
     if not SCIPY_AVAILABLE:
         pytest.skip("scipy is not available")
@@ -75,7 +98,7 @@ def test_control_signs_reduce_speed_and_omega_errors() -> None:
         x_err=0.0,
         y_err=0.0,
         theta_err_rad=0.0,
-        v_err=-5.0,
+        v_err=5.0,
         omega_err_rad_per_sec=0.0,
         v0=10.0,
     )
@@ -84,7 +107,7 @@ def test_control_signs_reduce_speed_and_omega_errors() -> None:
         y_err=0.0,
         theta_err_rad=0.0,
         v_err=0.0,
-        omega_err_rad_per_sec=0.3,
+        omega_err_rad_per_sec=-0.3,
         v0=10.0,
     )
 
@@ -147,9 +170,9 @@ def test_lqr_stabilizes_first_order_speed_and_heading_model() -> None:
         v_corr, omega_corr = controller.compute_control(
             x_err=0.0,
             y_err=0.0,
-            theta_err_rad=state.theta_rad,
-            v_err=state.linear_speed_cm_per_sec - desired_v,
-            omega_err_rad_per_sec=state.angular_speed_rad_per_sec - desired_omega,
+            theta_err_rad=-state.theta_rad,
+            v_err=desired_v - state.linear_speed_cm_per_sec,
+            omega_err_rad_per_sec=desired_omega - state.angular_speed_rad_per_sec,
             v0=desired_v,
         )
         v_cmd = desired_v + max(-20.0, min(20.0, v_corr))
@@ -172,6 +195,8 @@ def test_diagnostic_properties_are_none_before_first_control() -> None:
     controller = L2StateSpaceController(t_v=0.8, t_w=0.55)
 
     assert controller.gain_matrix is None
+    assert controller.last_real_state is None
+    assert controller.last_desired_state is None
     assert controller.last_error_state is None
     assert controller.last_control_u is None
 

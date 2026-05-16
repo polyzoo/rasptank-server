@@ -368,6 +368,23 @@
 
             <div class="grid-2">
                 <div class="form-group">
+                    <label>Цель X</label>
+                    <div class="input-wrap">
+                        <input type="number" id="targetXParam" step="1" value="100">
+                        <span class="unit">см</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Цель Y</label>
+                    <div class="input-wrap">
+                        <input type="number" id="targetYParam" step="1" value="0">
+                        <span class="unit">см</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="form-group">
                     <label>Линейная инерция</label>
                     <div class="input-wrap">
                         <input type="number" id="tvParam" min="0.01" step="0.01" value="0.80">
@@ -445,9 +462,59 @@
             </div>
 
             <div class="equation-box state-space-box">
-                <span class="formula-label">u</span>
+                <span>a,b</span>
                 <span class="operator">=</span>
-                <span class="operator">-</span>
+
+                <div class="matrix-wrap">
+                    <div class="matrix vector">
+                        <span id="target-a" class="live-val">—</span>
+                        <span id="target-b" class="live-val">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="equation-box state-space-box">
+                <span>ΔX = X* - X</span>
+                <span class="operator">=</span>
+
+                <div class="matrix-wrap active-vector">
+                    <div class="matrix vector">
+                        <span id="desired-x" class="live-val">—</span>
+                        <span id="desired-y" class="live-val">—</span>
+                        <span id="desired-theta" class="live-val">—</span>
+                        <span id="desired-v" class="live-val">—</span>
+                        <span id="desired-omega" class="live-val">—</span>
+                    </div>
+                </div>
+
+                <span class="operator">−</span>
+
+                <div class="matrix-wrap active-vector">
+                    <div class="matrix vector">
+                        <span id="real-x" class="live-val">—</span>
+                        <span id="real-y" class="live-val">—</span>
+                        <span id="real-theta" class="live-val">—</span>
+                        <span id="real-v" class="live-val">—</span>
+                        <span id="real-omega" class="live-val">—</span>
+                    </div>
+                </div>
+
+                <span class="operator">=</span>
+
+                <div class="matrix-wrap active-vector">
+                    <div class="matrix vector">
+                        <span id="delta-x" class="live-val">—</span>
+                        <span id="delta-y" class="live-val">—</span>
+                        <span id="delta-theta" class="live-val">—</span>
+                        <span id="delta-v" class="live-val">—</span>
+                        <span id="delta-omega" class="live-val">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="equation-box state-space-box">
+                <span>u</span>
+                <span class="operator">=</span>
 
                 <div class="matrix-wrap">
                     <div class="matrix matrix-2x5 math-val">
@@ -656,10 +723,52 @@
             });
         }
 
+        const targetAb = data.state_space_target_ab;
+        if (Array.isArray(targetAb)) {
+            document.getElementById('target-a').textContent = fmt(targetAb[0], 2);
+            document.getElementById('target-b').textContent = fmt(targetAb[1], 2);
+        } else {
+            document.getElementById('target-a').textContent = '—';
+            document.getElementById('target-b').textContent = '—';
+        }
+
+        updateVectorValues(
+            ['desired-x', 'desired-y', 'desired-theta', 'desired-v', 'desired-omega'],
+            data.state_space_desired_x,
+            true,
+        );
+        updateVectorValues(
+            ['real-x', 'real-y', 'real-theta', 'real-v', 'real-omega'],
+            data.state_space_real_x,
+            true,
+        );
+        updateVectorValues(
+            ['delta-x', 'delta-y', 'delta-theta', 'delta-v', 'delta-omega'],
+            errorState,
+            true,
+        );
+
         const controlU = data.state_space_control_u;
         if (Array.isArray(controlU)) {
             document.getElementById('u-v').textContent = fmt(controlU[0], 2);
             document.getElementById('u-omega').textContent = fmt(controlU[1], 2);
+        }
+    }
+
+    function updateVectorValues(ids, values, anglesInRadians = false) {
+        if (Array.isArray(values)) {
+            ids.forEach((id, i) => {
+                const el = document.getElementById(id);
+                const value = anglesInRadians && (i === 2 || i === 4)
+                    ? values[i] * 180 / Math.PI
+                    : values[i];
+                if (el) el.textContent = fmt(value, 2);
+            });
+        } else {
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = '—';
+            });
         }
     }
 
@@ -681,8 +790,11 @@
     }
 
     document.getElementById('startMotion').onclick = async () => {
+        const v0 = parseFloat(document.getElementById('v0Param').value) || 0;
         const vDes = parseFloat(document.getElementById('vDesParam').value) || 0;
         const omegaDes = parseFloat(document.getElementById('omega0Param').value) || 0;
+        const targetX = parseFloat(document.getElementById('targetXParam').value);
+        const targetY = parseFloat(document.getElementById('targetYParam').value);
         const tv = parseFloat(document.getElementById('tvParam').value) || 0.8;
         const tw = parseFloat(document.getElementById('twParam').value) || 0.55;
 
@@ -703,7 +815,13 @@
         // Отправляем команду
         fetch(`http://${window.location.host || 'localhost:8000'}/v1/l2/cmd-vel`, {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({linear_speed_cm_per_sec: vDes, angular_speed_deg_per_sec: omegaDes})
+            body: JSON.stringify({
+                linear_speed_cm_per_sec: vDes,
+                nominal_linear_speed_cm_per_sec: v0,
+                angular_speed_deg_per_sec: omegaDes,
+                target_x_cm: Number.isFinite(targetX) ? targetX : null,
+                target_y_cm: Number.isFinite(targetY) ? targetY : null
+            })
         });
     };
 
