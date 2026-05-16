@@ -40,9 +40,9 @@ class Settings(BaseSettings):
         description="Угол фиксации головы перед стартом движения.",
     )
     ultrasonic_enabled: bool = Field(
-        default=True,
+        default=False,
         validation_alias="ULTRASONIC_ENABLED",
-        description="Включить HC-SR04. Отключить: ULTRASONIC_ENABLED=false.",
+        description="Включить HC-SR04. По умолчанию выключен; включить: ULTRASONIC_ENABLED=true.",
     )
     ultrasonic_trigger_pin: int = Field(
         default=23,
