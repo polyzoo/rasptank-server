@@ -533,6 +533,58 @@ def test_state_space_desired_line_state_keeps_horizontal_x_star_near_real_x() ->
     assert b_cm == pytest.approx(100000.0)
 
 
+def test_state_space_stops_when_target_progress_is_reached(monkeypatch) -> None:
+    service, motor = _service()
+
+    class MockL2StateSpaceController:
+        def __init__(self, t_v, t_w):
+            self.t_v = t_v
+            self.t_w = t_w
+            self._K = None
+            self.gain_matrix = None
+            self.last_error_state = None
+            self.last_control_u = None
+
+        def compute_control(self, **kwargs):
+            return (0.0, 0.0)
+
+        def reset_gains(self):
+            self._K = None
+
+    monkeypatch.setattr(
+        "src.application.services.l2_state_space_controller.L2StateSpaceController",
+        MockL2StateSpaceController,
+    )
+
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    service.reset_state(x_cm=99.0, y_cm=0.0)
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(
+            linear_speed_cm_per_sec=18.0,
+            angular_speed_deg_per_sec=0.0,
+            target_x_cm=100.0,
+            target_y_cm=0.0,
+        )
+    )
+
+    assert motor.commands[-1] == (0, 0)
+    assert state.left_percent == pytest.approx(0.0)
+    assert state.right_percent == pytest.approx(0.0)
+    assert service._last_body_velocity_command is None
+
+
+def test_state_space_target_reached_for_zero_target() -> None:
+    service, _ = _service()
+    service.reset_state(x_cm=10.0, y_cm=20.0)
+    pose = service._pose_estimator.snapshot()
+
+    assert service._state_space_target_reached(
+        pose=pose,
+        target_x_cm=0.0,
+        target_y_cm=0.0,
+    ) is True
+
+
 def test_state_space_recomputes_after_l1_update(monkeypatch) -> None:
     service, motor = _service()
     calls: list[dict[str, float]] = []

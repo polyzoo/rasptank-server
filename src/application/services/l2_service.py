@@ -31,6 +31,7 @@ class L2Service:
     DEFAULT_STATE_SPACE_MAX_ANGULAR_CORR_DEG_PER_SEC: ClassVar[float] = 90.0
     DEFAULT_STATE_SPACE_MAX_TRACK_DELTA_PERCENT: ClassVar[float] = 5.0
     DEFAULT_STATE_SPACE_MIN_MOVING_TRACK_PERCENT: ClassVar[float] = 15.0
+    DEFAULT_STATE_SPACE_TARGET_TOLERANCE_CM: ClassVar[float] = 2.0
     STATE_SPACE_LINE_EPSILON_CM: ClassVar[float] = 1e-6
 
     def __init__(
@@ -177,6 +178,17 @@ class L2Service:
 
         target_ab: tuple[float, float] | None = None
         if command.target_x_cm is not None and command.target_y_cm is not None:
+            if self._state_space_target_reached(
+                pose=pose,
+                target_x_cm=command.target_x_cm,
+                target_y_cm=command.target_y_cm,
+            ):
+                self._velocity_controller.stop()
+                self._last_track_command = TrackCommand(left_percent=0.0, right_percent=0.0)
+                self._last_body_velocity_command = None
+                self._last_delta_u = None
+                return self.get_state()
+
             desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm = (
                 self._state_space_desired_line_state(
                     pose=pose,
@@ -404,6 +416,21 @@ class L2Service:
             else command.linear_speed_cm_per_sec
         )
         return speed if abs(speed) > 1.0 else 1.0
+
+    def _state_space_target_reached(
+        self,
+        *,
+        pose: PoseEstimate,
+        target_x_cm: float,
+        target_y_cm: float,
+    ) -> bool:
+        """Проверить достижение конечной точки команды МПС по прогрессу вдоль прямой."""
+        target_distance_cm = math.hypot(target_x_cm, target_y_cm)
+        if target_distance_cm <= self.STATE_SPACE_LINE_EPSILON_CM:
+            return True
+
+        progress_cm = (pose.x_cm * target_x_cm + pose.y_cm * target_y_cm) / target_distance_cm
+        return progress_cm >= target_distance_cm - self.DEFAULT_STATE_SPACE_TARGET_TOLERANCE_CM
 
     def _state_space_desired_line_state(
         self,
