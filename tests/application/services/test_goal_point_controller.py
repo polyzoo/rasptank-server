@@ -93,6 +93,20 @@ def test_build_command_reports_blocked_when_obstacle_too_close() -> None:
     assert result.command.angular_speed_deg_per_sec == pytest.approx(0.0)
 
 
+def test_build_command_allows_turning_to_side_target_near_obstacle() -> None:
+    """Близкое препятствие прямо впереди не мешает развороту к боковой точке обхода."""
+    controller = _controller()
+
+    result = controller.build_command(
+        state=_state(distance_cm=10.0),
+        target=TargetPoint(x_cm=5.0, y_cm=13.0),
+    )
+
+    assert result.status == "tracking"
+    assert result.command.linear_speed_cm_per_sec == pytest.approx(0.0, abs=1e-6)
+    assert result.command.angular_speed_deg_per_sec > 0.0
+
+
 def test_build_command_smoothly_reduces_linear_speed_near_obstacle() -> None:
     """Перед препятствием линейная скорость плавно снижается, а не обрубается сразу."""
     controller = _controller()

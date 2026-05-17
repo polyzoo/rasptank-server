@@ -56,14 +56,14 @@ class BrokenCloseDistanceSensor(FakeDistanceSensor):
 
 
 def _enable_fake_hardware(monkeypatch: Any, sensor_cls: type[FakeDistanceSensor]) -> None:
-    """Подключить fake gpiozero зависимости."""
+    """Подключить аппаратные заглушки gpiozero."""
     sensor_cls.instances = []
     monkeypatch.setattr(ultrasonic_module, "_HARDWARE_AVAILABLE", True)
     monkeypatch.setattr(ultrasonic_module, "DistanceSensor", sensor_cls)
 
 
 def test_measure_distance_returns_fallback_without_hardware(monkeypatch: Any) -> None:
-    """Без hardware-библиотек возвращается fallback distance."""
+    """Без аппаратных библиотек возвращается безопасное расстояние."""
     monkeypatch.setattr(ultrasonic_module, "_HARDWARE_AVAILABLE", False)
     sensor: UltrasonicSensor = UltrasonicSensor()
 
@@ -73,7 +73,7 @@ def test_measure_distance_returns_fallback_without_hardware(monkeypatch: Any) ->
 
 
 def test_setup_is_noop_without_hardware(monkeypatch: Any) -> None:
-    """_setup ничего не делает без hardware-библиотек."""
+    """_setup ничего не делает без аппаратных библиотек."""
     monkeypatch.setattr(ultrasonic_module, "_HARDWARE_AVAILABLE", False)
     sensor: UltrasonicSensor = UltrasonicSensor()
 
@@ -84,7 +84,7 @@ def test_setup_is_noop_without_hardware(monkeypatch: Any) -> None:
 
 
 def test_destroy_is_noop_without_hardware(monkeypatch: Any) -> None:
-    """destroy ничего не делает без hardware-библиотек."""
+    """destroy ничего не делает без аппаратных библиотек."""
     monkeypatch.setattr(ultrasonic_module, "_HARDWARE_AVAILABLE", False)
     sensor: UltrasonicSensor = UltrasonicSensor()
     sensor._sensor = object()
@@ -97,7 +97,7 @@ def test_destroy_is_noop_without_hardware(monkeypatch: Any) -> None:
 
 
 def test_setup_creates_distance_sensor_with_expected_pins(monkeypatch: Any) -> None:
-    """_setup создает DistanceSensor с ожидаемыми GPIO-пинами."""
+    """_setup создаёт DistanceSensor с ожидаемыми GPIO-пинами."""
     _enable_fake_hardware(monkeypatch, FakeDistanceSensor)
     sensor: UltrasonicSensor = UltrasonicSensor()
 
@@ -128,7 +128,7 @@ def test_measure_distance_records_centimeters(monkeypatch: Any) -> None:
 
 
 def test_measure_distance_records_fallback_on_exception(monkeypatch: Any) -> None:
-    """Ошибка чтения датчика переводится в fallback distance."""
+    """Ошибка чтения датчика возвращает безопасное расстояние."""
     _enable_fake_hardware(monkeypatch, BrokenDistanceSensor)
     sensor: UltrasonicSensor = UltrasonicSensor()
 
@@ -138,7 +138,7 @@ def test_measure_distance_records_fallback_on_exception(monkeypatch: Any) -> Non
 
 
 def test_measure_distance_records_fallback_on_setup_failure(monkeypatch: Any) -> None:
-    """Ошибка setup переводится в fallback distance."""
+    """Ошибка setup возвращает безопасное расстояние."""
     _enable_fake_hardware(monkeypatch, BrokenSetupDistanceSensor)
     sensor: UltrasonicSensor = UltrasonicSensor()
 
@@ -148,7 +148,7 @@ def test_measure_distance_records_fallback_on_setup_failure(monkeypatch: Any) ->
 
 
 def test_destroy_closes_sensor(monkeypatch: Any) -> None:
-    """destroy закрывает DistanceSensor и сбрасывает state."""
+    """destroy закрывает DistanceSensor и сбрасывает состояние."""
     _enable_fake_hardware(monkeypatch, FakeDistanceSensor)
     sensor: UltrasonicSensor = UltrasonicSensor()
     sensor._setup()
@@ -162,7 +162,7 @@ def test_destroy_closes_sensor(monkeypatch: Any) -> None:
 
 
 def test_destroy_skips_when_measurement_lock_held(monkeypatch: Any) -> None:
-    """destroy не блокируется, если другой поток держит lock на время замера."""
+    """destroy не блокируется, если другой поток держит lock во время замера."""
     _enable_fake_hardware(monkeypatch, FakeDistanceSensor)
     sensor: UltrasonicSensor = UltrasonicSensor()
     sensor._setup()
@@ -194,7 +194,7 @@ def test_destroy_skips_when_measurement_lock_held(monkeypatch: Any) -> None:
 
 
 def test_destroy_clears_state_when_close_fails(monkeypatch: Any) -> None:
-    """destroy сбрасывает state даже при ошибке close."""
+    """destroy сбрасывает состояние даже при ошибке close."""
     _enable_fake_hardware(monkeypatch, BrokenCloseDistanceSensor)
     sensor: UltrasonicSensor = UltrasonicSensor()
     sensor._setup()
@@ -206,7 +206,7 @@ def test_destroy_clears_state_when_close_fails(monkeypatch: Any) -> None:
 
 
 def test_disabled_ultrasonic_returns_fallback_without_gpio(monkeypatch: Any) -> None:
-    """Отключенный УЗ-датчик не трогает hardware и возвращает безопасную дальность."""
+    """Отключённый УЗ-датчик не трогает GPIO и возвращает безопасное расстояние."""
     monkeypatch.setattr(ultrasonic_module, "_HARDWARE_AVAILABLE", True)
     sensor: DisabledUltrasonicSensor = DisabledUltrasonicSensor()
 

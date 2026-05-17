@@ -7,10 +7,10 @@ from src.presentation.api.v1.schemas.health import HealthResponseSchema
 
 
 def test_healthcheck_returns_ok() -> None:
-    """Health endpoint handler возвращает статус ok."""
+    """Health endpoint возвращает статус ok."""
 
     async def run() -> None:
-        """Выполнить async handler внутри anyio loop."""
+        """Выполнить async-обработчик внутри anyio loop."""
         response: HealthResponseSchema = await healthcheck()
 
         assert response.status == "ok"

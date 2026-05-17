@@ -32,7 +32,7 @@ def test_ekf_predict_updates_yaw_when_rotating() -> None:
 
 
 def test_ekf_reset_clears_state() -> None:
-    """reset обнуляет yaw, bias и флаг стационарности."""
+    """reset обнуляет yaw, смещение и признак покоя."""
     ekf = EkfImu()
     ekf.init_from_calibration(0.0, 0.0, 0.0, (0.0, 0.0, 0.0))
     ekf.predict(0.0, 0.0, math.radians(10.0), 0.05)
@@ -107,7 +107,7 @@ def test_ekf_predict_clamps_tiny_covariance() -> None:
 
 
 def test_ekf_accessors_after_valid_update() -> None:
-    """roll/pitch, gyro_bias и get_euler_deg отражают update при норме ≈ g."""
+    """Аксессоры отражают update при норме ускорения около g."""
     ekf = EkfImu()
     ekf.init_from_calibration(0.0, 0.0, 0.0, (0.0, 0.0, 0.0))
     ekf.update(0.0, 0.0, 9.80665)

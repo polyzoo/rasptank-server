@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-# Статусы верхнего уровня L3.
+# Статусы L3.
 L3_STATUS_IDLE: Final[str] = "idle"
 L3_STATUS_TRACKING: Final[str] = "tracking"
 L3_STATUS_REACHED: Final[str] = "reached"
@@ -11,12 +11,12 @@ L3_STATUS_BLOCKED: Final[str] = "blocked"
 L3_STATUS_UNREACHABLE: Final[str] = "unreachable"
 L3_STATUS_CANCELLED: Final[str] = "cancelled"
 
-# Режимы работы L3.
+# Режимы L3.
 L3_MODE_IDLE: Final[str] = "idle"
 L3_MODE_POINT: Final[str] = "point"
 L3_MODE_ROUTE: Final[str] = "route"
 
-# Статусы планировщика пути.
+# Статусы планировщика L3.
 L3_PLANNER_STATUS_IDLE: Final[str] = "idle"
 L3_PLANNER_STATUS_EMPTY: Final[str] = "empty"
 L3_PLANNER_STATUS_PLANNED: Final[str] = "planned"
@@ -43,8 +43,8 @@ class TargetRoute:
 
 
 @dataclass(frozen=True, slots=True)
-class KnownObstacle:
-    """Заранее известное препятствие для планировщика пути."""
+class Obstacle:
+    """Препятствие для планировщика пути."""
 
     x_cm: float
     y_cm: float
@@ -62,7 +62,7 @@ class PlannedRoute:
 
 @dataclass(frozen=True, slots=True)
 class L3Command:
-    """Желаемая линейная и угловая скорость для уровня L2."""
+    """Команда скорости корпуса для L2."""
 
     linear_speed_cm_per_sec: float
     angular_speed_deg_per_sec: float
@@ -81,7 +81,7 @@ class GoalTrackingCommand:
 
 @dataclass(frozen=True, slots=True)
 class L3State:
-    """Текущее состояние верхнего уровня нового контура."""
+    """Состояние уровня L3."""
 
     status: str
     mode: str

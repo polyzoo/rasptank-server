@@ -4,11 +4,7 @@ from math import atan2, degrees, pi, sqrt
 
 
 class EkfImu:
-    """Упрощённый фильтр: yaw по гироскопу Z + ZUPT, roll/pitch по гравитации.
-
-    Углы гироскопа в вызовах :meth:`predict` — радианы/сек.
-    Линейное ускорение в :meth:`update` — м/с².
-    """
+    """Фильтр IMU для yaw, roll, pitch и ZUPT."""
 
     def __init__(
         self,
@@ -18,15 +14,7 @@ class EkfImu:
         accel_gate: float = 0.3,
         g: float = 9.80665,
     ) -> None:
-        """Инициализировать ковариации и пороги ZUPT.
-
-        Args:
-            q_angle: Дисперсия процесса по углу yaw (рад²/с).
-            q_bias: Дисперсия процесса по bias ω_z (рад²/с³).
-            r_accel: Зарезервировано (в :meth:`update` не используется).
-            accel_gate: Доля от ``g``: при большем отклонении |‖a‖−g| roll/pitch не обновляются.
-            g: Ожидаемая норма ускорения покоя (м/с²).
-        """
+        """Подготовить ковариации и пороги ZUPT."""
         self.q_angle: float = q_angle
         self.q_bias: float = q_bias
         self._r_accel: float = r_accel
@@ -56,7 +44,7 @@ class EkfImu:
         self._r_zupt: float = 0.0005
 
     def reset(self) -> None:
-        """Сбросить оценки углов, bias и флаги стационарности (без смены home)."""
+        """Сбросить оценки фильтра без смены home."""
         self._yaw = 0.0
         self._gz_bias = 0.0
         self._P_yaw = 0.1
@@ -74,14 +62,7 @@ class EkfImu:
         yaw: float,
         gyro_bias: tuple[float, float, float],
     ) -> None:
-        """Задать «домашние» углы после калибровки и сузить доверие к оценке.
-
-        Args:
-            roll: Опорный roll (рад) — среднее из акселя при покое.
-            pitch: Опорный pitch (рад).
-            yaw: Текущий yaw (рад), обычно 0 после выставления нуля.
-            gyro_bias: Кортеж bias гироскопа (совместимость API). Для Z — внутренний bias фильтра.
-        """
+        """Задать home-углы после калибровки."""
         self._home_roll = roll
         self._home_pitch = pitch
         self._yaw = yaw
@@ -95,18 +76,11 @@ class EkfImu:
 
     @property
     def stationary(self) -> bool:
-        """True, если фильтр считает платформу неподвижной (ZUPT активен)."""
+        """Вернуть признак покоя по ZUPT."""
         return self._stationary
 
     def predict(self, gx: float, gy: float, gz: float, dt: float) -> None:
-        """Шаг предсказания по гироскопу (рад/с) и шагу времени ``dt`` (с).
-
-        Args:
-            gx: Угловая скорость вокруг X (рад/с).
-            gy: Угловая скорость вокруг Y (рад/с).
-            gz: Угловая скорость вокруг Z (рад/с).
-            dt: Интервал интегрирования; при ``dt <= 0`` метод ничего не делает.
-        """
+        """Выполнить шаг предсказания по гироскопу."""
         if dt <= 0:
             return
 
@@ -165,10 +139,7 @@ class EkfImu:
         self._P_bias = p22 + self.q_bias * dt
 
     def update(self, ax: float, ay: float, az: float) -> None:
-        """Обновить roll/pitch по акселерометру и логику выхода из ZUPT по ‖a‖.
-
-        При сильном отклонении нормы ускорения от ``g`` измерение игнорируется.
-        """
+        """Обновить roll, pitch и состояние ZUPT по акселерометру."""
         a_mag = sqrt(ax * ax + ay * ay + az * az)
         a_dev = abs(a_mag - self.g)
 
@@ -192,24 +163,24 @@ class EkfImu:
 
     @property
     def roll(self) -> float:
-        """Оценка roll относительно калибровочного home (рад)."""
+        """Вернуть roll относительно home."""
         return self._roll
 
     @property
     def pitch(self) -> float:
-        """Оценка pitch относительно калибровочного home (рад)."""
+        """Вернуть pitch относительно home."""
         return self._pitch
 
     @property
     def yaw(self) -> float:
-        """Оценка yaw (рад), непрерывная в пределах (-π, π]."""
+        """Вернуть yaw фильтра."""
         return self._yaw
 
     @property
     def gyro_bias(self) -> tuple[float, float, float]:
-        """Оценённый bias гироскопа; X/Y всегда 0, Z — bias по ω_z (рад/с)."""
+        """Вернуть оценку смещения гироскопа."""
         return 0.0, 0.0, self._gz_bias
 
     def get_euler_deg(self) -> tuple[float, float, float]:
-        """Roll, pitch, yaw в градусах (для отладки и логов)."""
+        """Вернуть углы Эйлера в градусах."""
         return degrees(self._roll), degrees(self._pitch), degrees(self._yaw)

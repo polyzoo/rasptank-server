@@ -4,6 +4,6 @@ from pydantic import BaseModel
 
 
 class HealthResponseSchema(BaseModel):
-    """Схема ответа проверки работоспособности сервиса."""
+    """API-ответ статуса сервиса."""
 
     status: str = "ok"

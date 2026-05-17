@@ -9,7 +9,7 @@ from src.application.services.l1_service import L1Service
 
 
 class FakeMotor:
-    """Заглушка моторов для нового нижнего уровня."""
+    """Заглушка моторов для L1."""
 
     def __init__(self) -> None:
         """Подготовить хранилище команд и событий."""
@@ -31,7 +31,7 @@ class FakeMotor:
 
 
 class FakeGyroscope:
-    """Заглушка IMU для нового нижнего уровня."""
+    """Заглушка IMU для L1."""
 
     def __init__(self) -> None:
         """Подготовить фиксированные данные датчика."""
@@ -94,7 +94,8 @@ class FakeHeadServo:
 
 
 def _service(
-    *, with_head_servo: bool = True
+    *,
+    with_head_servo: bool = True,
 ) -> tuple[
     L1Service,
     FakeMotor,
@@ -102,7 +103,7 @@ def _service(
     FakeUltrasonic,
     FakeHeadServo | None,
 ]:
-    """Создать чистый сервис нижнего уровня с заглушками."""
+    """Создать сервис L1 с заглушками."""
     motor: FakeMotor = FakeMotor()
     gyroscope: FakeGyroscope = FakeGyroscope()
     ultrasonic: FakeUltrasonic = FakeUltrasonic()
@@ -117,7 +118,7 @@ def _service(
 
 
 def test_apply_track_command_directly_passes_values_to_motor() -> None:
-    """Новый L1 передаёт команды бортов прямо в моторы."""
+    """L1 передаёт команды бортов прямо в моторы."""
     service, motor, _, _, _ = _service()
 
     service.apply_track_command(L1TrackCommand(left_percent=17, right_percent=-19))
@@ -126,7 +127,7 @@ def test_apply_track_command_directly_passes_values_to_motor() -> None:
 
 
 def test_read_sensors_logs_warning_when_ultrasonic_threshold_zero(monkeypatch: Any) -> None:
-    """При ultrasonic_ms >= SLOW_ULTRASONIC_RELATIVE_MS срабатывает WARNING."""
+    """Медленный ультразвук пишет warning-лог."""
     service, _, _, _, _ = _service()
     monkeypatch.setattr(L1Service, "SLOW_ULTRASONIC_RELATIVE_MS", 0.0)
 
@@ -137,7 +138,7 @@ def test_read_sensors_logs_warning_when_ultrasonic_threshold_zero(monkeypatch: A
 
 
 def test_read_sensors_returns_only_measured_values() -> None:
-    """Новый L1 возвращает только измеренные данные датчиков."""
+    """L1 возвращает только измеренные данные датчиков."""
     service, _, _, _, _ = _service()
 
     state: L1SensorState = service.read_sensors()
@@ -150,7 +151,7 @@ def test_read_sensors_returns_only_measured_values() -> None:
 
 
 def test_l1_service_controls_imu_head_and_destroy() -> None:
-    """Новый L1 умеет запускать IMU, управлять головой и освобождать ресурсы."""
+    """L1 запускает IMU, управляет головой и освобождает ресурсы."""
     service, motor, gyroscope, ultrasonic, head_servo = _service()
 
     service.start_imu(calibrate=False)
@@ -178,7 +179,7 @@ def test_set_head_angle_is_noop_without_servo() -> None:
 
 
 def test_destroy_skips_devices_when_release_disabled() -> None:
-    """destroy(release_devices=False) не вызывает destroy у железа."""
+    """destroy(release_devices=False) не освобождает устройства."""
     service, motor, gyro, ultrasonic, head_servo = _service()
 
     service.destroy(release_devices=False)

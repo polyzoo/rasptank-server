@@ -29,9 +29,9 @@ class FakeBusio:
 
     @staticmethod
     def I2C(scl: object, sda: object) -> tuple[object, object]:
-        """Вернуть fake I2C descriptor."""
+        """Вернуть заглушку I2C."""
         FakeBusio.calls.append((scl, sda))
-        return (scl, sda)
+        return scl, sda
 
 
 class FakePCA9685:
@@ -62,7 +62,7 @@ class BrokenDeinitPCA9685(FakePCA9685):
 
 
 def _enable_fake_hardware(monkeypatch: Any) -> None:
-    """Подключить fake hardware зависимости к модулю head_servo."""
+    """Подключить аппаратные заглушки к модулю head_servo."""
     FakeBusio.calls = []
     FakePCA9685.instances = []
     monkeypatch.setattr(head_servo_module, "_HARDWARE_AVAILABLE", True)
@@ -74,7 +74,7 @@ def _enable_fake_hardware(monkeypatch: Any) -> None:
 
 
 def test_set_angle_is_noop_when_hardware_is_unavailable(monkeypatch: Any) -> None:
-    """set_angle ничего не делает без hardware-библиотек."""
+    """set_angle ничего не делает без аппаратных библиотек."""
     monkeypatch.setattr(head_servo_module, "_HARDWARE_AVAILABLE", False)
     controller: HeadServoController = HeadServoController()
 
@@ -84,7 +84,7 @@ def test_set_angle_is_noop_when_hardware_is_unavailable(monkeypatch: Any) -> Non
 
 
 def test_destroy_is_noop_when_hardware_is_unavailable(monkeypatch: Any) -> None:
-    """destroy ничего не делает без hardware-библиотек."""
+    """destroy ничего не делает без аппаратных библиотек."""
     monkeypatch.setattr(head_servo_module, "_HARDWARE_AVAILABLE", False)
     controller: HeadServoController = HeadServoController()
     controller._pwm = object()
@@ -119,7 +119,7 @@ def test_set_angle_initializes_pca9685_and_clamps_angle(monkeypatch: Any) -> Non
 
 
 def test_fix_forward_uses_home_angle(monkeypatch: Any) -> None:
-    """fix_forward выставляет home angle."""
+    """fix_forward выставляет домашний угол."""
     _enable_fake_hardware(monkeypatch)
     controller: HeadServoController = HeadServoController(channel=4, home_angle_deg=15.0)
 
@@ -145,7 +145,7 @@ def test_destroy_deinitializes_pca9685(monkeypatch: Any) -> None:
 
 
 def test_destroy_clears_state_when_deinit_fails(monkeypatch: Any) -> None:
-    """destroy сбрасывает state даже при ошибке deinit."""
+    """destroy сбрасывает состояние даже при ошибке deinit."""
     _enable_fake_hardware(monkeypatch)
     monkeypatch.setattr(head_servo_module, "PCA9685", BrokenDeinitPCA9685)
     controller: HeadServoController = HeadServoController()
@@ -159,14 +159,14 @@ def test_destroy_clears_state_when_deinit_fails(monkeypatch: Any) -> None:
 
 
 def test_setup_failure_leaves_controller_uninitialized(monkeypatch: Any) -> None:
-    """Ошибка при setup оставляет драйвер неинициализированным."""
+    """Ошибка setup оставляет драйвер неинициализированным."""
     _enable_fake_hardware(monkeypatch)
 
     class BrokenPCA9685:
         """PCA9685-заглушка, которая падает при инициализации."""
 
         def __init__(self, i2c: object, *, address: int) -> None:
-            """Сымитировать ошибку hardware setup."""
+            """Сымитировать ошибку setup."""
             raise OSError("boom")
 
     monkeypatch.setattr(head_servo_module, "PCA9685", BrokenPCA9685)

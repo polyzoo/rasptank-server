@@ -19,7 +19,7 @@ router: APIRouter = APIRouter()
 
 
 def _to_response(state: L2State) -> L2StateResponseSchema:
-    """Преобразовать доменное состояние L2 в ответ API."""
+    """Преобразовать состояние L2 в API-ответ."""
     return L2StateResponseSchema(
         x_cm=state.x_cm,
         y_cm=state.y_cm,
@@ -38,21 +38,21 @@ def _to_response(state: L2State) -> L2StateResponseSchema:
     )
 
 
-@router.get("/state", description="Текущее состояние уровня L2")
+@router.get("/state", summary="Текущее состояние уровня L2")
 async def l2_state(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L2StateResponseSchema:
-    """Вернуть текущее состояние нового уровня L2."""
+    """Вернуть состояние L2."""
     state: L2State = await asyncio.to_thread(isolated_motion.get_l2_state)
     return _to_response(state)
 
 
-@router.post("/cmd-vel", description="Команда скорости корпуса для уровня L2")
+@router.post("/cmd-vel", summary="Команда скорости корпуса для уровня L2")
 async def l2_cmd_vel(
     body: L2BodyVelocityRequestSchema,
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L2StateResponseSchema:
-    """Передать желаемую линейную и угловую скорость в новый L2."""
+    """Передать команду скорости корпуса в L2."""
     state: L2State = await asyncio.to_thread(
         isolated_motion.apply_l2_body_velocity,
         body.linear_speed_cm_per_sec,
@@ -64,21 +64,21 @@ async def l2_cmd_vel(
     return _to_response(state)
 
 
-@router.post("/stop", description="Остановить уровень L2")
+@router.post("/stop", summary="Остановить уровень L2")
 async def l2_stop(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L2StateResponseSchema:
-    """Остановить новый уровень L2 и вернуть текущее состояние."""
+    """Остановить L2 и вернуть состояние."""
     state: L2State = await asyncio.to_thread(isolated_motion.stop_l2)
     return _to_response(state)
 
 
-@router.post("/reset-state", description="Сбросить состояние уровня L2")
+@router.post("/reset-state", summary="Сбросить состояние уровня L2")
 async def l2_reset_state(
     body: L2ResetStateRequestSchema,
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L2StateResponseSchema:
-    """Сбросить состояние нового уровня L2."""
+    """Сбросить состояние L2."""
     state: L2State = await asyncio.to_thread(
         lambda: isolated_motion.reset_l2_state(
             x_cm=body.x_cm,
@@ -91,12 +91,12 @@ async def l2_reset_state(
     return _to_response(state)
 
 
-@router.post("/config-state-space", description="Настроить режим МПС (LQR)")
+@router.post("/config-state-space", summary="Настроить режим МПС (LQR)")
 async def l2_config_state_space(
     body: StateSpaceConfigRequestSchema,
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> dict[str, str]:
-    """Динамически включить/выключить МПС и обновить константы инерции."""
+    """Настроить режим МПС на уровне L2."""
     await asyncio.to_thread(
         isolated_motion.configure_l2_state_space,
         body.enabled,
@@ -108,7 +108,7 @@ async def l2_config_state_space(
 
 @router.websocket("/ws")
 async def l2_state_ws(websocket: WebSocket) -> None:
-    """Поток состояния уровня L2."""
+    """Отправлять поток состояния L2."""
     await websocket.accept()
 
     isolated_motion: IsolatedMotionService = websocket.scope["app"].state.isolated_motion

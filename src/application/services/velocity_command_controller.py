@@ -17,7 +17,7 @@ class AppliedVelocityCommand:
 
 
 class VelocityCommandController:
-    """Преобразовать скорость корпуса в команды бортов и передать их в моторы."""
+    """Контроллер преобразования скорости корпуса в команды бортов."""
 
     def __init__(
         self,
@@ -34,14 +34,14 @@ class VelocityCommandController:
         linear_speed_cm_per_sec: float,
         angular_speed_deg_per_sec: float,
     ) -> TrackCommand:
-        """Вычислить команды бортов без отправки в нижний уровень."""
+        """Вычислить команды бортов без отправки в L1."""
         return self._kinematics.to_track_command(
             linear_speed_cm_per_sec=linear_speed_cm_per_sec,
             angular_speed_deg_per_sec=angular_speed_deg_per_sec,
         )
 
     def send_track_command(self, command: TrackCommand) -> None:
-        """Отправить готовые команды бортов в нижний уровень."""
+        """Отправить готовые команды бортов в L1."""
         self._motor_controller.set_tracks(
             left_speed_percent=int(round(command.left_percent)),
             right_speed_percent=int(round(command.right_percent)),
@@ -53,7 +53,7 @@ class VelocityCommandController:
         linear_speed_cm_per_sec: float,
         angular_speed_deg_per_sec: float,
     ) -> AppliedVelocityCommand:
-        """Вычислить команды бортов и передать их в нижний уровень."""
+        """Вычислить команды бортов и передать их в L1."""
         track_command: TrackCommand = self.compute_command(
             linear_speed_cm_per_sec=linear_speed_cm_per_sec,
             angular_speed_deg_per_sec=angular_speed_deg_per_sec,

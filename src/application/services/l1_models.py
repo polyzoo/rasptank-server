@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class L1TrackCommand:
-    """Команда для левого и правого борта."""
+    """Команда бортов L1."""
 
     left_percent: int
     right_percent: int
@@ -13,7 +13,7 @@ class L1TrackCommand:
 
 @dataclass(frozen=True, slots=True)
 class L1SensorState:
-    """Измеренные данные нижнего уровня без вычисления положения."""
+    """Снимок датчиков L1."""
 
     angular_speed_z_deg_per_sec: float
     accel_x_m_s2: float

@@ -11,17 +11,16 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
 from src.application.factories import (
-    create_drive_controller,
     create_isolated_motion_service,
     create_shared_motion_hardware,
 )
-from src.application.services.motion_events import MotionEventHub
 from src.config.settings import Settings
 from src.presentation.api.exception_handlers import setup_exception_handlers
 from src.presentation.api.v1.routers import router as v1_router
 
 
 def _parse_cors_origins(raw: str) -> list[str]:
+    """Разобрать список CORS origins."""
     text = raw.strip()
     if text == "*":
         return ["*"]
@@ -29,7 +28,7 @@ def _parse_cors_origins(raw: str) -> list[str]:
 
 
 def _configure_l123_debug_logging(settings: Settings) -> None:
-    """Вывести трейс L1->L2->L3 в stderr, даже если корневой logging не настроен."""
+    """Настроить debug-трейс L1-L3."""
     if not settings.l123_debug_trace_enabled:
         return
     log = logging.getLogger("src.application.services.isolated_motion_service")
@@ -43,7 +42,7 @@ def _configure_l123_debug_logging(settings: Settings) -> None:
 
 
 def _configure_motion_diag_logging(settings: Settings) -> None:
-    """Компактная диагностика движения в stderr без шумного DEBUG по умолчанию."""
+    """Настроить диагностические логи движения."""
     if not settings.motion_diag_logging_enabled:
         return
 
@@ -62,7 +61,7 @@ def _configure_motion_diag_logging(settings: Settings) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Управление жизненным циклом приложения."""
+    """Управлять жизненным циклом приложения."""
     _configure_l123_debug_logging(app.state.settings)
     _configure_motion_diag_logging(app.state.settings)
     if app.state.isolated_motion is not None:
@@ -73,15 +72,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if app.state.isolated_motion is not None:
         app.state.isolated_motion.destroy(release_hardware=False)
 
-    if app.state.drive_controller is not None:
-        app.state.drive_controller.destroy(release_devices=False)
-
     if app.state.motion_hardware is not None:
         app.state.motion_hardware.destroy()
 
 
 def create_app(settings: Settings) -> FastAPI:
-    """Создание FastAPI-приложения."""
+    """Создать FastAPI-приложение."""
     app: FastAPI = FastAPI(
         title="Server RaspTank",
         version="1.0.0",
@@ -94,6 +90,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/docs", include_in_schema=False)
     async def custom_swagger_ui_html():
+        """Вернуть локальный Swagger UI."""
         return get_swagger_ui_html(
             openapi_url=app.openapi_url,
             title=app.title + " - Swagger UI",
@@ -104,18 +101,12 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/dashboard", include_in_schema=False)
     async def get_dashboard():
+        """Вернуть локальный дашборд."""
         return FileResponse("src/static/dashboard.html")
 
     app.state.settings = settings
-    app.state.motion_events = MotionEventHub()
     app.state.motion_hardware = create_shared_motion_hardware(settings)
     app.state.isolated_motion = create_isolated_motion_service(settings, app.state.motion_hardware)
-    app.state.drive_controller = create_drive_controller(
-        settings,
-        app.state.motion_events,
-        app.state.motion_hardware,
-        app.state.isolated_motion,
-    )
 
     setup_exception_handlers(app)
 

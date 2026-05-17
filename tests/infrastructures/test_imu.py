@@ -71,7 +71,7 @@ class FakeSMBusModule:
 
     @classmethod
     def SMBus(cls, bus_num: int) -> FakeBus:
-        """Создать fake SMBus."""
+        """Создать заглушку SMBus."""
         cls.last_bus = cls.bus_cls(bus_num)
         return cls.last_bus
 
@@ -86,7 +86,7 @@ class BrokenSMBusModule:
 
 
 class FakeThread:
-    """Заглушка Thread без фонового выполнения target."""
+    """Заглушка Thread без фонового выполнения функции."""
 
     instances: list["FakeThread"] = []
 
@@ -118,7 +118,7 @@ def _enable_fake_hardware(
     monkeypatch: pytest.MonkeyPatch,
     smbus_module: object = FakeSMBusModule,
 ) -> None:
-    """Подключить fake smbus2 зависимости к модулю imu."""
+    """Подключить аппаратные заглушки smbus2 к модулю imu."""
     FakeSMBusModule.last_bus = None
     FakeSMBusModule.bus_cls = FakeBus
     monkeypatch.setattr(imu_module, "_HARDWARE_AVAILABLE", True)
@@ -127,7 +127,7 @@ def _enable_fake_hardware(
 
 
 def test_start_is_noop_when_hardware_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """start ничего не делает без hardware-библиотек."""
+    """start ничего не делает без аппаратных библиотек."""
     monkeypatch.setattr(imu_module, "_HARDWARE_AVAILABLE", False)
     sensor: IMUSensor = IMUSensor()
 
@@ -167,7 +167,7 @@ def test_setup_failure_keeps_sensor_uninitialized(monkeypatch: pytest.MonkeyPatc
 
 
 def test_setup_is_noop_when_hardware_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_setup ничего не делает без hardware-библиотек."""
+    """_setup ничего не делает без аппаратных библиотек."""
     monkeypatch.setattr(imu_module, "_HARDWARE_AVAILABLE", False)
     sensor: IMUSensor = IMUSensor()
 
@@ -209,7 +209,7 @@ def test_second_start_skips_recalibrate_when_thread_still_alive(
 
 
 def test_start_resets_state_and_starts_update_thread(monkeypatch: pytest.MonkeyPatch) -> None:
-    """start сбрасывает state, опционально калибрует и запускает поток обновления."""
+    """start сбрасывает состояние, калибрует и запускает поток обновления."""
     _enable_fake_hardware(monkeypatch)
     FakeThread.instances = []
     monkeypatch.setattr(imu_module, "Thread", FakeThread)
@@ -247,7 +247,7 @@ def test_stop_joins_running_thread(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_calibrate_sets_gyro_bias(monkeypatch: pytest.MonkeyPatch) -> None:
-    """calibrate усредняет пакетные сырые значения gyro_z (и bias raw)."""
+    """calibrate усредняет сырые значения гироскопа Z."""
     sensor: IMUSensor = IMUSensor()
     sensor._is_initialized = True
     bursts: list[tuple[int, int, int, int, int, int]] = [
@@ -357,7 +357,7 @@ def test_update_loop_integrates_gyro_and_accel(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_update_loop_deadband_suppresses_small_yaw_rate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """При |ω_z| ниже deadband yaw не интегрируется и наружу отдаётся 0 °/с."""
+    """Малая угловая скорость ниже порога не интегрирует yaw."""
     sensor: IMUSensor = IMUSensor(
         ekf_enabled=False,
         gyro_yaw_integration_deadband_deg_per_sec=1.0,
@@ -367,7 +367,7 @@ def test_update_loop_deadband_suppresses_small_yaw_rate(monkeypatch: pytest.Monk
     sensor._gyro_bias_raw_z = 0.0
     sensor._gyro_z_bias = 0.0
     monkeypatch.setattr(imu_module.time, "monotonic", lambda: 11.0)
-    # (65/131) * GYRO_SIGN_Z(-1) ≈ −0.5 °/с — внутри deadband 1 °/с
+    # Значение около -0.5 град/с остаётся внутри порога 1 град/с.
     monkeypatch.setattr(
         sensor,
         "_read_burst_raw_int16",
@@ -386,7 +386,7 @@ def test_update_loop_deadband_suppresses_small_yaw_rate(monkeypatch: pytest.Monk
 
 
 def test_destroy_closes_bus_and_clears_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """destroy останавливает поток, закрывает шину и сбрасывает initialized."""
+    """destroy останавливает поток, закрывает шину и сбрасывает состояние."""
     _enable_fake_hardware(monkeypatch)
     sensor: IMUSensor = IMUSensor()
     sensor._setup()
@@ -408,7 +408,7 @@ def test_destroy_closes_bus_and_clears_state(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_destroy_clears_bus_when_close_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    """destroy очищает bus даже при ошибке close."""
+    """destroy очищает шину даже при ошибке close."""
     _enable_fake_hardware(monkeypatch)
     FakeSMBusModule.bus_cls = BrokenCloseBus
     sensor: IMUSensor = IMUSensor()

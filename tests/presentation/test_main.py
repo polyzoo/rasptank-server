@@ -16,20 +16,8 @@ from src.main import (
 )
 
 
-class FakeDriveController:
-    """Минимальный контроллер с destroy hook для lifespan-тестов."""
-
-    def __init__(self) -> None:
-        """Инициализировать флаг вызова destroy."""
-        self.destroy_called: bool = False
-
-    def destroy(self, *, release_devices: bool = True) -> None:
-        """Зафиксировать освобождение ресурсов."""
-        self.destroy_called = True
-
-
 class FakeIsolatedMotion:
-    """Минимальный новый контур с хуками start и destroy."""
+    """Заглушка координатора L1-L3."""
 
     def __init__(self) -> None:
         """Подготовить флаги вызовов."""
@@ -37,11 +25,11 @@ class FakeIsolatedMotion:
         self.destroy_called: bool = False
 
     def start(self) -> None:
-        """Зафиксировать запуск нового контура."""
+        """Зафиксировать запуск координатора."""
         self.start_called = True
 
     def destroy(self, *, release_hardware: bool = True) -> None:
-        """Зафиксировать освобождение ресурсов нового контура."""
+        """Зафиксировать освобождение ресурсов координатора."""
         self.destroy_called = True
 
 
@@ -54,7 +42,6 @@ def test_parse_cors_origins_splits_comma_separated_list() -> None:
 def test_create_app_sets_state_and_mounts_routes() -> None:
     """create_app собирает состояние приложения и подключает основные маршруты."""
     settings: Settings = Settings()
-    drive: FakeDriveController = FakeDriveController()
     isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
 
     motion_hardware: Mock = Mock()
@@ -63,7 +50,6 @@ def test_create_app_sets_state_and_mounts_routes() -> None:
         patch(
             "src.main.create_shared_motion_hardware", return_value=motion_hardware
         ) as hardware_factory,
-        patch("src.main.create_drive_controller", return_value=drive) as drive_factory,
         patch(
             "src.main.create_isolated_motion_service", return_value=isolated_motion
         ) as motion_factory,
@@ -72,16 +58,9 @@ def test_create_app_sets_state_and_mounts_routes() -> None:
 
     hardware_factory.assert_called_once_with(settings)
     motion_factory.assert_called_once_with(settings, motion_hardware)
-    drive_factory.assert_called_once_with(
-        settings,
-        app.state.motion_events,
-        motion_hardware,
-        isolated_motion,
-    )
     assert app.title == "Server RaspTank"
     assert app.state.settings is settings
     assert app.state.motion_hardware is motion_hardware
-    assert app.state.drive_controller is drive
     assert app.state.isolated_motion is isolated_motion
 
     paths: set[str | None] = {getattr(route, "path", None) for route in app.routes}
@@ -92,11 +71,10 @@ def test_create_app_sets_state_and_mounts_routes() -> None:
 
 
 def test_docs_and_dashboard_endpoints() -> None:
-    """Проверка доступности кастомного /docs и /dashboard."""
+    """Кастомные /docs и /dashboard доступны."""
     settings: Settings = Settings()
     with (
         patch("src.main.create_shared_motion_hardware"),
-        patch("src.main.create_drive_controller"),
         patch("src.main.create_isolated_motion_service"),
     ):
         app: FastAPI = create_app(settings)
@@ -120,40 +98,36 @@ def test_docs_and_dashboard_endpoints() -> None:
         anyio.run(run)
 
 
-def test_lifespan_destroys_drive_controller_on_shutdown() -> None:
-    """lifespan вызывает destroy у drive controller при остановке приложения."""
+def test_lifespan_destroys_isolated_motion_and_hardware_on_shutdown() -> None:
+    """lifespan останавливает L1-L3 и освобождает общее железо."""
 
     async def run() -> None:
         """Пройти async context manager lifespan."""
         app: Mock = Mock()
-        drive: FakeDriveController = FakeDriveController()
         isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
         motion_hardware: Mock = Mock()
         app.state.settings = Settings(motion_diag_logging_enabled=False)
-        app.state.drive_controller = drive
         app.state.isolated_motion = isolated_motion
         app.state.motion_hardware = motion_hardware
 
         async with lifespan(app):
-            assert drive.destroy_called is False
             assert isolated_motion.start_called is True
 
-        assert drive.destroy_called is True
         assert isolated_motion.destroy_called is True
         motion_hardware.destroy.assert_called_once_with()
 
     anyio.run(run)
 
 
-def test_lifespan_ignores_missing_drive_controller() -> None:
-    """lifespan корректно завершается, если drive controller отсутствует."""
+def test_lifespan_ignores_missing_isolated_motion() -> None:
+    """lifespan корректно завершается без координатора L1-L3."""
 
     async def run() -> None:
         """Пройти async context manager lifespan без контроллера."""
         app: Mock = Mock()
         app.state.settings = Settings(motion_diag_logging_enabled=False)
-        app.state.drive_controller = None
         app.state.isolated_motion = None
+        app.state.motion_hardware = None
 
         async with lifespan(app):
             pass
@@ -162,7 +136,7 @@ def test_lifespan_ignores_missing_drive_controller() -> None:
 
 
 def test_configure_l123_debug_logging_returns_early_when_disabled() -> None:
-    """При выключенном флаге debug trace логгер не настраивается."""
+    """Выключенный debug-трейс не меняет logger."""
     settings: Settings = Settings(l123_debug_trace_enabled=False)
     logger: logging.Logger = logging.getLogger("src.application.services.isolated_motion_service")
     previous_level: int = logger.level
@@ -181,7 +155,7 @@ def test_configure_l123_debug_logging_returns_early_when_disabled() -> None:
 
 
 def test_configure_l123_debug_logging_attaches_stream_handler_when_enabled() -> None:
-    """При включённом L123-трейсе логгер isolated_motion получает handler на stderr."""
+    """Включённый debug-трейс добавляет stream-handler."""
     settings: Settings = Settings(l123_debug_trace_enabled=True)
     logger: logging.Logger = logging.getLogger("src.application.services.isolated_motion_service")
     previous_level: int = logger.level
@@ -224,7 +198,7 @@ def test_configure_l123_debug_logging_skips_if_handler_already_present() -> None
 
 
 def test_configure_motion_diag_logging_attaches_handlers_when_enabled() -> None:
-    """Диагностика движения по умолчанию вешает INFO-handler только на L2 sync."""
+    """Включённая диагностика движения добавляет INFO-handler."""
     settings: Settings = Settings(motion_diag_logging_enabled=True)
     names: tuple[str, ...] = ("src.application.services.isolated_motion_service",)
     snapshots: dict[str, tuple[int, list[logging.Handler], bool]] = {
@@ -260,7 +234,7 @@ def test_configure_motion_diag_logging_attaches_handlers_when_enabled() -> None:
 
 
 def test_configure_motion_diag_logging_continue_when_handlers_already_present() -> None:
-    """Повторный вызов не дублирует diag-handlers."""
+    """Повторный вызов не дублирует diagnostic handlers."""
     settings: Settings = Settings(motion_diag_logging_enabled=True)
     names: tuple[str, ...] = ("src.application.services.isolated_motion_service",)
     snapshots: dict[str, tuple[int, list[logging.Handler], bool]] = {
@@ -292,7 +266,7 @@ def test_configure_motion_diag_logging_continue_when_handlers_already_present() 
 
 
 def test_configure_motion_diag_logging_returns_early_when_disabled() -> None:
-    """При выключенной диагностике движения логгер sync не трогаем."""
+    """Выключенная диагностика движения не меняет logger."""
     settings: Settings = Settings(motion_diag_logging_enabled=False)
     names: tuple[str, ...] = ("src.application.services.isolated_motion_service",)
     snapshots: dict[str, tuple[int, list[logging.Handler], bool]] = {}

@@ -35,23 +35,23 @@ _SETUP_EXCEPTIONS: tuple[type[BaseException], ...] = (
 
 @final
 class HeadServoController(HeadServoProtocol):
-    """Серво головы на PCA9685 CH4."""
+    """Драйвер сервопривода головы."""
 
-    # Адрес PWM-контроллера PCA9685
+    # Адрес PWM-контроллера PCA9685.
     PCA9685_ADDRESS: int = 0x5F
 
-    # Частота PWM для управления сервоприводом
+    # Частота PWM для сервопривода.
     PWM_FREQUENCY: int = 50
 
-    # Диапазон длительности управляющего импульса серво (мкс)
+    # Диапазон управляющего импульса сервопривода.
     MIN_PULSE_US: int = 500
     MAX_PULSE_US: int = 2400
 
-    # Рабочий диапазон угла сервопривода
+    # Рабочий диапазон угла сервопривода.
     ACTUATION_RANGE_DEG: int = 180
 
     def __init__(self, channel: int = 4, home_angle_deg: float = 0.0) -> None:
-        """Инициализация серво."""
+        """Подготовить драйвер сервопривода."""
         self._channel: int = channel
         self._home_angle_deg: float = home_angle_deg
         self._pwm: object | None = None
@@ -59,7 +59,7 @@ class HeadServoController(HeadServoProtocol):
         self._is_initialized: bool = False
 
     def set_angle(self, angle_deg: float) -> None:
-        """Установить угол серво головы."""
+        """Задать угол головы."""
         if not _HARDWARE_AVAILABLE:
             return
 
@@ -71,11 +71,11 @@ class HeadServoController(HeadServoProtocol):
         self._servo.angle = angle
 
     def fix_forward(self) -> None:
-        """Зафиксировать голову в положении вперед."""
+        """Вернуть голову в домашний угол."""
         self.set_angle(self._home_angle_deg)
 
     def destroy(self) -> None:
-        """Освободить PCA9685, если он был инициализирован этим драйвером."""
+        """Освободить ресурсы PCA9685."""
         if not _HARDWARE_AVAILABLE:
             return
 
@@ -90,7 +90,7 @@ class HeadServoController(HeadServoProtocol):
                 self._is_initialized = False
 
     def _setup(self) -> None:
-        """Однократная инициализация PCA9685 и серво."""
+        """Инициализировать PCA9685 и сервопривод."""
         if not _HARDWARE_AVAILABLE or self._is_initialized:
             return
 

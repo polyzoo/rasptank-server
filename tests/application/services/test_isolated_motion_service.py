@@ -11,11 +11,11 @@ from src.application.services.isolated_motion_service import (
 )
 from src.application.services.l1_models import L1SensorState, L1TrackCommand
 from src.application.services.l2_models import BodyVelocityCommand, L1SensorSnapshot, L2State
-from src.application.services.l3_models import KnownObstacle, L3State, TargetPoint, TargetRoute
+from src.application.services.l3_models import L3State, TargetPoint, TargetRoute
 
 
 class FakeL1Service:
-    """Заглушка нового уровня L1 для тестов координатора."""
+    """Заглушка L1 для тестов координатора."""
 
     def __init__(self) -> None:
         """Подготовить состояние вызовов."""
@@ -58,7 +58,7 @@ class FakeL1Service:
 
 
 class FakeL2Service:
-    """Заглушка нового уровня L2 для тестов координатора."""
+    """Заглушка L2 для тестов координатора."""
 
     def __init__(self) -> None:
         """Подготовить состояние и историю вызовов."""
@@ -103,12 +103,12 @@ class FakeL2Service:
 
 
 class FakeL3Service:
-    """Заглушка нового уровня L3 для тестов координатора."""
+    """Заглушка L3 для тестов координатора."""
 
     def __init__(self) -> None:
         """Подготовить состояние и историю вызовов."""
-        self.goal_calls: list[tuple[TargetPoint, tuple[KnownObstacle, ...]]] = []
-        self.route_calls: list[tuple[TargetRoute, tuple[KnownObstacle, ...]]] = []
+        self.goal_calls: list[TargetPoint] = []
+        self.route_calls: list[TargetRoute] = []
         self.step_calls: int = 0
         self.cancel_calls: int = 0
         self.state: L3State = L3State(
@@ -126,22 +126,14 @@ class FakeL3Service:
             angular_speed_deg_per_sec=0.0,
         )
 
-    def set_target_point(
-        self,
-        target: TargetPoint,
-        obstacles: tuple[KnownObstacle, ...] = (),
-    ) -> L3State:
+    def set_target_point(self, target: TargetPoint) -> L3State:
         """Сохранить цель L3."""
-        self.goal_calls.append((target, obstacles))
+        self.goal_calls.append(target)
         return self.state
 
-    def set_route(
-        self,
-        route: TargetRoute,
-        obstacles: tuple[KnownObstacle, ...] = (),
-    ) -> L3State:
+    def set_route(self, route: TargetRoute) -> L3State:
         """Сохранить маршрут L3."""
-        self.route_calls.append((route, obstacles))
+        self.route_calls.append(route)
         return self.state
 
     def step(self) -> L3State:
@@ -186,7 +178,7 @@ class FakeThread:
 
 
 class FakeStopEvent:
-    """Заглушка события остановки для одного прохода фонового цикла."""
+    """Заглушка события остановки для одного шага фонового цикла."""
 
     def __init__(self) -> None:
         """Подготовить последовательность ответов wait."""
@@ -209,7 +201,7 @@ def _service(
     FakeL2Service,
     FakeL3Service,
 ]:
-    """Собрать координатор нового контура и заглушки уровней."""
+    """Создать координатор L1-L3 и заглушки уровней."""
     l1_service: FakeL1Service = FakeL1Service()
     l2_service: FakeL2Service = FakeL2Service()
     l3_service: FakeL3Service = FakeL3Service()
@@ -298,8 +290,8 @@ def test_public_methods_forward_commands_and_states() -> None:
     assert l2_service.reset_calls[0]["x_cm"] == 9.0
     assert l2_service.reset_calls[1] == {}
     assert l2_service.reset_calls[2] == {}
-    assert l3_service.goal_calls[0][0] == TargetPoint(x_cm=1.0, y_cm=2.0)
-    assert l3_service.route_calls[0][0] == TargetRoute(points=(TargetPoint(x_cm=3.0, y_cm=4.0),))
+    assert l3_service.goal_calls[0] == TargetPoint(x_cm=1.0, y_cm=2.0)
+    assert l3_service.route_calls[0] == TargetRoute(points=(TargetPoint(x_cm=3.0, y_cm=4.0),))
     assert l3_service.step_calls == 1
     assert l3_service.cancel_calls == 1
     assert l2_service.update_snapshots[1][1] == 0.25
@@ -321,41 +313,8 @@ def test_public_methods_forward_commands_and_states() -> None:
     )
 
 
-def test_legacy_exclusive_depth_begin_end_reset() -> None:
-    """Счётчик эксклюзива legacy-драйва инкрементируется, уменьшается и сбрасывается."""
-    service, _, _, _ = _service()
-
-    service.begin_legacy_drive_exclusive()
-    service.begin_legacy_drive_exclusive()
-    assert service._legacy_drive_exclusive_depth == 2
-    service.end_legacy_drive_exclusive()
-    assert service._legacy_drive_exclusive_depth == 1
-    service.reset_legacy_drive_exclusive()
-    assert service._legacy_drive_exclusive_depth == 0
-
-
-def test_end_legacy_drive_exclusive_noop_when_depth_zero() -> None:
-    """end_legacy при нулевой глубине не уходит в отрицательные значения."""
-    service, _, _, _ = _service()
-
-    service.end_legacy_drive_exclusive()
-
-    assert service._legacy_drive_exclusive_depth == 0
-
-
-def test_background_loop_skips_sync_when_legacy_exclusive_active() -> None:
-    """Пока legacy держит эксклюзив, фон не вызывает sync L2 и step L3."""
-    service, _l1, l2, l3 = _service(time_values=(5.0, 8.0))
-    service.begin_legacy_drive_exclusive()
-    service._stop_event = FakeStopEvent()  # type: ignore[assignment]
-    service._background_loop()
-
-    assert len(l2.update_snapshots) == 0
-    assert l3.step_calls == 0
-
-
 def test_sync_l2_respects_explicit_dt_and_background_loop_runs_one_iteration() -> None:
-    """Координатор умеет брать явный шаг времени и выполнять проход фонового цикла."""
+    """Координатор принимает явный шаг времени и выполняет шаг фонового цикла."""
     service, l1_service, l2_service, l3_service = _service(time_values=(5.0, 8.0))
 
     service.sync_l2_from_l1(dt_sec=0.25)
@@ -402,7 +361,7 @@ def test_debug_trace_logs_l1_l2_and_l3_math(caplog: Any) -> None:
 
 
 def test_debug_trace_sampling_and_optional_formatter(caplog: Any) -> None:
-    """Трейс может писать не каждый шаг; форматтер optional выдаёт '-' для None."""
+    """Трейс учитывает периодичность и форматирует отсутствующие числа."""
     service, _, _, l3_service = _service(
         time_values=(1.0, 1.2, 1.4),
         debug_trace_enabled=True,
@@ -435,7 +394,7 @@ def test_debug_trace_sampling_and_optional_formatter(caplog: Any) -> None:
 
 
 def test_sync_l2_from_l1_logs_warning_when_slow_threshold_zero(monkeypatch: Any) -> None:
-    """При total_ms >= SLOW_SYNC_L2_TOTAL_MS пишется WARNING (диагностика длительности sync)."""
+    """Медленная синхронизация L1 -> L2 пишет warning-лог."""
     service, _, _, _ = _service()
     monkeypatch.setattr(IsolatedMotionService, "SLOW_SYNC_L2_TOTAL_MS", 0.0)
     with patch.object(isolated_motion_service_module.logger, "warning") as mock_warning:
@@ -484,7 +443,7 @@ def test_configure_l2_state_space() -> None:
     """Координатор может настраивать параметры МПС в L2."""
     service, _, l2_service, _ = _service()
 
-    # Мокнем метод
+    # Подменить метод настройки МПС.
     l2_service.configure_state_space = lambda enabled, t_v, t_w: setattr(
         l2_service, "configured", (enabled, t_v, t_w)
     )

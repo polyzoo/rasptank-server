@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from src.application.services.goal_point_controller import GoalPointController
 from src.application.services.l2_models import BodyVelocityCommand, L2State
-from src.application.services.l3_models import KnownObstacle, L3State, TargetPoint, TargetRoute
+from src.application.services.l3_models import (
+    L3State,
+    Obstacle,
+    TargetPoint,
+    TargetRoute,
+)
 from src.application.services.l3_service import L3Service
 from src.application.services.path_planner import PathPlanner
 
@@ -36,7 +41,7 @@ class FakeL2Service:
         return self.state
 
     def stop(self) -> L2State:
-        """Зафиксировать остановку нового контура."""
+        """Зафиксировать остановку L2."""
         self.stop_calls += 1
         self.state = L2State(
             x_cm=self.state.x_cm,
@@ -250,25 +255,8 @@ def test_mark_active_goal_reached_returns_without_current_target() -> None:
     assert service._remaining_goal_points == (TargetPoint(x_cm=50.0, y_cm=0.0),)  # type: ignore[attr-defined]
 
 
-def test_set_target_point_uses_planner_to_insert_detour() -> None:
-    """При известном препятствии L3 сохраняет уже спланированный обходной маршрут."""
-    l2_service = FakeL2Service(_state())
-    service = _service(l2_service)
-
-    state = service.set_target_point(
-        TargetPoint(x_cm=50.0, y_cm=0.0),
-        obstacles=(KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
-    )
-
-    assert state.status == "tracking"
-    assert state.mode == "point"
-    assert state.planner_status == "planned"
-    assert state.total_points == 3
-    assert state.target_y_cm != 0.0
-
-
-def test_step_marks_target_blocked_when_same_unknown_obstacle_is_seen_again() -> None:
-    """Повторно увиденное препятствие не вызывает новый replan и оставляет состояние blocked."""
+def test_step_keeps_tracking_detour_when_same_unknown_obstacle_is_seen_again() -> None:
+    """Повторно увиденное препятствие не останавливает поворот к боковой точке обхода."""
     l2_service = FakeL2Service(_state(distance_cm=10.0))
     service = _service(l2_service)
     service.set_target_point(TargetPoint(x_cm=50.0, y_cm=0.0))
@@ -277,35 +265,42 @@ def test_step_marks_target_blocked_when_same_unknown_obstacle_is_seen_again() ->
 
     state: L3State = service.step()
 
-    assert state.status == "blocked"
+    assert state.status == "tracking"
     assert state.mode == "point"
     assert state.target_x_cm == first_step.target_x_cm
     assert state.target_y_cm == first_step.target_y_cm
     assert state.detected_obstacle_x_cm == first_step.detected_obstacle_x_cm
     assert state.detected_obstacle_kind == "dynamic"
-    assert l2_service.stop_calls == 2
+    assert l2_service.stop_calls == 1
+    assert len(l2_service.applied_commands) == 1
+    assert l2_service.applied_commands[0].angular_speed_deg_per_sec != 0.0
 
 
-def test_set_target_point_marks_goal_unreachable_when_planner_cannot_bypass() -> None:
-    """Если обход невозможен в допустимом коридоре, L3 сообщает unreachable."""
-    l2_service = FakeL2Service(_state())
-    service = _service(l2_service, max_detour_offset_cm=5.0)
+def test_step_tries_left_bypass_when_right_bypass_blocks() -> None:
+    """Если правый квадратный обход блокируется, L3 пробует левую сторону."""
+    l2_service = FakeL2Service(_state(distance_cm=10.0))
+    service = _service(l2_service)
+    service.set_target_point(TargetPoint(x_cm=100.0, y_cm=0.0))
+    right_state: L3State = service.step()
+    assert right_state.target_y_cm == -40.0
 
-    state = service.set_target_point(
-        TargetPoint(x_cm=50.0, y_cm=0.0),
-        obstacles=(KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
-    )
+    l2_service.state = _state(distance_cm=10.0, heading_deg=-90.0)
+    left_state: L3State = service.step()
 
-    assert state.status == "unreachable"
-    assert state.mode == "idle"
-    assert state.planner_status == "impossible"
+    assert left_state.status == "tracking"
+    assert left_state.target_y_cm == 40.0
+    assert left_state.planner_status == "replanned_dynamic"
 
 
 def test_step_marks_goal_unreachable_when_unknown_obstacle_cannot_be_bypassed() -> None:
-    """Если внезапное препятствие не удаётся обойти, L3 сообщает unreachable."""
+    """Если обе стороны обхода заблокированы, L3 сообщает unreachable."""
     l2_service = FakeL2Service(_state(distance_cm=10.0))
-    service = _service(l2_service, max_detour_offset_cm=5.0)
-    service.set_target_point(TargetPoint(x_cm=50.0, y_cm=0.0))
+    service = _service(l2_service)
+    service.set_target_point(TargetPoint(x_cm=100.0, y_cm=0.0))
+    service.step()
+    l2_service.state = _state(distance_cm=10.0, heading_deg=-90.0)
+    service.step()
+    l2_service.state = _state(distance_cm=10.0, heading_deg=90.0)
 
     state: L3State = service.step()
 
@@ -322,7 +317,20 @@ def test_handle_unknown_obstacle_returns_none_without_distance() -> None:
 
     replanned_state = service._handle_unknown_obstacle(  # type: ignore[attr-defined]
         current_state=_state(distance_cm=None),
+        current_target=TargetPoint(x_cm=50.0, y_cm=0.0),
         mode="point",
     )
 
     assert replanned_state is None
+
+
+def test_is_new_obstacle_allows_distinct_dynamic_obstacles() -> None:
+    """Динамическая карта не должна склеивать разные препятствия в одно."""
+    service = _service(FakeL2Service(_state()))
+    service._dynamic_obstacles = (  # type: ignore[attr-defined]
+        Obstacle(x_cm=10.0, y_cm=0.0, radius_cm=8.0),
+    )
+
+    assert (  # type: ignore[attr-defined]
+        service._is_new_obstacle(Obstacle(x_cm=40.0, y_cm=0.0, radius_cm=8.0)) is True
+    )

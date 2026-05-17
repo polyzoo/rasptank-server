@@ -22,7 +22,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 @final
 class IMUSensor(GyroscopeProtocol):
-    """Драйвер MPU6050: DLPF + пакетное чтение + EMA + опционально EKF/ZUPT."""
+    """Драйвер IMU MPU6050."""
 
     I2C_BUS: int = 1
     I2C_ADDRESS: int = 0x68
@@ -77,21 +77,7 @@ class IMUSensor(GyroscopeProtocol):
         ekf_r_accel: float = 0.5,
         ekf_accel_gate: float = 0.5,
     ) -> None:
-        """Собрать сенсор с ограничением параметров фильтров допустимыми диапазонами.
-
-        Args:
-            bus_num: Номер I²C-шины Linux (обычно 1).
-            gyro_yaw_integration_deadband_deg_per_sec: Мёртвая зона |ω_z| (°/с) без EKF.
-            mpu6050_dlpf_cfg: Регистр DLPF_CFG MPU6050 (0…7).
-            mpu6050_smplrt_div: Делитель частоты выборки SMPLRT_DIV (0…255).
-            accel_ema_alpha: Коэффициент EMA для ускорений (0.01…1).
-            gyro_ema_alpha: Коэффициент EMA для угловых скоростей (0.01…1).
-            ekf_enabled: Включить :class:`EkfImu` для yaw и ZUPT.
-            ekf_q_angle: Параметр шума процесса угла EKF.
-            ekf_q_bias: Параметр шума процесса bias EKF.
-            ekf_r_accel: Резерв совместимости (передаётся в EKF).
-            ekf_accel_gate: Порог отклонения ‖a‖ от g для обновления roll/pitch в EKF.
-        """
+        """Подготовить драйвер IMU и параметры фильтров."""
         self.bus_num: int = bus_num
         self._bus: Any = None
         self._is_initialized: bool = False
@@ -144,12 +130,7 @@ class IMUSensor(GyroscopeProtocol):
         self._last_update_time: float = 0.0
 
     def start(self, calibrate: bool = True) -> None:
-        """Открыть шину, при необходимости откалибровать и запустить фоновый цикл опроса.
-
-        Args:
-            calibrate: Выполнить :meth:`calibrate` перед навигацией (не вызывается повторно,
-                если поток уже жив).
-        """
+        """Запустить IMU и фоновый цикл опроса."""
         if not _HARDWARE_AVAILABLE:
             return
 
@@ -188,7 +169,7 @@ class IMUSensor(GyroscopeProtocol):
         logger.info("IMU: Навигация запущена (0° = текущее положение)")
 
     def stop(self) -> None:
-        """Запросить остановку потока опроса и дождаться его завершения."""
+        """Остановить фоновый цикл опроса."""
         self._stop_event.set()
 
         if self._update_thread:
@@ -198,7 +179,7 @@ class IMUSensor(GyroscopeProtocol):
         self._stop_event.clear()
 
     def _reset_ema_state(self) -> None:
-        """Сбросить накопленные значения EMA (при перезапуске навигации)."""
+        """Сбросить накопленные значения EMA."""
         self._ema_ax = None
         self._ema_ay = None
         self._ema_az = None
@@ -207,11 +188,7 @@ class IMUSensor(GyroscopeProtocol):
         self._ema_gz_deg = None
 
     def calibrate(self, samples: int | None = None) -> None:
-        """Усреднить сырые показания в покое: bias гироскопа и «домашние» roll/pitch.
-
-        Args:
-            samples: Число пакетных чтений; по умолчанию :attr:`CALIBRATION_SAMPLES`.
-        """
+        """Откалибровать смещение гироскопа и home-углы."""
         if not self._is_initialized:
             return
 
@@ -271,17 +248,17 @@ class IMUSensor(GyroscopeProtocol):
         )
 
     def get_yaw(self) -> float:
-        """Текущий yaw в градусах (интеграл или оценка EKF)."""
+        """Вернуть текущий yaw в градусах."""
         with self._state_lock:
             return self._yaw
 
     def get_angular_speed_z_deg_per_sec(self) -> float:
-        """Сглаженная ω_z в °/с; без EKF ниже deadband наружу отдаётся 0."""
+        """Вернуть угловую скорость вокруг оси Z."""
         with self._state_lock:
             return self._gyro_z_deg_per_sec
 
     def get_acceleration_xyz_m_s2(self) -> tuple[float, float, float]:
-        """Ускорения по осям в м/с² после EMA (в потоке совпадают с входом EKF)."""
+        """Вернуть ускорения по трём осям."""
         with self._state_lock:
             return (
                 self._accel_x_m_s2,
@@ -290,7 +267,7 @@ class IMUSensor(GyroscopeProtocol):
             )
 
     def reset_yaw(self) -> None:
-        """Обнулить yaw и переинициализировать EKF текущими home roll/pitch."""
+        """Сбросить yaw и состояние EKF."""
         with self._state_lock:
             self._yaw = 0.0
             if self._ekf is not None:
@@ -302,7 +279,7 @@ class IMUSensor(GyroscopeProtocol):
                 )
 
     def destroy(self) -> None:
-        """Остановить поток и закрыть I²C-шину."""
+        """Остановить IMU и закрыть I²C-шину."""
         self.stop()
 
         if self._bus:
@@ -316,7 +293,7 @@ class IMUSensor(GyroscopeProtocol):
         self._is_initialized = False
 
     def _setup(self) -> None:
-        """Пробудить MPU6050 и записать DLPF, делитель частоты и диапазоны гиро/акселя."""
+        """Инициализировать MPU6050."""
         if not _HARDWARE_AVAILABLE or self._is_initialized:
             return
 
@@ -344,7 +321,7 @@ class IMUSensor(GyroscopeProtocol):
             self._is_initialized = False
 
     def _read_burst_raw_int16(self) -> tuple[float, float, float, float, float, float]:
-        """Прочитать 14 байт с ``REG_ACCEL_XOUT_H``: accel, temp, gyro (сырые int16)."""
+        """Прочитать пакет сырых значений MPU6050."""
         if not self._is_initialized:
             return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
@@ -367,16 +344,16 @@ class IMUSensor(GyroscopeProtocol):
         return ax, ay, az, gx, gy, gz
 
     def _read_raw_gyro_z(self) -> float:
-        """Сырое значение гироскопа Z из пакетного чтения."""
+        """Вернуть сырое значение гироскопа Z."""
         return self._read_burst_raw_int16()[5]
 
     def _read_raw_accel_xyz(self) -> tuple[float, float, float]:
-        """Сырые значения акселерометра из того же пакета, что и гироскоп."""
+        """Вернуть сырые значения акселерометра."""
         ax, ay, az, _, _, _ = self._read_burst_raw_int16()
         return ax, ay, az
 
     def _decode_int16(self, high_byte: int, low_byte: int) -> float:
-        """Собрать signed int16 из старшего и младшего байта регистров MPU6050."""
+        """Собрать signed int16 из двух байтов."""
         raw_val: int = (high_byte << self.BYTE_SHIFT) | low_byte
         if raw_val > self.INT16_LIMIT:
             raw_val -= self.INT16_OFFSET
@@ -391,7 +368,7 @@ class IMUSensor(GyroscopeProtocol):
         gy_deg: float,
         gz_deg: float,
     ) -> tuple[float, float, float, float, float, float]:
-        """Экспоненциальное сглаживание ускорений (м/с²) и угловых скоростей (°/с)."""
+        """Применить EMA к ускорениям и угловым скоростям."""
         if self._ema_ax is None:
             self._ema_ax = ax_m2
             self._ema_ay = ay_m2
@@ -423,7 +400,7 @@ class IMUSensor(GyroscopeProtocol):
         )
 
     def _update_loop(self) -> None:
-        """Фоновый цикл: пакетное чтение → масштаб → EMA → EKF или интеграл yaw."""
+        """Выполнять фоновый цикл опроса IMU."""
         while not self._stop_event.is_set():
             now: float = time.monotonic()
 

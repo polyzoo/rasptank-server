@@ -21,7 +21,7 @@ class FakeBusio:
 
     @staticmethod
     def I2C(scl: object, sda: object) -> tuple[object, object]:
-        """Вернуть fake I2C descriptor."""
+        """Вернуть заглушку I2C."""
         FakeBusio.calls.append((scl, sda))
         return scl, sda
 
@@ -83,7 +83,7 @@ class FakeMotorModule:
 
 
 def _enable_fake_hardware(monkeypatch: Any, pca_cls: type[FakePCA9685] = FakePCA9685) -> None:
-    """Подключить fake hardware зависимости к модулю motor."""
+    """Подключить аппаратные заглушки к модулю motor."""
     FakeBusio.calls = []
     FakePCA9685.instances = []
     FakeDCMotor.instances = []
@@ -96,13 +96,11 @@ def _enable_fake_hardware(monkeypatch: Any, pca_cls: type[FakePCA9685] = FakePCA
 
 
 def test_motor_methods_are_noop_when_hardware_is_unavailable(monkeypatch: Any) -> None:
-    """Команды моторов ничего не делают без hardware-библиотек."""
+    """Команды моторов ничего не делают без аппаратных библиотек."""
     monkeypatch.setattr(motor_module, "_HARDWARE_AVAILABLE", False)
     controller: MotorController = MotorController()
 
     controller.set_tracks(40, -40)
-    controller.move_forward(50)
-    controller.turn_left(50)
     controller.stop()
     controller.destroy()
 
@@ -111,12 +109,12 @@ def test_motor_methods_are_noop_when_hardware_is_unavailable(monkeypatch: Any) -
     assert controller._motor2 is None
 
 
-def test_move_forward_initializes_motors_and_applies_steering(monkeypatch: Any) -> None:
-    """move_forward инициализирует PCA9685 и задает throttle с учетом steer."""
+def test_set_tracks_initializes_motors_and_applies_signed_speeds(monkeypatch: Any) -> None:
+    """set_tracks инициализирует PCA9685 и задаёт throttle для обоих бортов."""
     _enable_fake_hardware(monkeypatch)
-    controller: MotorController = MotorController(tl_left_offset=5, tl_right_offset=-5)
+    controller: MotorController = MotorController()
 
-    controller.move_forward(speed_percent=50, steer_percent=10)
+    controller.set_tracks(left_speed_percent=65, right_speed_percent=35)
 
     pwm: FakePCA9685 = FakePCA9685.instances[0]
     motor1, motor2 = FakeDCMotor.instances
@@ -131,51 +129,28 @@ def test_move_forward_initializes_motors_and_applies_steering(monkeypatch: Any) 
     assert motor2.throttle == -0.35
 
 
-def test_move_backward_reverses_track_direction(monkeypatch: Any) -> None:
-    """move_backward инвертирует направление обеих гусениц."""
-    _enable_fake_hardware(monkeypatch)
-    controller: MotorController = MotorController()
-
-    controller.move_backward(speed_percent=25)
-
-    motor1, motor2 = FakeDCMotor.instances
-    assert motor1.throttle == -0.25
-    assert motor2.throttle == 0.25
-
-
-def test_reversed_m1_m2_direction_makes_forward_match_default_backward(
+def test_reversed_m1_m2_direction_flips_track_throttle_signs(
     monkeypatch: Any,
 ) -> None:
-    """Обратная полярность M1/M2 превращает forward в default backward."""
+    """Обратная полярность M1/M2 меняет знак throttle у обоих каналов."""
     _enable_fake_hardware(monkeypatch)
     reversed_dirs: MotorController = MotorController(m1_direction=-1, m2_direction=1)
-    reversed_dirs.move_forward(speed_percent=25)
+    reversed_dirs.set_tracks(left_speed_percent=25, right_speed_percent=25)
     reversed_m1, reversed_m2 = FakeDCMotor.instances
 
     _enable_fake_hardware(monkeypatch)
     default: MotorController = MotorController()
-    default.move_backward(speed_percent=25)
-    back_m1, back_m2 = FakeDCMotor.instances
+    default.set_tracks(left_speed_percent=25, right_speed_percent=25)
+    default_m1, default_m2 = FakeDCMotor.instances
 
     assert (reversed_m1.throttle, reversed_m2.throttle) == (
-        back_m1.throttle,
-        back_m2.throttle,
+        -default_m1.throttle,
+        -default_m2.throttle,
     )
 
 
-def test_backward_steer_mix_uses_opposite_sign_for_heading_hold(monkeypatch: Any) -> None:
-    """Задний ход с подруливанием: steer_mix обращён относительно вперёд."""
-    _enable_fake_hardware(monkeypatch)
-    controller: MotorController = MotorController(tl_left_offset=5, tl_right_offset=-5)
-    controller.move_backward(speed_percent=50, steer_percent=10)
-
-    motor1, motor2 = FakeDCMotor.instances
-    assert motor1.throttle == -0.45
-    assert motor2.throttle == 0.55
-
-
 def test_set_tracks_drives_left_and_right_tracks_independently(monkeypatch: Any) -> None:
-    """set_tracks напрямую задает скорости со знаком для обоих бортов."""
+    """set_tracks напрямую задаёт скорости со знаком для обоих бортов."""
     _enable_fake_hardware(monkeypatch)
     controller: MotorController = MotorController()
 
@@ -210,39 +185,11 @@ def test_set_tracks_returns_when_setup_does_not_create_motors(monkeypatch: Any) 
     assert controller._motor2 is None
 
 
-def test_turn_methods_drive_tracks_in_opposite_directions(monkeypatch: Any) -> None:
-    """Повороты на месте выставляют throttle для разворота."""
-    _enable_fake_hardware(monkeypatch)
-    controller: MotorController = MotorController()
-
-    controller.turn_left(40)
-    motor1, motor2 = FakeDCMotor.instances
-    assert motor1.throttle == 0.4
-    assert motor2.throttle == 0.4
-
-    controller.turn_right(60)
-
-    assert motor1.throttle == -0.6
-    assert motor2.throttle == -0.6
-
-
-def test_turn_returns_when_setup_does_not_create_motors(monkeypatch: Any) -> None:
-    """turn_left завершается без throttle, если setup не создал оба мотора."""
-    _enable_fake_hardware(monkeypatch)
-    controller: MotorController = MotorController()
-    monkeypatch.setattr(controller, "_setup", lambda: None)
-
-    controller.turn_left(25)
-
-    assert controller._motor1 is None
-    assert controller._motor2 is None
-
-
 def test_stop_sets_zero_throttle_for_both_motors(monkeypatch: Any) -> None:
     """stop выставляет нулевой throttle на оба мотора."""
     _enable_fake_hardware(monkeypatch)
     controller: MotorController = MotorController()
-    controller.move_forward(80)
+    controller.set_tracks(80, 80)
 
     controller.stop()
 
@@ -255,7 +202,7 @@ def test_destroy_deinitializes_pwm_and_clears_state(monkeypatch: Any) -> None:
     """destroy останавливает моторы, вызывает deinit и сбрасывает ссылки."""
     _enable_fake_hardware(monkeypatch)
     controller: MotorController = MotorController()
-    controller.move_forward(80)
+    controller.set_tracks(80, 80)
     pwm: FakePCA9685 = FakePCA9685.instances[0]
 
     controller.destroy()
@@ -268,10 +215,10 @@ def test_destroy_deinitializes_pwm_and_clears_state(monkeypatch: Any) -> None:
 
 
 def test_destroy_clears_state_when_deinit_fails(monkeypatch: Any) -> None:
-    """destroy сбрасывает state даже при ошибке deinit."""
+    """destroy сбрасывает состояние даже при ошибке deinit."""
     _enable_fake_hardware(monkeypatch, BrokenDeinitPCA9685)
     controller: MotorController = MotorController()
-    controller.move_forward(50)
+    controller.set_tracks(50, 50)
 
     controller.destroy()
 
@@ -286,7 +233,7 @@ def test_setup_failure_leaves_controller_uninitialized(monkeypatch: Any) -> None
     _enable_fake_hardware(monkeypatch, BrokenPCA9685)
     controller: MotorController = MotorController()
 
-    controller.move_forward(50)
+    controller.set_tracks(50, 50)
 
     assert controller._pwm_motor is None
     assert controller._motor1 is None

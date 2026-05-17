@@ -4,7 +4,7 @@ from src.application.services.l3_models import (
     L3_PLANNER_STATUS_EMPTY,
     L3_PLANNER_STATUS_IMPOSSIBLE,
     L3_PLANNER_STATUS_PLANNED,
-    KnownObstacle,
+    Obstacle,
     TargetPoint,
     TargetRoute,
 )
@@ -33,14 +33,14 @@ def test_build_route_returns_straight_path_without_obstacles() -> None:
     assert result.points == (TargetPoint(x_cm=50.0, y_cm=0.0),)
 
 
-def test_build_route_inserts_detour_around_known_obstacle() -> None:
+def test_build_route_inserts_detour_around_obstacle() -> None:
     """Если прямая пересекает препятствие, планировщик добавляет обходную точку."""
     planner = _planner()
 
     result = planner.build_route(
         start=TargetPoint(x_cm=0.0, y_cm=0.0),
         target=TargetPoint(x_cm=50.0, y_cm=0.0),
-        obstacles=(KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
+        obstacles=(Obstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
     )
 
     assert result.status == L3_PLANNER_STATUS_PLANNED
@@ -56,7 +56,7 @@ def test_build_route_marks_target_impossible_when_detour_exceeds_corridor() -> N
     result = planner.build_route(
         start=TargetPoint(x_cm=0.0, y_cm=0.0),
         target=TargetPoint(x_cm=50.0, y_cm=0.0),
-        obstacles=(KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
+        obstacles=(Obstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
     )
 
     assert result.status == L3_PLANNER_STATUS_IMPOSSIBLE
@@ -74,7 +74,7 @@ def test_build_route_plans_full_route_point_by_point() -> None:
                 TargetPoint(x_cm=80.0, y_cm=0.0),
             )
         ),
-        obstacles=(KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
+        obstacles=(Obstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
     )
 
     assert result.status == L3_PLANNER_STATUS_PLANNED
@@ -108,7 +108,7 @@ def test_plan_segment_returns_impossible_when_waypoint_limit_exceeded() -> None:
     result = planner._plan_segment(  # type: ignore[attr-defined]
         start=TargetPoint(x_cm=0.0, y_cm=0.0),
         goal=TargetPoint(x_cm=50.0, y_cm=0.0),
-        obstacles=(KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
+        obstacles=(Obstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
     )
 
     assert result.status == L3_PLANNER_STATUS_IMPOSSIBLE
@@ -121,15 +121,15 @@ def test_build_detour_points_returns_none_for_zero_length_segment() -> None:
     result = planner._build_detour_points(  # type: ignore[attr-defined]
         start=TargetPoint(x_cm=10.0, y_cm=10.0),
         goal=TargetPoint(x_cm=10.0, y_cm=10.0),
-        obstacle=KnownObstacle(x_cm=12.0, y_cm=10.0, radius_cm=2.0),
-        obstacles=(KnownObstacle(x_cm=12.0, y_cm=10.0, radius_cm=2.0),),
+        obstacle=Obstacle(x_cm=12.0, y_cm=10.0, radius_cm=2.0),
+        obstacles=(Obstacle(x_cm=12.0, y_cm=10.0, radius_cm=2.0),),
     )
 
     assert result is None
 
 
 def test_candidate_hits_any_obstacle_detects_all_three_segments() -> None:
-    """Проверка обходного пути должна отлавливать пересечения на любом из трёх отрезков."""
+    """Обходной путь отлавливает пересечения на любом из трёх отрезков."""
     planner = _planner()
     start = TargetPoint(x_cm=0.0, y_cm=0.0)
     first = TargetPoint(x_cm=10.0, y_cm=0.0)
@@ -141,21 +141,21 @@ def test_candidate_hits_any_obstacle_detects_all_three_segments() -> None:
         first_waypoint=first,
         second_waypoint=second,
         goal=goal,
-        obstacles=(KnownObstacle(x_cm=5.0, y_cm=0.0, radius_cm=2.0),),
+        obstacles=(Obstacle(x_cm=5.0, y_cm=0.0, radius_cm=2.0),),
     )
     assert planner._candidate_hits_any_obstacle(  # type: ignore[attr-defined]
         start=start,
         first_waypoint=first,
         second_waypoint=second,
         goal=goal,
-        obstacles=(KnownObstacle(x_cm=15.0, y_cm=0.0, radius_cm=2.0),),
+        obstacles=(Obstacle(x_cm=15.0, y_cm=0.0, radius_cm=2.0),),
     )
     assert planner._candidate_hits_any_obstacle(  # type: ignore[attr-defined]
         start=start,
         first_waypoint=first,
         second_waypoint=second,
         goal=goal,
-        obstacles=(KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=2.0),),
+        obstacles=(Obstacle(x_cm=25.0, y_cm=0.0, radius_cm=2.0),),
     )
 
 
@@ -164,7 +164,7 @@ def test_projection_and_distance_helpers_cover_degenerate_segment() -> None:
     planner = _planner()
     start = TargetPoint(x_cm=10.0, y_cm=10.0)
     goal = TargetPoint(x_cm=10.0, y_cm=10.0)
-    obstacle = KnownObstacle(x_cm=12.0, y_cm=10.0, radius_cm=2.0)
+    obstacle = Obstacle(x_cm=12.0, y_cm=10.0, radius_cm=2.0)
 
     assert (
         planner._segment_projection_to_obstacle(  # type: ignore[attr-defined]
@@ -208,8 +208,8 @@ def test_build_detour_points_skips_candidate_when_second_point_exceeds_corridor(
     result = planner._build_detour_points(  # type: ignore[attr-defined]
         start=TargetPoint(x_cm=0.0, y_cm=0.0),
         goal=TargetPoint(x_cm=50.0, y_cm=0.0),
-        obstacle=KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),
-        obstacles=(KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
+        obstacle=Obstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),
+        obstacles=(Obstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),),
     )
 
     assert result is None
@@ -222,10 +222,10 @@ def test_build_detour_points_skips_blocked_side_and_selects_other_side() -> None
     result = planner._build_detour_points(  # type: ignore[attr-defined]
         start=TargetPoint(x_cm=0.0, y_cm=0.0),
         goal=TargetPoint(x_cm=50.0, y_cm=0.0),
-        obstacle=KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),
+        obstacle=Obstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),
         obstacles=(
-            KnownObstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),
-            KnownObstacle(x_cm=25.0, y_cm=11.0, radius_cm=2.0),
+            Obstacle(x_cm=25.0, y_cm=0.0, radius_cm=6.0),
+            Obstacle(x_cm=25.0, y_cm=11.0, radius_cm=2.0),
         ),
     )
 
@@ -243,5 +243,5 @@ def test_candidate_hits_any_obstacle_detects_intersection_only_on_last_segment()
         first_waypoint=TargetPoint(x_cm=10.0, y_cm=20.0),
         second_waypoint=TargetPoint(x_cm=20.0, y_cm=20.0),
         goal=TargetPoint(x_cm=30.0, y_cm=0.0),
-        obstacles=(KnownObstacle(x_cm=25.0, y_cm=5.0, radius_cm=2.0),),
+        obstacles=(Obstacle(x_cm=25.0, y_cm=5.0, radius_cm=2.0),),
     )

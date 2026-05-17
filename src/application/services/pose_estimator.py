@@ -7,7 +7,7 @@ from typing import ClassVar
 
 @dataclass(frozen=True, slots=True)
 class PoseEstimate:
-    """Оценка текущего состояния машинки на плоскости."""
+    """Оценка позы корпуса на плоскости."""
 
     x_cm: float
     y_cm: float
@@ -17,9 +17,9 @@ class PoseEstimate:
 
 
 class PoseEstimator:
-    """Оценка состояния машинки по скорости, угловой скорости и ускорению."""
+    """Оценщик позы корпуса по скорости и данным IMU."""
 
-    # Среднее между углом в начале и в конце шага используется как направление движения за этот шаг.
+    # Средний курс за шаг используется как направление движения.
     AVERAGE_HEADING_DIVISOR: ClassVar[float] = 2.0
 
     # Перевод из метров в сантиметры для перехода от м/с^2 к см/с^2.
@@ -134,5 +134,5 @@ class PoseEstimator:
         )
 
     def _normalize_angle_deg(self, angle_deg: float) -> float:
-        """Привести угол к диапазону от -180 до 180 градусов."""
+        """Привести угол к диапазону [-180, 180)."""
         return ((angle_deg + self.HALF_TURN_DEG) % self.FULL_TURN_DEG) - self.HALF_TURN_DEG

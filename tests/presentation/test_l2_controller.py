@@ -25,7 +25,7 @@ from src.presentation.api.v1.schemas.l2 import (
 
 
 class FakeIsolatedMotion:
-    """Заглушка нового контура для тестов контроллера L2."""
+    """Заглушка координатора для контроллера L2."""
 
     def __init__(self) -> None:
         """Подготовить состояние вызовов."""
@@ -93,7 +93,7 @@ class FakeIsolatedMotion:
 
 
 class FakeWebSocket:
-    """Минимальная заглушка WebSocket для прямого вызова handler."""
+    """Минимальная заглушка WebSocket для прямого вызова обработчика."""
 
     def __init__(
         self, isolated_motion: FakeIsolatedMotion, *, disconnect_after_sends: int = 1
@@ -122,7 +122,7 @@ def test_l2_state_returns_current_snapshot() -> None:
     """REST-обработчик возвращает текущее состояние L2."""
 
     async def run() -> None:
-        """Выполнить async handler внутри цикла событий."""
+        """Выполнить async-обработчик внутри цикла событий."""
         response: L2StateResponseSchema = await l2_state(
             isolated_motion=FakeIsolatedMotion()  # type: ignore[arg-type]
         )
@@ -142,7 +142,7 @@ def test_l2_cmd_vel_stop_and_reset_forward_commands() -> None:
     """REST-обработчики L2 передают команду, остановку и сброс состояния."""
 
     async def run() -> None:
-        """Выполнить async handlers внутри цикла событий."""
+        """Выполнить async-обработчики внутри цикла событий."""
         isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
 
         cmd_response = await l2_cmd_vel(
@@ -172,7 +172,7 @@ def test_l2_cmd_vel_stop_and_reset_forward_commands() -> None:
 
 
 def test_l2_config_state_space_forwards_config() -> None:
-    """REST-обработчик настройки МПС корректно передает параметры."""
+    """REST-обработчик настройки МПС передаёт параметры."""
 
     async def run() -> None:
         isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
@@ -189,10 +189,10 @@ def test_l2_config_state_space_forwards_config() -> None:
 
 
 def test_l2_ws_sends_state_snapshot() -> None:
-    """WebSocket L2 отправляет состояние и завершает цикл после disconnect."""
+    """WebSocket L2 отправляет состояние и завершается после отключения."""
 
     async def run() -> None:
-        """Выполнить WebSocket handler внутри цикла событий."""
+        """Выполнить WebSocket-обработчик внутри цикла событий."""
         websocket: FakeWebSocket = FakeWebSocket(FakeIsolatedMotion(), disconnect_after_sends=2)
 
         with patch(

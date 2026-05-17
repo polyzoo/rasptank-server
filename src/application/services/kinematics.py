@@ -7,7 +7,7 @@ from typing import ClassVar
 
 @dataclass(frozen=True, slots=True)
 class TrackCommand:
-    """Команды для левого и правого борта."""
+    """Команда левого и правого борта."""
 
     left_percent: float
     right_percent: float
@@ -15,7 +15,7 @@ class TrackCommand:
 
 @dataclass(frozen=True, slots=True)
 class ChassisVelocity:
-    """Скорость корпуса машинки."""
+    """Скорость корпуса."""
 
     linear_speed_cm_per_sec: float
     angular_speed_deg_per_sec: float
@@ -23,14 +23,14 @@ class ChassisVelocity:
 
 @dataclass(frozen=True, slots=True)
 class DifferentialDriveKinematics:
-    """Кинематическая связь корпуса машинки и её бортов."""
+    """Кинематическая связь корпуса и бортов."""
 
     track_width_cm: float
     left_track_max_speed_cm_per_sec: float
     right_track_max_speed_cm_per_sec: float
     max_command_percent: float = 100.0
 
-    # Половина базы между бортами из формулы v_R = v + omega * l / 2 и v_L = v - omega * l / 2.
+    # Делитель для половины базы между бортами в прямой кинематике.
     HALF_TRACK_WIDTH_DIVISOR: ClassVar[float] = 2.0
 
     def to_track_command(

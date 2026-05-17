@@ -17,7 +17,7 @@ from src.presentation.api.v1.schemas.l1 import (
 
 
 class FakeIsolatedMotion:
-    """Заглушка нового контура для тестов контроллера L1."""
+    """Заглушка координатора для контроллера L1."""
 
     def __init__(self) -> None:
         """Подготовить состояние вызовов."""
@@ -46,7 +46,7 @@ class FakeIsolatedMotion:
 
 
 class FakeWebSocket:
-    """Минимальная заглушка WebSocket для прямого вызова handler."""
+    """Минимальная заглушка WebSocket для прямого вызова обработчика."""
 
     def __init__(
         self, isolated_motion: FakeIsolatedMotion, *, disconnect_after_sends: int = 1
@@ -75,7 +75,7 @@ def test_l1_state_returns_sensor_snapshot() -> None:
     """REST-обработчик возвращает снимок датчиков L1."""
 
     async def run() -> None:
-        """Выполнить async handler внутри цикла событий."""
+        """Выполнить async-обработчик внутри цикла событий."""
         isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
         response: L1SensorStateResponseSchema = await l1_state(isolated_motion=isolated_motion)  # type: ignore[arg-type]
 
@@ -86,10 +86,10 @@ def test_l1_state_returns_sensor_snapshot() -> None:
 
 
 def test_l1_tracks_and_stop_forward_commands() -> None:
-    """REST-обработчики L1 передают команду борту и остановку в новый контур."""
+    """REST-обработчики L1 передают команду бортов и остановку."""
 
     async def run() -> None:
-        """Выполнить async handlers внутри цикла событий."""
+        """Выполнить async-обработчики внутри цикла событий."""
         isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
 
         accepted: L1ActionResponseSchema = await l1_tracks(
@@ -109,10 +109,10 @@ def test_l1_tracks_and_stop_forward_commands() -> None:
 
 
 def test_l1_ws_sends_sensor_snapshot() -> None:
-    """WebSocket L1 отправляет снимок датчиков и завершает цикл после disconnect."""
+    """WebSocket L1 отправляет снимок датчиков и завершается после отключения."""
 
     async def run() -> None:
-        """Выполнить WebSocket handler внутри цикла событий."""
+        """Выполнить WebSocket-обработчик внутри цикла событий."""
         websocket: FakeWebSocket = FakeWebSocket(FakeIsolatedMotion(), disconnect_after_sends=2)
 
         with patch(

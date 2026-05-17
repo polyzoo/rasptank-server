@@ -7,10 +7,17 @@ from src.infrastructures.ultrasonic import DisabledUltrasonicSensor, UltrasonicS
 
 def test_create_ultrasonic_sensor_returns_disabled_stub_when_setting_is_false() -> None:
     """ULTRASONIC_ENABLED=false отключает обращения к GPIO."""
-    sensor = _create_ultrasonic_sensor(Settings())
+    sensor = _create_ultrasonic_sensor(Settings(ultrasonic_enabled=False))
 
     assert isinstance(sensor, DisabledUltrasonicSensor)
     assert sensor.measure_distance_cm() == UltrasonicSensor.FALLBACK_DISTANCE_CM
+
+
+def test_create_ultrasonic_sensor_enabled_by_default() -> None:
+    """По умолчанию контур L3 получает реальный ультразвуковой датчик."""
+    sensor = _create_ultrasonic_sensor(Settings())
+
+    assert isinstance(sensor, UltrasonicSensor)
 
 
 def test_create_ultrasonic_sensor_applies_configured_bcm_pins() -> None:

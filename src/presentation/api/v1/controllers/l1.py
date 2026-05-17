@@ -18,7 +18,7 @@ router: APIRouter = APIRouter()
 
 
 def _to_response(state: L1SensorState) -> L1SensorStateResponseSchema:
-    """Преобразовать доменное состояние L1 в ответ API."""
+    """Преобразовать состояние L1 в API-ответ."""
     return L1SensorStateResponseSchema(
         angular_speed_z_deg_per_sec=state.angular_speed_z_deg_per_sec,
         accel_x_m_s2=state.accel_x_m_s2,
@@ -28,21 +28,21 @@ def _to_response(state: L1SensorState) -> L1SensorStateResponseSchema:
     )
 
 
-@router.get("/state", description="Текущий снимок датчиков уровня L1")
+@router.get("/state", summary="Текущий снимок датчиков уровня L1")
 async def l1_state(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L1SensorStateResponseSchema:
-    """Вернуть снимок датчиков нового уровня L1."""
+    """Вернуть снимок датчиков L1."""
     snapshot: L1SensorState = await asyncio.to_thread(isolated_motion.read_l1_state)
     return _to_response(snapshot)
 
 
-@router.post("/tracks", description="Прямая команда левому и правому борту")
+@router.post("/tracks", summary="Прямая команда левому и правому борту")
 async def l1_tracks(
     body: L1TrackCommandRequestSchema,
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L1ActionResponseSchema:
-    """Передать сырую команду бортам через новый L1."""
+    """Передать команду бортов в L1."""
     await asyncio.to_thread(
         isolated_motion.apply_l1_track_command,
         body.left_percent,
@@ -51,18 +51,18 @@ async def l1_tracks(
     return L1ActionResponseSchema(status="accepted")
 
 
-@router.post("/stop", description="Остановить оба борта через L1")
+@router.post("/stop", summary="Остановить оба борта через L1")
 async def l1_stop(
     isolated_motion: Annotated[IsolatedMotionService, Depends(get_isolated_motion_service)],
 ) -> L1ActionResponseSchema:
-    """Остановить борта нового контура на уровне L1."""
+    """Остановить борта через L1."""
     await asyncio.to_thread(isolated_motion.stop_l1)
     return L1ActionResponseSchema(status="stopped")
 
 
 @router.websocket("/ws")
 async def l1_state_ws(websocket: WebSocket) -> None:
-    """Поток снимков датчиков уровня L1."""
+    """Отправлять поток снимков датчиков L1."""
     await websocket.accept()
 
     isolated_motion: IsolatedMotionService = websocket.scope["app"].state.isolated_motion

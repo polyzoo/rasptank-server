@@ -11,7 +11,7 @@ StateSpaceGainMatrix: TypeAlias = tuple[
 
 
 class L2BodyVelocityRequestSchema(BaseModel):
-    """Запрос желаемой линейной и угловой скорости корпуса."""
+    """API-запрос скорости корпуса для L2."""
 
     linear_speed_cm_per_sec: float = Field(..., description="Желаемая линейная скорость корпуса.")
     nominal_linear_speed_cm_per_sec: float | None = Field(
@@ -27,7 +27,7 @@ class L2BodyVelocityRequestSchema(BaseModel):
 
 
 class L2ResetStateRequestSchema(BaseModel):
-    """Запрос на сброс состояния уровня L2."""
+    """API-запрос сброса состояния L2."""
 
     x_cm: float = 0.0
     y_cm: float = 0.0
@@ -37,7 +37,7 @@ class L2ResetStateRequestSchema(BaseModel):
 
 
 class L2StateResponseSchema(BaseModel):
-    """Ответ с текущим состоянием уровня L2."""
+    """API-ответ состояния L2."""
 
     x_cm: float
     y_cm: float
@@ -56,7 +56,7 @@ class L2StateResponseSchema(BaseModel):
 
 
 class StateSpaceConfigRequestSchema(BaseModel):
-    """Настройка параметров МПС (LQR)."""
+    """API-запрос настройки МПС L2."""
 
     enabled: bool = Field(True, description="Включить МПС.")
     t_v: float = Field(0.8, description="Постоянная времени T_v.")

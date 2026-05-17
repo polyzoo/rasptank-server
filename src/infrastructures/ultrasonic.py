@@ -23,7 +23,7 @@ except ImportError:
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-# Исключения при работе с датчиком
+# Исключения датчика расстояния.
 _SENSOR_EXCEPTIONS: tuple[type[BaseException], ...] = (
     OSError,
     RuntimeError,
@@ -34,32 +34,32 @@ _SENSOR_EXCEPTIONS: tuple[type[BaseException], ...] = (
 
 @final
 class UltrasonicSensor(UltrasonicSensorProtocol):
-    """Контроллер для работы с ультразвуковым датчиком HC-SR04."""
+    """Драйвер ультразвукового датчика HC-SR04."""
 
-    # Пины датчика: Trigger — импульс, Echo — отражённый сигнал
+    # BCM-пины датчика.
     TRIGGER_PIN: int = 23
     ECHO_PIN: int = 24
 
-    # Максимальная дистанция (м)
+    # Максимальная дистанция измерения.
     MAX_DISTANCE_M: float = 2.0
 
-    # Отключаем внутреннее smoothing gpiozero и полагаемся на свою медиану в контроллере
+    # Размер очереди измерений gpiozero.
     DISTANCE_QUEUE_LEN: int = 1
 
-    # Значение расстояния до препятствия при ошибке или работе без Raspberry Pi (см)
+    # Безопасное расстояние при ошибке или недоступном GPIO.
     FALLBACK_DISTANCE_CM: float = 999.0
 
-    # Коэффициент перевода метров в сантиметры
+    # Коэффициент перевода метров в сантиметры.
     METERS_TO_CM: float = 100.0
 
     def __init__(self) -> None:
-        """Инициализация без обращения к GPIO."""
+        """Подготовить драйвер без обращения к GPIO."""
         self._sensor: object | None = None
         self._is_initialized: bool = False
         self._lock: threading.Lock = threading.Lock()
 
     def measure_distance_cm(self) -> float:
-        """Измерение расстояния до препятствия."""
+        """Измерить расстояние до препятствия."""
         if not _HARDWARE_AVAILABLE:
             return self.FALLBACK_DISTANCE_CM
 
@@ -75,7 +75,7 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
                 return self.FALLBACK_DISTANCE_CM
 
     def destroy(self) -> None:
-        """Освобождение ресурсов GPIO.
+        """Освободить ресурсы GPIO.
 
         Если :meth:`measure_distance_cm` ещё выполняется (другой поток держит ``_lock``),
         блокирующий ``with self._lock`` здесь привёл бы к взаимной блокировке с обёрткой
@@ -105,7 +105,7 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
             self._lock.release()
 
     def _setup(self) -> None:
-        """Однократная инициализация датчика."""
+        """Инициализировать датчик расстояния."""
         if not _HARDWARE_AVAILABLE:
             return
 
@@ -131,14 +131,14 @@ class UltrasonicSensor(UltrasonicSensorProtocol):
 
 @final
 class DisabledUltrasonicSensor(UltrasonicSensorProtocol):
-    """Безопасная заглушка HC-SR04, когда датчик отключён в настройках."""
+    """Безопасная заглушка датчика расстояния."""
 
     FALLBACK_DISTANCE_CM: float = UltrasonicSensor.FALLBACK_DISTANCE_CM
 
     def measure_distance_cm(self) -> float:
-        """Вернуть «далеко», не обращаясь к GPIO."""
+        """Вернуть безопасное расстояние."""
         return self.FALLBACK_DISTANCE_CM
 
     def destroy(self) -> None:
-        """Заглушка не держит ресурсов."""
+        """Освободить ресурсы заглушки."""
         return

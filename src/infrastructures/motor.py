@@ -35,33 +35,33 @@ _SETUP_EXCEPTIONS: tuple[type[BaseException], ...] = (
 
 @final
 class MotorController(MotorControllerProtocol):
-    """Контроллер управления моторами RaspTank."""
+    """Драйвер моторов RaspTank."""
 
-    # Каналы PCA9685 для входов драйвера мотора M1
+    # Каналы PCA9685 для мотора M1.
     MOTOR_M1_IN1: int = 8
     MOTOR_M1_IN2: int = 9
 
-    # Каналы PCA9685 для входов драйвера мотора M2
+    # Каналы PCA9685 для мотора M2.
     MOTOR_M2_IN1: int = 10
     MOTOR_M2_IN2: int = 11
 
-    # Дефолты для конструктора (на проде совпадают с Settings; можно переопределить).
+    # Направления моторов по умолчанию.
     _DEFAULT_M1_DIRECTION: int = 1
     _DEFAULT_M2_DIRECTION: int = -1
 
-    # Настройки PWM-контроллера PCA9685
+    # Настройки PWM-контроллера PCA9685.
     PWM_FREQUENCY: int = 50
     PCA9685_MOTOR_ADDRESS: int = 0x5F
 
-    # Диапазон пользовательской скорости в процентах
+    # Диапазон скорости в процентах.
     SPEED_PERCENT_MIN: int = 0
     SPEED_PERCENT_MAX: int = 100
 
-    # Диапазон скорости со знаком для независимого управления гусеницами
+    # Диапазон скорости со знаком.
     SPEED_PERCENT_SIGNED_MIN: int = -100
     SPEED_PERCENT_SIGNED_MAX: int = 100
 
-    # Диапазон throttle для adafruit DCMotor
+    # Диапазон throttle для DCMotor.
     THROTTLE_STOP: float = 0.0
     THROTTLE_REVERSE_MIN: float = -1.0
     THROTTLE_MIN: float = 0.0
@@ -69,15 +69,11 @@ class MotorController(MotorControllerProtocol):
 
     def __init__(
         self,
-        tl_left_offset: int = 0,
-        tl_right_offset: int = 0,
         *,
         m1_direction: int | None = None,
         m2_direction: int | None = None,
     ) -> None:
-        """Инициализация контроллера."""
-        self.TL_LEFT_OFFSET: int = tl_left_offset
-        self.TL_RIGHT_OFFSET: int = tl_right_offset
+        """Подготовить драйвер моторов."""
         m1: int = self._DEFAULT_M1_DIRECTION if m1_direction is None else m1_direction
         m2: int = self._DEFAULT_M2_DIRECTION if m2_direction is None else m2_direction
         if m1 not in (-1, 1) or m2 not in (-1, 1):
@@ -90,7 +86,7 @@ class MotorController(MotorControllerProtocol):
         self._is_initialized: bool = False
 
     def set_tracks(self, left_speed_percent: int, right_speed_percent: int) -> None:
-        """Независимо задать скорость левой и правой гусеницы в процентах со знаком."""
+        """Задать скорости левого и правого борта."""
         if not _HARDWARE_AVAILABLE:
             return
 
@@ -104,24 +100,8 @@ class MotorController(MotorControllerProtocol):
         self._motor1.throttle = self._signed_percent_to_throttle(left_pct, self._m1_direction)
         self._motor2.throttle = self._signed_percent_to_throttle(right_pct, self._m2_direction)
 
-    def move_forward(self, speed_percent: int, steer_percent: int = 0) -> None:
-        """Движение вперед с заданной скоростью."""
-        self._move_line(speed_percent, steer_percent, reverse=False)
-
-    def move_backward(self, speed_percent: int, steer_percent: int = 0) -> None:
-        """Движение назад с заданной скоростью."""
-        self._move_line(speed_percent, steer_percent, reverse=True)
-
-    def turn_left(self, speed_percent: int) -> None:
-        """Поворот налево на месте."""
-        self._turn_in_place(speed_percent, left=True)
-
-    def turn_right(self, speed_percent: int) -> None:
-        """Поворот направо на месте."""
-        self._turn_in_place(speed_percent, left=False)
-
     def stop(self) -> None:
-        """Немедленная остановка обоих двигателей."""
+        """Остановить оба мотора."""
         if not _HARDWARE_AVAILABLE:
             return
 
@@ -134,7 +114,7 @@ class MotorController(MotorControllerProtocol):
             self._motor2.throttle = self.THROTTLE_STOP
 
     def destroy(self) -> None:
-        """Освобождение ресурсов I2C и PCA9685."""
+        """Освободить ресурсы PCA9685."""
         if not _HARDWARE_AVAILABLE:
             return
 
@@ -151,59 +131,6 @@ class MotorController(MotorControllerProtocol):
                 self._motor2: object | None = None
                 self._is_initialized: bool = False
 
-    def _move_line(self, speed_percent: int, steer_percent: int, *, reverse: bool) -> None:
-        """Выполнить движение вперед или назад с подруливанием."""
-        if not _HARDWARE_AVAILABLE:
-            return
-
-        self._setup()
-        if self._motor1 is None or self._motor2 is None:
-            return
-
-        clamped_speed: int = self._clamp_unsigned_speed(speed_percent)
-        steer: int = max(-self.SPEED_PERCENT_MAX, min(self.SPEED_PERCENT_MAX, steer_percent))
-
-        effective_reverse: bool = reverse
-        # При движении назад знак дифференциала лево/право для удержания курса обратный.
-        steer_mix: int = -steer if effective_reverse else steer
-
-        left_pct: int = max(
-            self.SPEED_PERCENT_MIN,
-            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_LEFT_OFFSET + steer_mix),
-        )
-        right_pct: int = max(
-            self.SPEED_PERCENT_MIN,
-            min(self.SPEED_PERCENT_MAX, clamped_speed + self.TL_RIGHT_OFFSET - steer_mix),
-        )
-
-        direction: float = -1.0 if effective_reverse else 1.0
-        self._motor1.throttle = self._signed_percent_to_throttle(
-            int(direction * left_pct),
-            self._m1_direction,
-        )
-        self._motor2.throttle = self._signed_percent_to_throttle(
-            int(direction * right_pct),
-            self._m2_direction,
-        )
-
-    def _turn_in_place(self, speed_percent: int, *, left: bool) -> None:
-        """Выполнить поворот на месте в заданную сторону."""
-        if not _HARDWARE_AVAILABLE:
-            return
-
-        self._setup()
-        if self._motor1 is None or self._motor2 is None:
-            return
-
-        if left:
-            self.set_tracks(left_speed_percent=speed_percent, right_speed_percent=-speed_percent)
-        else:
-            self.set_tracks(left_speed_percent=-speed_percent, right_speed_percent=speed_percent)
-
-    def _clamp_unsigned_speed(self, speed_percent: int) -> int:
-        """Ограничить скорость без знака допустимым диапазоном."""
-        return max(self.SPEED_PERCENT_MIN, min(self.SPEED_PERCENT_MAX, speed_percent))
-
     def _clamp_signed_speed(self, speed_percent: int) -> int:
         """Ограничить скорость со знаком допустимым диапазоном."""
         return max(
@@ -212,7 +139,7 @@ class MotorController(MotorControllerProtocol):
         )
 
     def _signed_percent_to_throttle(self, speed_percent: int, direction: int) -> float:
-        """Преобразовать скорость со знаком в мощность мотора с учетом его направления."""
+        """Преобразовать скорость со знаком в throttle мотора."""
         clamped_speed: int = self._clamp_signed_speed(speed_percent)
         throttle: float = clamped_speed / float(self.SPEED_PERCENT_MAX)
         return max(
@@ -221,7 +148,7 @@ class MotorController(MotorControllerProtocol):
         )
 
     def _setup(self) -> None:
-        """Однократная инициализация PCA9685 и DC-моторов."""
+        """Инициализировать PCA9685 и DC-моторы."""
         if not _HARDWARE_AVAILABLE or self._is_initialized:
             return
 

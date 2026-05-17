@@ -7,7 +7,7 @@ StateVector5 = tuple[float, float, float, float, float]
 
 @dataclass(frozen=True, slots=True)
 class BodyVelocityCommand:
-    """Желаемая линейная и угловая скорость корпуса."""
+    """Команда скорости корпуса для L2."""
 
     linear_speed_cm_per_sec: float
     angular_speed_deg_per_sec: float
@@ -18,7 +18,7 @@ class BodyVelocityCommand:
 
 @dataclass(frozen=True, slots=True)
 class L1SensorSnapshot:
-    """Снимок данных, полученных от нижнего уровня."""
+    """Снимок датчиков L1 для обновления L2."""
 
     yaw_deg: float | None = None
     angular_speed_z_deg_per_sec: float | None = None
@@ -31,7 +31,7 @@ class L1SensorSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class L2State:
-    """Текущее состояние нового математического контура."""
+    """Состояние уровня L2."""
 
     x_cm: float
     y_cm: float

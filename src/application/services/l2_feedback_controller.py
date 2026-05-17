@@ -4,7 +4,7 @@ from typing import ClassVar
 
 
 class L2FeedbackController:
-    """Обратная связь по гироскопу для уровня L2.
+    """Контроллер обратной связи L2 по гироскопу.
 
     Вычисляет коррекцию ΔU, которая добавляется к базовым командам бортов:
 
@@ -28,18 +28,26 @@ class L2FeedbackController:
 
     # Порог линейной скорости, ниже которого движение считается поворотом на месте.
     LINEAR_SPEED_TURN_THRESHOLD_CM_PER_SEC: ClassVar[float] = 0.5
+    DEFAULT_K_OMEGA: ClassVar[float] = 0.5
+    DEFAULT_K_THETA: ClassVar[float] = 0.3
+    DEFAULT_K_I: ClassVar[float] = 0.05
+    DEFAULT_I_MAX: ClassVar[float] = 10.0
+    DEFAULT_U_MAX_CORR: ClassVar[float] = 20.0
+    DEFAULT_U_TRIM: ClassVar[float] = 0.0
+    DEFAULT_K_OMEGA_TURN: ClassVar[float] = 0.3
+    DEFAULT_U_MAX_TURN: ClassVar[float] = 15.0
 
     def __init__(
         self,
         *,
-        k_omega: float,
-        k_theta: float,
-        k_i: float,
-        i_max: float,
-        u_max_corr: float,
-        u_trim: float,
-        k_omega_turn: float,
-        u_max_turn: float,
+        k_omega: float = DEFAULT_K_OMEGA,
+        k_theta: float = DEFAULT_K_THETA,
+        k_i: float = DEFAULT_K_I,
+        i_max: float = DEFAULT_I_MAX,
+        u_max_corr: float = DEFAULT_U_MAX_CORR,
+        u_trim: float = DEFAULT_U_TRIM,
+        k_omega_turn: float = DEFAULT_K_OMEGA_TURN,
+        u_max_turn: float = DEFAULT_U_MAX_TURN,
     ) -> None:
         """Сохранить коэффициенты обратной связи."""
         self._k_omega: float = k_omega
@@ -65,10 +73,7 @@ class L2FeedbackController:
         return self._integrator
 
     def begin_motion(self, heading_deg: float) -> None:
-        """Запомнить начальный курс и сбросить интегратор.
-
-        Вызывается при начале нового движения вперёд или назад.
-        """
+        """Запомнить начальный курс и сбросить интегратор."""
         self._heading_ref_deg = heading_deg
         self._integrator = 0.0
 
@@ -123,7 +128,7 @@ class L2FeedbackController:
         theta_hat_deg: float,
         dt_sec: float,
     ) -> float:
-        """Коррекция для прямолинейного движения: PID по курсу."""
+        """Рассчитать коррекцию прямолинейного движения."""
         e_omega: float = omega_des_deg_per_sec - omega_gyro_deg_per_sec
 
         e_theta: float = 0.0
@@ -150,13 +155,13 @@ class L2FeedbackController:
         omega_des_deg_per_sec: float,
         omega_gyro_deg_per_sec: float,
     ) -> float:
-        """Коррекция для поворота на месте: P-регулятор по ω."""
+        """Рассчитать коррекцию поворота на месте."""
         e_omega: float = omega_des_deg_per_sec - omega_gyro_deg_per_sec
         raw_correction: float = self._k_omega_turn * e_omega
         return self._clamp(raw_correction, -self._u_max_turn, self._u_max_turn)
 
     def _wrap_angle_deg(self, angle_deg: float) -> float:
-        """Привести угол к диапазону от −180° до 180°."""
+        """Привести угол к диапазону [-180, 180)."""
         return ((angle_deg + self.HALF_TURN_DEG) % self.FULL_TURN_DEG) - self.HALF_TURN_DEG
 
     def _clamp(self, value: float, lower: float, upper: float) -> float:

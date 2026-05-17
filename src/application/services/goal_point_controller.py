@@ -17,7 +17,7 @@ from src.application.services.l3_models import (
 
 @dataclass(frozen=True, slots=True)
 class GoalPointController:
-    """Рассчитать желаемое движение корпуса к выбранной точке."""
+    """Контроллер движения корпуса к целевой точке."""
 
     # Половина полного оборота для нормализации угла в симметричный диапазон.
     HALF_TURN_DEG: ClassVar[float] = 180.0
@@ -31,13 +31,14 @@ class GoalPointController:
     # Коэффициент полной остановки: скорость полностью подавляется.
     ZERO_SPEED_RATIO: ClassVar[float] = 0.0
 
-    position_tolerance_cm: float
-    linear_speed_gain: float
-    angular_speed_gain: float
-    max_linear_speed_cm_per_sec: float
-    max_angular_speed_deg_per_sec: float
-    obstacle_stop_distance_cm: float
-    obstacle_slowdown_distance_cm: float
+    position_tolerance_cm: float = 5.0
+    linear_speed_gain: float = 1.0
+    angular_speed_gain: float = 2.0
+    max_linear_speed_cm_per_sec: float = 20.0
+    max_angular_speed_deg_per_sec: float = 120.0
+    obstacle_stop_distance_cm: float = 45.0
+    obstacle_slowdown_distance_cm: float = 65.0
+    obstacle_heading_blocking_angle_deg: float = 60.0
 
     def build_command(self, state: L2State, target: TargetPoint) -> GoalTrackingCommand:
         """Построить команду движения к точке по текущему состоянию корпуса."""
@@ -46,8 +47,15 @@ class GoalPointController:
         distance_error_cm: float = math.hypot(delta_x_cm, delta_y_cm)
         target_heading_deg: float = math.degrees(math.atan2(delta_y_cm, delta_x_cm))
         heading_error_deg: float = self._normalize_angle_deg(target_heading_deg - state.heading_deg)
+        obstacle_is_on_target_heading: bool = self._obstacle_is_on_target_heading(
+            heading_error_deg=heading_error_deg
+        )
 
-        if state.distance_cm is not None and state.distance_cm <= self.obstacle_stop_distance_cm:
+        if (
+            obstacle_is_on_target_heading
+            and state.distance_cm is not None
+            and state.distance_cm <= self.obstacle_stop_distance_cm
+        ):
             return GoalTrackingCommand(
                 command=L3Command(linear_speed_cm_per_sec=0.0, angular_speed_deg_per_sec=0.0),
                 distance_error_cm=distance_error_cm,
@@ -72,7 +80,13 @@ class GoalPointController:
 
         heading_slowdown_ratio: float = max(0.0, math.cos(math.radians(heading_error_deg)))
         linear_speed_cm_per_sec *= heading_slowdown_ratio
-        linear_speed_cm_per_sec *= self._obstacle_speed_ratio(state.distance_cm)
+        if obstacle_is_on_target_heading:
+            linear_speed_cm_per_sec *= self._obstacle_speed_ratio(state.distance_cm)
+        elif (
+            state.distance_cm is not None
+            and state.distance_cm <= self.obstacle_stop_distance_cm
+        ):
+            linear_speed_cm_per_sec = 0.0
 
         angular_speed_deg_per_sec: float = self._clamp(
             heading_error_deg * self.angular_speed_gain,
@@ -92,7 +106,7 @@ class GoalPointController:
         )
 
     def _normalize_angle_deg(self, angle_deg: float) -> float:
-        """Привести угол к диапазону от -180 до 180 градусов."""
+        """Привести угол к диапазону [-180, 180)."""
         return ((angle_deg + self.HALF_TURN_DEG) % self.FULL_TURN_DEG) - self.HALF_TURN_DEG
 
     def _clamp(self, value: float, lower_bound: float, upper_bound: float) -> float:
@@ -121,3 +135,7 @@ class GoalPointController:
             self.ZERO_SPEED_RATIO,
             self.FULL_SPEED_RATIO,
         )
+
+    def _obstacle_is_on_target_heading(self, *, heading_error_deg: float) -> bool:
+        """Проверить, относится ли передний дальномер к текущему направлению цели."""
+        return abs(heading_error_deg) <= self.obstacle_heading_blocking_angle_deg

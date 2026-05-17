@@ -129,7 +129,6 @@
             background: #F3F4F6;
             color: var(--text-secondary);
         }
-        .badge.active { background: var(--accent-soft); color: var(--accent); }
 
         /* ----- LAYOUTS ----- */
         .control-panel {
@@ -256,7 +255,7 @@
             position: absolute;
             top: 0; bottom: 0;
             width: 10px;
-            border: 1.5px solid #D1D5DB;
+            border: 2px solid #D1D5DB;
             border-radius: 6px;
         }
         .matrix-wrap::before { left: 0; border-right: none; border-top-right-radius: 0; border-bottom-right-radius: 0; }
@@ -284,11 +283,6 @@
             font-size: 0.95rem;
         }
 
-        .formula-label {
-            color: var(--text-primary);
-            font-weight: 600;
-        }
-
         .math-val { color: var(--text-primary); font-weight: 500; }
         
         .live-val {
@@ -297,7 +291,7 @@
             transition: color 0.15s, transform 0.15s;
             display: inline-block;
         }
-        .live-val.ping { color: var(--text-primary); transform: scale(1.1); }
+
         .operator { color: var(--text-tertiary); font-weight: 300; font-size: 1.5rem; }
 
         /* ----- CHARTS ----- */
@@ -345,7 +339,7 @@
             <div class="form-group">
                 <label>Номинальная линейная скорость</label>
                 <div class="input-wrap">
-                    <input type="number" id="v0Param" step="0.1" value="18.0">
+                    <label for="v0Param"></label><input type="number" id="v0Param" step="0.1" value="18.0">
                     <span class="unit">см/с</span>
                 </div>
             </div>
@@ -353,7 +347,7 @@
             <div class="form-group">
                 <label>Желаемая линейная скорость</label>
                 <div class="input-wrap">
-                    <input type="number" id="vDesParam" step="0.1" value="18.0">
+                    <label for="vDesParam"></label><input type="number" id="vDesParam" step="0.1" value="18.0">
                     <span class="unit">см/с</span>
                 </div>
             </div>
@@ -361,7 +355,7 @@
             <div class="form-group">
                 <label>Желаемая угловая скорость</label>
                 <div class="input-wrap">
-                    <input type="number" id="omega0Param" step="0.1" value="0.0">
+                    <label for="omega0Param"></label><input type="number" id="omega0Param" step="0.1" value="0.0">
                     <span class="unit">°/с</span>
                 </div>
             </div>
@@ -370,14 +364,14 @@
                 <div class="form-group">
                     <label>Цель X</label>
                     <div class="input-wrap">
-                        <input type="number" id="targetXParam" step="1" value="100">
+                        <label for="targetXParam"></label><input type="number" id="targetXParam" step="1" value="100">
                         <span class="unit">см</span>
                     </div>
                 </div>
                 <div class="form-group">
                     <label>Цель Y</label>
                     <div class="input-wrap">
-                        <input type="number" id="targetYParam" step="1" value="0">
+                        <label for="targetYParam"></label><input type="number" id="targetYParam" step="1" value="0">
                         <span class="unit">см</span>
                     </div>
                 </div>
@@ -387,14 +381,14 @@
                 <div class="form-group">
                     <label>Линейная инерция</label>
                     <div class="input-wrap">
-                        <input type="number" id="tvParam" min="0.01" step="0.01" value="0.80">
+                        <label for="tvParam"></label><input type="number" id="tvParam" min="0.01" step="0.01" value="0.80">
                         <span class="unit">с</span>
                     </div>
                 </div>
                 <div class="form-group">
                     <label>Угловая инерция</label>
                     <div class="input-wrap">
-                        <input type="number" id="twParam" min="0.01" step="0.01" value="0.55">
+                        <label for="twParam"></label><input type="number" id="twParam" min="0.01" step="0.01" value="0.55">
                         <span class="unit">с</span>
                     </div>
                 </div>
@@ -813,7 +807,7 @@
         });
 
         // Отправляем команду
-        fetch(`http://${window.location.host || 'localhost:8000'}/v1/l2/cmd-vel`, {
+        await fetch(`http://${window.location.host || 'localhost:8000'}/v1/l2/cmd-vel`, {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 linear_speed_cm_per_sec: vDes,

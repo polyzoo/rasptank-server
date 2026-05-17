@@ -10,15 +10,15 @@ from src.infrastructures import head_servo, imu, motor, ultrasonic
 
 
 class FakePCA9685:
-    """Минимальная заглушка PCA9685 для import-time проверки."""
+    """Минимальная заглушка PCA9685 для проверки импорта."""
 
 
 class FakeDistanceSensor:
-    """Минимальная заглушка DistanceSensor для import-time проверки."""
+    """Минимальная заглушка DistanceSensor для проверки импорта."""
 
 
 class FakeSMBus:
-    """Минимальная заглушка SMBus для import-time проверки."""
+    """Минимальная заглушка SMBus для проверки импорта."""
 
 
 def _module(name: str, **attrs: object) -> types.ModuleType:
@@ -30,7 +30,7 @@ def _module(name: str, **attrs: object) -> types.ModuleType:
 
 
 def test_optional_hardware_imports_enable_hardware_flags(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Успешный импорт fake hardware-библиотек включает hardware flags."""
+    """Успешный импорт аппаратных заглушек включает флаги железа."""
     board_module: types.ModuleType = _module("board", SCL="scl", SDA="sda")
     busio_module: types.ModuleType = _module("busio")
     servo_module: types.ModuleType = _module("adafruit_motor.servo")

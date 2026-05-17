@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.application.protocols import MotorControllerProtocol, UltrasonicSensorProtocol
-from src.application.services.drive_controller import DriveController
 from src.application.services.goal_point_controller import GoalPointController
 from src.application.services.isolated_motion_service import IsolatedMotionService
 from src.application.services.kinematics import DifferentialDriveKinematics
@@ -12,8 +11,6 @@ from src.application.services.l2_feedback_controller import L2FeedbackController
 from src.application.services.l2_service import L2Service
 from src.application.services.l2_state_space_controller import L2StateSpaceController
 from src.application.services.l3_service import L3Service
-from src.application.services.motion_config import MotionConfig
-from src.application.services.motion_events import MotionEventHub
 from src.application.services.path_planner import PathPlanner
 from src.application.services.pose_estimator import PoseEstimator
 from src.application.services.velocity_command_controller import VelocityCommandController
@@ -26,7 +23,7 @@ from src.infrastructures.ultrasonic import DisabledUltrasonicSensor, UltrasonicS
 
 @dataclass(slots=True)
 class SharedMotionHardware:
-    """Один набор GPIO/I²C-устройств на процесс (моторы, IMU, УЗ-датчик, серво головы)."""
+    """Общий набор устройств движения для контура L1-L3."""
 
     motor_controller: MotorController
     gyroscope: IMUSensor
@@ -34,7 +31,7 @@ class SharedMotionHardware:
     head_servo: HeadServoController
 
     def destroy(self) -> None:
-        """Освободить железо в том же порядке, что и DriveController.destroy."""
+        """Освободить общие устройства приложения."""
         self.motor_controller.destroy()
         self.ultrasonic_sensor.destroy()
         self.gyroscope.destroy()
@@ -42,15 +39,10 @@ class SharedMotionHardware:
 
 
 def create_shared_motion_hardware(settings: Settings) -> SharedMotionHardware:
-    """Создать единственный экземпляр нижнеуровневого железа для приложения.
-
-    Параметры ``IMUSensor`` (DLPF, частота выборки, EMA, EKF) берутся из ``settings.imu_*``.
-    """
+    """Создать общий набор устройств движения."""
     ultrasonic_sensor: UltrasonicSensorProtocol = _create_ultrasonic_sensor(settings)
     return SharedMotionHardware(
         motor_controller=MotorController(
-            tl_left_offset=settings.tl_left_offset,
-            tl_right_offset=settings.tl_right_offset,
             m1_direction=settings.m1_direction,
             m2_direction=settings.m2_direction,
         ),
@@ -74,64 +66,8 @@ def create_shared_motion_hardware(settings: Settings) -> SharedMotionHardware:
     )
 
 
-def create_drive_controller(
-    settings: Settings,
-    motion_events: MotionEventHub | None,
-    hardware: SharedMotionHardware,
-    isolated_motion: IsolatedMotionService | None = None,
-) -> DriveController:
-    """Собирает контроллер движения поверх общего железа."""
-    config: MotionConfig = MotionConfig(
-        min_obstacle_distance_cm=settings.min_obstacle_distance_cm,
-        deceleration_distance_cm=settings.deceleration_distance_cm,
-        base_speed_percent=settings.base_speed_percent,
-        turn_speed_percent=settings.turn_speed_percent,
-        turn_slowdown_remaining_deg=settings.turn_slowdown_remaining_deg,
-        turn_creep_speed_percent=settings.turn_creep_speed_percent,
-        turn_angle_trim_deg=settings.turn_angle_trim_deg,
-        last_turn_angle_trim_deg=settings.last_turn_angle_trim_deg,
-        max_speed_cm_per_sec=settings.max_speed_cm_per_sec,
-        update_interval_sec=settings.update_interval_sec,
-        avoidance_scan_angle_deg=settings.avoidance_scan_angle_deg,
-        avoidance_side_step_cm=settings.avoidance_side_step_cm,
-        avoidance_forward_step_cm=settings.avoidance_forward_step_cm,
-        avoidance_rejoin_step_cm=settings.avoidance_rejoin_step_cm,
-        avoidance_max_attempts=settings.avoidance_max_attempts,
-        avoidance_confirm_readings=settings.avoidance_confirm_readings,
-        avoidance_min_side_clearance_cm=settings.avoidance_min_side_clearance_cm,
-        avoidance_max_lateral_offset_cm=settings.avoidance_max_lateral_offset_cm,
-        avoidance_max_bypass_distance_cm=settings.avoidance_max_bypass_distance_cm,
-        heading_hold_enabled=settings.heading_hold_enabled,
-        heading_hold_kp=settings.heading_hold_kp,
-        heading_hold_steer_max=settings.heading_hold_steer_max,
-        heading_hold_deadband_deg=settings.heading_hold_deadband_deg,
-        heading_hold_steer_speed_ratio=settings.heading_hold_steer_speed_ratio,
-        heading_hold_min_speed_percent=settings.heading_hold_min_speed_percent,
-        heading_hold_steer_cap_min_spd_percent=settings.heading_hold_steer_cap_min_speed_percent,
-        heading_hold_steer_trim=settings.heading_hold_steer_trim,
-        heading_hold_invert_steer=settings.heading_hold_invert_steer,
-        forward_soft_start_sec=settings.forward_soft_start_sec,
-        turn_check_interval_sec=settings.turn_check_interval_sec,
-        turn_obstacle_check_interval_sec=settings.turn_obstacle_check_interval_sec,
-        turn_timeout_per_deg=settings.turn_timeout_per_deg,
-        turn_timeout_min=settings.turn_timeout_min,
-    )
-
-    return DriveController(
-        motor_controller=hardware.motor_controller,
-        gyroscope=hardware.gyroscope,
-        ultrasonic_sensor=hardware.ultrasonic_sensor,
-        config=config,
-        motion_events=motion_events,
-        head_servo=hardware.head_servo,
-        head_servo_home_angle_deg=settings.head_servo_home_angle_deg,
-        release_gyroscope_after_route=False,
-        isolated_motion_coordinator=isolated_motion,
-    )
-
-
 def create_differential_drive_kinematics(settings: Settings) -> DifferentialDriveKinematics:
-    """Собрать кинематику корпуса и бортов по настройкам приложения."""
+    """Создать кинематику корпуса и бортов."""
     return DifferentialDriveKinematics(
         track_width_cm=settings.track_width_cm,
         left_track_max_speed_cm_per_sec=settings.left_track_max_speed_cm_per_sec,
@@ -140,7 +76,7 @@ def create_differential_drive_kinematics(settings: Settings) -> DifferentialDriv
 
 
 def create_pose_estimator() -> PoseEstimator:
-    """Создать оценщик положения и скорости машинки."""
+    """Создать оценщик позы корпуса."""
     return PoseEstimator()
 
 
@@ -148,7 +84,7 @@ def create_velocity_command_controller(
     settings: Settings,
     motor_controller: MotorControllerProtocol,
 ) -> VelocityCommandController:
-    """Собрать контроллер команд скорости корпуса поверх нижнего уровня."""
+    """Создать контроллер команд скорости корпуса."""
     return VelocityCommandController(
         motor_controller=motor_controller,
         kinematics=create_differential_drive_kinematics(settings),
@@ -159,7 +95,7 @@ def create_l2_service(
     settings: Settings,
     motor_controller: MotorControllerProtocol,
 ) -> L2Service:
-    """Собрать изолированный математический слой нового контура."""
+    """Создать уровень L2."""
     kinematics: DifferentialDriveKinematics = create_differential_drive_kinematics(settings)
     pose_estimator: PoseEstimator = create_pose_estimator()
     velocity_controller: VelocityCommandController = VelocityCommandController(
@@ -169,30 +105,13 @@ def create_l2_service(
 
     feedback_controller: L2FeedbackController | None = None
     if settings.l2_feedback_enabled:
-        feedback_controller = L2FeedbackController(
-            k_omega=settings.l2_feedback_k_omega,
-            k_theta=settings.l2_feedback_k_theta,
-            k_i=settings.l2_feedback_k_i,
-            i_max=settings.l2_feedback_i_max,
-            u_max_corr=settings.l2_feedback_u_max_corr,
-            u_trim=settings.l2_feedback_u_trim,
-            k_omega_turn=settings.l2_feedback_k_omega_turn,
-            u_max_turn=settings.l2_feedback_u_max_turn,
-        )
+        feedback_controller = L2FeedbackController()
 
     l2_service = L2Service(
         kinematics=kinematics,
         pose_estimator=pose_estimator,
         velocity_controller=velocity_controller,
         feedback_controller=feedback_controller,
-        accel_speed_fusion_enabled=settings.l2_accel_speed_fusion_enabled,
-        accel_speed_blend_alpha=settings.l2_accel_speed_blend_alpha,
-        accel_stationary_threshold_m_s2=settings.l2_accel_stationary_threshold_m_s2,
-        gyro_stationary_threshold_deg_per_sec=settings.l2_gyro_stationary_threshold_deg_per_sec,
-        accel_bias_learning_rate=settings.l2_accel_bias_learning_rate,
-        accel_speed_limit_factor=settings.l2_accel_speed_limit_factor,
-        state_space_max_track_delta_percent=settings.l2_state_space_max_track_delta_percent,
-        state_space_min_moving_track_percent=settings.l2_state_space_min_moving_track_percent,
     )
 
     if settings.l2_state_space_enabled:
@@ -206,10 +125,7 @@ def create_l2_service(
 
 
 def create_l1_service(settings: Settings) -> L1Service:
-    """Собрать чистый нижний уровень нового контура.
-
-    Отдельный экземпляр ``IMUSensor`` с теми же ``settings.imu_*``, что и у общего железа.
-    """
+    """Создать уровень L1 с отдельными устройствами."""
     imu_sensor: IMUSensor = IMUSensor(
         gyro_yaw_integration_deadband_deg_per_sec=settings.gyro_yaw_integration_deadband_deg_per_sec,
         mpu6050_dlpf_cfg=settings.imu_mpu6050_dlpf_cfg,
@@ -228,8 +144,6 @@ def create_l1_service(settings: Settings) -> L1Service:
         home_angle_deg=settings.head_servo_home_angle_deg,
     )
     motor_controller: MotorController = MotorController(
-        tl_left_offset=settings.tl_left_offset,
-        tl_right_offset=settings.tl_right_offset,
         m1_direction=settings.m1_direction,
         m2_direction=settings.m2_direction,
     )
@@ -242,7 +156,7 @@ def create_l1_service(settings: Settings) -> L1Service:
 
 
 def _create_ultrasonic_sensor(settings: Settings) -> UltrasonicSensorProtocol:
-    """Создать HC-SR04 или безопасную заглушку по настройкам."""
+    """Создать ультразвуковой датчик или безопасную заглушку."""
     if not settings.ultrasonic_enabled:
         return DisabledUltrasonicSensor()
 
@@ -253,34 +167,24 @@ def _create_ultrasonic_sensor(settings: Settings) -> UltrasonicSensorProtocol:
 
 
 def create_goal_point_controller(settings: Settings) -> GoalPointController:
-    """Собрать контроллер движения к целевой точке."""
-    return GoalPointController(
-        position_tolerance_cm=settings.l3_position_tolerance_cm,
-        linear_speed_gain=settings.l3_linear_speed_gain,
-        angular_speed_gain=settings.l3_angular_speed_gain,
-        max_linear_speed_cm_per_sec=settings.l3_max_linear_speed_cm_per_sec,
-        max_angular_speed_deg_per_sec=settings.l3_max_angular_speed_deg_per_sec,
-        obstacle_stop_distance_cm=settings.l3_obstacle_stop_distance_cm,
-        obstacle_slowdown_distance_cm=settings.l3_obstacle_slowdown_distance_cm,
-    )
+    """Создать контроллер движения к целевой точке."""
+    return GoalPointController()
 
 
 def create_path_planner(settings: Settings) -> PathPlanner:
-    """Собрать планировщик обходного маршрута для L3."""
-    return PathPlanner(
-        obstacle_clearance_cm=settings.l3_planner_obstacle_clearance_cm,
-        max_detour_offset_cm=settings.l3_planner_max_detour_offset_cm,
-        max_waypoints=settings.l3_planner_max_waypoints,
-    )
+    """Создать планировщик маршрута L3."""
+    return PathPlanner()
 
 
-def create_l3_service(settings: Settings, l2_service: L2Service) -> L3Service:
-    """Собрать изолированный верхний уровень нового контура."""
+def create_l3_service(
+    settings: Settings,
+    l2_service: L2Service,
+) -> L3Service:
+    """Создать уровень L3."""
     return L3Service(
         goal_point_controller=create_goal_point_controller(settings),
         path_planner=create_path_planner(settings),
         l2_service=l2_service,
-        unknown_obstacle_radius_cm=settings.l3_unknown_obstacle_radius_cm,
     )
 
 
@@ -288,7 +192,7 @@ def create_isolated_motion_service(
     settings: Settings,
     hardware: SharedMotionHardware,
 ) -> IsolatedMotionService:
-    """Собрать общий координирующий сервис контура L1-L3 на том же железе, что и DriveController."""
+    """Создать координатор L1-L3 на общих устройствах."""
     l1_service: L1Service = L1Service(
         motor_controller=hardware.motor_controller,
         gyroscope=hardware.gyroscope,

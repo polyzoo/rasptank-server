@@ -9,5 +9,5 @@ router: APIRouter = APIRouter()
 
 @router.get("/health", summary="Проверка работоспособности")
 async def healthcheck() -> HealthResponseSchema:
-    """Проверка работоспособности сервиса."""
+    """Вернуть статус сервиса."""
     return HealthResponseSchema()

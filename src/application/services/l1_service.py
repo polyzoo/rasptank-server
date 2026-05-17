@@ -17,11 +17,11 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 
 class L1Service:
-    """Чистый нижний уровень нового контура без вычисления движения."""
+    """Уровень L1 для прямого доступа к устройствам."""
 
-    # Логируем WARNING, если полный опрос датчиков занял столько миллисекунд и больше.
+    # Порог предупреждения о медленном полном опросе датчиков.
     SLOW_SENSOR_READ_TOTAL_MS: ClassVar[float] = 200.0
-    # Отдельно подсвечиваем доминирование ультразвука при общей задержке.
+    # Порог предупреждения о медленном измерении ультразвукового датчика.
     SLOW_ULTRASONIC_RELATIVE_MS: ClassVar[float] = 120.0
 
     def __init__(
@@ -31,7 +31,7 @@ class L1Service:
         ultrasonic_sensor: UltrasonicSensorProtocol,
         head_servo: HeadServoProtocol | None = None,
     ) -> None:
-        """Сохранить устройства нижнего уровня."""
+        """Сохранить устройства L1."""
         self._motor_controller: MotorControllerProtocol = motor_controller
         self._gyroscope: GyroscopeProtocol = gyroscope
         self._ultrasonic_sensor: UltrasonicSensorProtocol = ultrasonic_sensor
@@ -46,7 +46,7 @@ class L1Service:
         self._gyroscope.stop()
 
     def apply_track_command(self, command: L1TrackCommand) -> None:
-        """Сразу передать команду левого и правого борта на моторы."""
+        """Передать команду бортов на моторы."""
         self._motor_controller.set_tracks(
             left_speed_percent=command.left_percent,
             right_speed_percent=command.right_percent,
@@ -109,7 +109,7 @@ class L1Service:
         self._head_servo.set_angle(angle_deg)
 
     def destroy(self, *, release_devices: bool = True) -> None:
-        """Освободить ресурсы устройств нижнего уровня."""
+        """Освободить ресурсы устройств L1."""
         if not release_devices:
             return
         self._motor_controller.destroy()

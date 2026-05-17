@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class L1TrackCommandRequestSchema(BaseModel):
-    """Запрос на прямую команду левому и правому борту."""
+    """API-запрос команды бортов L1."""
 
     left_percent: int = Field(..., ge=-100, le=100, description="Команда левого борта в процентах.")
     right_percent: int = Field(
@@ -16,7 +16,7 @@ class L1TrackCommandRequestSchema(BaseModel):
 
 
 class L1SensorStateResponseSchema(BaseModel):
-    """Ответ со снимком датчиков нового уровня L1."""
+    """API-ответ снимка датчиков L1."""
 
     angular_speed_z_deg_per_sec: float
     accel_x_m_s2: float
@@ -26,6 +26,6 @@ class L1SensorStateResponseSchema(BaseModel):
 
 
 class L1ActionResponseSchema(BaseModel):
-    """Базовый ответ на команды L1."""
+    """API-ответ команды L1."""
 
     status: str

@@ -12,7 +12,6 @@ from src.application.services.l2_models import BodyVelocityCommand, L1SensorSnap
 from src.application.services.l2_service import L2Service
 from src.application.services.l3_models import (
     L3_MODE_IDLE,
-    KnownObstacle,
     L3State,
     TargetPoint,
     TargetRoute,
@@ -23,15 +22,14 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 
 class IsolatedMotionService:
-    """Координатор нового изолированного контура L1-L3."""
+    """Координатор уровней L1-L3."""
 
-    # Сколько периодов обновления даём фоновой нити на корректное завершение.
+    # Количество периодов обновления для ожидания остановки фоновой нити.
     LOOP_THREAD_JOIN_TIMEOUT_MULTIPLIER: float = 2.0
 
-    # WARNING, если полный sync L1→L2 занял столько миллисекунд и больше.
+    # Порог предупреждения о медленной синхронизации L1 -> L2.
     SLOW_SYNC_L2_TOTAL_MS: ClassVar[float] = 350.0
     MAX_SYNC_DT_SEC: ClassVar[float] = 0.25
-
     def __init__(
         self,
         l1_service: L1Service,
@@ -43,7 +41,7 @@ class IsolatedMotionService:
         debug_trace_every_n_steps: int = 1,
         time_fn: Callable[[], float] = time.monotonic,
     ) -> None:
-        """Сохранить уровни нового контура и параметры цикла синхронизации."""
+        """Сохранить уровни и параметры цикла синхронизации."""
         self._l1_service: L1Service = l1_service
         self._l2_service: L2Service = l2_service
         self._l3_service: L3Service = l3_service
@@ -56,32 +54,14 @@ class IsolatedMotionService:
         self._stop_event: Event = Event()
         self._loop_thread: Thread | None = None
         self._last_sync_time_sec: float | None = None
-        # Пока > 0, фоновый контур не трогает датчики и L3 — отдать IMU/УЗ legacy DriveController.
-        self._legacy_drive_exclusive_depth: int = 0
 
     @property
     def update_interval_sec(self) -> float:
-        """Вернуть период фонового обновления нового контура."""
+        """Вернуть период фонового обновления."""
         return self._update_interval_sec
 
-    def begin_legacy_drive_exclusive(self) -> None:
-        """Пометить, что идёт движение по старому DriveController (маршрут / forward_cm_sync)."""
-        with self._state_lock:
-            self._legacy_drive_exclusive_depth += 1
-
-    def end_legacy_drive_exclusive(self) -> None:
-        """Завершить режим эксклюзива для legacy-движения."""
-        with self._state_lock:
-            if self._legacy_drive_exclusive_depth > 0:
-                self._legacy_drive_exclusive_depth -= 1
-
-    def reset_legacy_drive_exclusive(self) -> None:
-        """Сбросить счётчик (например при destroy), чтобы фон снова работал."""
-        with self._state_lock:
-            self._legacy_drive_exclusive_depth = 0
-
     def start(self, *, calibrate_imu: bool = True) -> None:
-        """Запустить IMU и фоновый цикл нового контура."""
+        """Запустить IMU и фоновый цикл L1-L3."""
         with self._state_lock:
             self._l1_service.start_imu(calibrate=calibrate_imu)
             self._last_sync_time_sec: float = self._time_fn()
@@ -93,7 +73,7 @@ class IsolatedMotionService:
             self._loop_thread.start()
 
     def stop(self) -> None:
-        """Остановить фоновый цикл нового контура."""
+        """Остановить фоновый цикл L1-L3."""
         self._stop_event.set()
         if self._loop_thread is not None:
             self._loop_thread.join(
@@ -103,7 +83,7 @@ class IsolatedMotionService:
         self._loop_thread: Thread | None = None
 
     def destroy(self, *, release_hardware: bool = True) -> None:
-        """Остановить цикл и освободить ресурсы нового контура."""
+        """Остановить цикл и освободить ресурсы L1-L3."""
         self.stop()
         with self._state_lock:
             self._l3_service.cancel()
@@ -113,7 +93,7 @@ class IsolatedMotionService:
             self._l1_service.destroy(release_devices=release_hardware)
 
     def read_l1_state(self) -> L1SensorState:
-        """Вернуть снимок датчиков нижнего уровня.
+        """Вернуть снимок датчиков L1.
 
         Чтение выполняется без ``_state_lock``: оно может блокироваться на I²C/GPIO,
         и удержание общего замка здесь блокировало все остальные ручки L1–L3.
@@ -121,7 +101,7 @@ class IsolatedMotionService:
         return self._l1_service.read_sensors()
 
     def apply_l1_track_command(self, left_percent: int, right_percent: int) -> None:
-        """Передать сырую команду непосредственно в L1."""
+        """Передать команду бортов непосредственно в L1."""
         with self._state_lock:
             self._l1_service.apply_track_command(
                 L1TrackCommand(left_percent=left_percent, right_percent=right_percent)
@@ -249,25 +229,23 @@ class IsolatedMotionService:
     def set_l3_goal(
         self,
         target: TargetPoint,
-        obstacles: tuple[KnownObstacle, ...] = (),
     ) -> L3State:
         """Передать целевую точку в L3."""
         with self._state_lock:
             self._l2_service.reset_state()
-            return self._l3_service.set_target_point(target=target, obstacles=obstacles)
+            return self._l3_service.set_target_point(target=target)
 
     def set_l3_route(
         self,
         route: TargetRoute,
-        obstacles: tuple[KnownObstacle, ...] = (),
     ) -> L3State:
         """Передать маршрут в L3."""
         with self._state_lock:
             self._l2_service.reset_state()
-            return self._l3_service.set_route(route=route, obstacles=obstacles)
+            return self._l3_service.set_route(route=route)
 
     def step_l3(self) -> L3State:
-        """Выполнить один шаг верхнего уровня после синхронизации L2 с датчиками."""
+        """Выполнить один шаг L3 после синхронизации L2 с датчиками."""
         self.sync_l2_from_l1()
         with self._state_lock:
             l3_state: L3State = self._l3_service.step()
@@ -275,7 +253,7 @@ class IsolatedMotionService:
             return l3_state
 
     def cancel_l3(self) -> L3State:
-        """Отменить текущую цель или маршрут верхнего уровня."""
+        """Отменить текущую цель или маршрут L3."""
         with self._state_lock:
             return self._l3_service.cancel()
 
@@ -287,10 +265,6 @@ class IsolatedMotionService:
     def _background_loop(self) -> None:
         """Фоновый цикл синхронизации L2 и продвижения L3."""
         while not self._stop_event.wait(self._update_interval_sec):
-            with self._state_lock:
-                if self._legacy_drive_exclusive_depth > 0:
-                    continue
-
             self.sync_l2_from_l1()
 
             with self._state_lock:
@@ -318,7 +292,7 @@ class IsolatedMotionService:
     def _trace_l1_l2_math(
         self, *, l1_state: L1SensorState, l2_state: L2State, dt_sec: float
     ) -> None:
-        """Записать отладочный след преобразования L1 -> L2."""
+        """Записать отладочный след L1 -> L2."""
         if not self._should_trace():
             return
 
@@ -365,7 +339,7 @@ class IsolatedMotionService:
         )
 
     def _trace_l3_math(self, *, l3_state: L3State) -> None:
-        """Записать отладочный след шага L3 -> L2 -> L1 в терминах формул."""
+        """Записать отладочный след L3 -> L2 -> L1."""
         if not self._should_trace():
             return
 
@@ -408,7 +382,7 @@ class IsolatedMotionService:
 
 
 def _fmt_optional(value: float | None) -> str:
-    """Сформатировать optional float для логов без 'NoneType'."""
+    """Сформатировать необязательное число для логов."""
     if value is None:
         return "-"
     return f"{value:.2f}"

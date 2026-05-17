@@ -8,7 +8,7 @@ from src.application.services.l3_models import (
     L3_PLANNER_STATUS_EMPTY,
     L3_PLANNER_STATUS_IMPOSSIBLE,
     L3_PLANNER_STATUS_PLANNED,
-    KnownObstacle,
+    Obstacle,
     PlannedRoute,
     TargetPoint,
     TargetRoute,
@@ -17,7 +17,7 @@ from src.application.services.l3_models import (
 
 @dataclass(frozen=True, slots=True)
 class PathPlanner:
-    """Построить маршрут через точки с обходом заранее известных препятствий."""
+    """Построить маршрут через точки с обходом обнаруженных препятствий."""
 
     # Минимальная длина отрезка, при которой допустимо считать, что точка совпала.
     EPSILON_CM: ClassVar[float] = 1e-6
@@ -28,15 +28,15 @@ class PathPlanner:
     # Верхняя граница безразмерной проекции точки на отрезок: конец отрезка.
     SEGMENT_PROJECTION_MAX: ClassVar[float] = 1.0
 
-    obstacle_clearance_cm: float
-    max_detour_offset_cm: float
-    max_waypoints: int
+    obstacle_clearance_cm: float = 5.0
+    max_detour_offset_cm: float = 40.0
+    max_waypoints: int = 24
 
     def build_route(
         self,
         start: TargetPoint,
         target: TargetPoint | TargetRoute,
-        obstacles: tuple[KnownObstacle, ...] = (),
+        obstacles: tuple[Obstacle, ...] = (),
     ) -> PlannedRoute:
         """Построить маршрут от текущей точки к цели или набору точек."""
         target_points: tuple[TargetPoint, ...] = (
@@ -67,7 +67,7 @@ class PathPlanner:
         *,
         start: TargetPoint,
         goal: TargetPoint,
-        obstacles: tuple[KnownObstacle, ...],
+        obstacles: tuple[Obstacle, ...],
     ) -> PlannedRoute:
         """Построить путь между двумя точками с локальным обходом препятствий."""
         planned_points: list[TargetPoint] = [goal]
@@ -119,13 +119,13 @@ class PathPlanner:
         *,
         start: TargetPoint,
         goal: TargetPoint,
-        obstacles: tuple[KnownObstacle, ...],
+        obstacles: tuple[Obstacle, ...],
     ) -> int | None:
         """Найти первое препятствие, пересекающее текущий отрезок."""
         closest_index: int | None = None
         closest_projection: float | None = None
         index: int
-        obstacle: KnownObstacle
+        obstacle: Obstacle
 
         for index, obstacle in enumerate(obstacles):
             if not self._segment_intersects_obstacle(start=start, goal=goal, obstacle=obstacle):
@@ -147,8 +147,8 @@ class PathPlanner:
         *,
         start: TargetPoint,
         goal: TargetPoint,
-        obstacle: KnownObstacle,
-        obstacles: tuple[KnownObstacle, ...],
+        obstacle: Obstacle,
+        obstacles: tuple[Obstacle, ...],
     ) -> tuple[TargetPoint, ...] | None:
         """Построить две обходные точки с одной из сторон препятствия."""
         direction_x_cm: float = goal.x_cm - start.x_cm
@@ -242,10 +242,10 @@ class PathPlanner:
         first_waypoint: TargetPoint,
         second_waypoint: TargetPoint,
         goal: TargetPoint,
-        obstacles: tuple[KnownObstacle, ...],
+        obstacles: tuple[Obstacle, ...],
     ) -> bool:
         """Проверить, пересекают ли новые отрезки какие-либо препятствия."""
-        obstacle: KnownObstacle
+        obstacle: Obstacle
         for obstacle in obstacles:
             if self._segment_intersects_obstacle(
                 start=start,
@@ -275,7 +275,7 @@ class PathPlanner:
         *,
         start: TargetPoint,
         goal: TargetPoint,
-        obstacle: KnownObstacle,
+        obstacle: Obstacle,
     ) -> bool:
         """Проверить пересечение отрезка и расширенного препятствия."""
         return (
@@ -293,7 +293,7 @@ class PathPlanner:
         *,
         start: TargetPoint,
         goal: TargetPoint,
-        obstacle: KnownObstacle,
+        obstacle: Obstacle,
     ) -> float:
         """Вернуть положение препятствия вдоль отрезка от старта до цели."""
         direction_x_cm: float = goal.x_cm - start.x_cm

@@ -19,19 +19,20 @@ from src.application.services.velocity_command_controller import (
 
 
 class L2Service:
-    """Изолированный математический контур нового решения."""
+    """Уровень L2 для оценки позы и управления скоростью корпуса."""
 
     CENTIMETERS_IN_METER: ClassVar[float] = 100.0
-    DEFAULT_ACCEL_SPEED_BLEND_ALPHA: ClassVar[float] = 0.2
-    DEFAULT_ACCEL_STATIONARY_THRESHOLD_M_S2: ClassVar[float] = 0.25
-    DEFAULT_GYRO_STATIONARY_THRESHOLD_DEG_PER_SEC: ClassVar[float] = 2.0
-    DEFAULT_ACCEL_BIAS_LEARNING_RATE: ClassVar[float] = 0.02
-    DEFAULT_ACCEL_SPEED_LIMIT_FACTOR: ClassVar[float] = 1.2
+    DEFAULT_ACCEL_SPEED_BLEND_ALPHA: ClassVar[float] = 0.05
+    DEFAULT_ACCEL_STATIONARY_THRESHOLD_M_S2: ClassVar[float] = 0.30
+    DEFAULT_GYRO_STATIONARY_THRESHOLD_DEG_PER_SEC: ClassVar[float] = 2.5
+    DEFAULT_ACCEL_BIAS_LEARNING_RATE: ClassVar[float] = 0.03
+    DEFAULT_ACCEL_SPEED_LIMIT_FACTOR: ClassVar[float] = 1.1
     DEFAULT_STATE_SPACE_MAX_LINEAR_CORR_CM_PER_SEC: ClassVar[float] = 20.0
     DEFAULT_STATE_SPACE_MAX_ANGULAR_CORR_DEG_PER_SEC: ClassVar[float] = 90.0
     DEFAULT_STATE_SPACE_MAX_TRACK_DELTA_PERCENT: ClassVar[float] = 5.0
     DEFAULT_STATE_SPACE_MIN_MOVING_TRACK_PERCENT: ClassVar[float] = 15.0
     DEFAULT_STATE_SPACE_TARGET_TOLERANCE_CM: ClassVar[float] = 2.0
+    STATE_SPACE_TURN_EPSILON_DEG_PER_SEC: ClassVar[float] = 1e-6
     STATE_SPACE_LINE_EPSILON_CM: ClassVar[float] = 1e-6
 
     def __init__(
@@ -59,6 +60,9 @@ class L2Service:
         state_space_min_moving_track_percent: float = (
             DEFAULT_STATE_SPACE_MIN_MOVING_TRACK_PERCENT
         ),
+        state_space_turn_in_place_heading_error_deg: float = 5.0,
+        state_space_turn_in_place_angular_gain: float = 2.0,
+        state_space_turn_in_place_max_angular_speed_deg_per_sec: float = 120.0,
     ) -> None:
         """Сохранить составные части уровня L2."""
         self._kinematics: DifferentialDriveKinematics = kinematics
@@ -101,6 +105,18 @@ class L2Service:
             0.0,
             state_space_min_moving_track_percent,
         )
+        self._state_space_turn_in_place_heading_error_deg: float = max(
+            0.0,
+            state_space_turn_in_place_heading_error_deg,
+        )
+        self._state_space_turn_in_place_angular_gain: float = max(
+            0.0,
+            state_space_turn_in_place_angular_gain,
+        )
+        self._state_space_turn_in_place_max_angular_speed_deg_per_sec: float = max(
+            0.0,
+            state_space_turn_in_place_max_angular_speed_deg_per_sec,
+        )
 
     def enable_state_space_control(self, controller: L2StateSpaceController) -> None:
         """Активировать управление на базе МПС (LQR)."""
@@ -129,11 +145,21 @@ class L2Service:
         self.enable_state_space_control(self._state_space_controller)
 
     def apply_body_velocity(self, command: BodyVelocityCommand) -> L2State:
-        """Принять желаемое движение корпуса и передать команды в нижний уровень."""
+        """Принять скорость корпуса и передать команды в L1."""
         self._last_body_velocity_command = command
 
         if self._use_state_space and self._state_space_controller is not None:
-            return self._apply_body_velocity_state_space(command)
+            turn_command: BodyVelocityCommand | None = self._state_space_turn_command(command)
+            if turn_command is None:
+                return self._apply_body_velocity_state_space(command)
+            return self._apply_body_velocity_without_state_space(turn_command)
+
+        return self._apply_body_velocity_without_state_space(command)
+
+    def _apply_body_velocity_without_state_space(self, command: BodyVelocityCommand) -> L2State:
+        """Применить команду без МПС."""
+        self._mps_heading_ref_deg = None
+        self._last_state_space_target_ab = None
 
         if self._feedback_controller is None:
             return self._apply_body_velocity_open_loop(command)
@@ -141,7 +167,7 @@ class L2Service:
         return self._apply_body_velocity_closed_loop(command)
 
     def _apply_body_velocity_open_loop(self, command: BodyVelocityCommand) -> L2State:
-        """Разомкнутое преобразование: кинематика → моторы без обратной связи."""
+        """Применить команду через прямую кинематику."""
         applied: AppliedVelocityCommand = self._velocity_controller.apply_command(
             linear_speed_cm_per_sec=command.linear_speed_cm_per_sec,
             angular_speed_deg_per_sec=command.angular_speed_deg_per_sec,
@@ -156,7 +182,7 @@ class L2Service:
         return self.get_state()
 
     def _apply_body_velocity_state_space(self, command: BodyVelocityCommand) -> L2State:
-        """Замкнутое преобразование: кинематика + LQR контроллер (МПС)."""
+        """Применить команду через МПС."""
         controller = self._state_space_controller
         pose: PoseEstimate = self._pose_estimator.snapshot()
 
@@ -260,12 +286,12 @@ class L2Service:
         self._velocity_controller.send_track_command(applied_command)
 
         self._last_track_command = applied_command
-        self._last_delta_u = v_cmd_corr  # Логируем коррекцию линейной скорости
+        self._last_delta_u = v_cmd_corr  # Коррекция линейной скорости для диагностики.
 
         return self.get_state()
 
     def _apply_body_velocity_closed_loop(self, command: BodyVelocityCommand) -> L2State:
-        """Замкнутое преобразование: кинематика → коррекция ΔU → моторы."""
+        """Применить команду через обратную связь L2."""
         feedback: L2FeedbackController = self._feedback_controller  # type: ignore[assignment]
         pose: PoseEstimate = self._pose_estimator.snapshot()
 
@@ -301,7 +327,7 @@ class L2Service:
         return self.get_state()
 
     def stop(self) -> L2State:
-        """Остановить движение нового контура."""
+        """Остановить уровень L2."""
         self._velocity_controller.stop()
         self._last_track_command = TrackCommand(left_percent=0.0, right_percent=0.0)
         self._accel_integrated_speed_cm_per_sec = 0.0
@@ -322,7 +348,7 @@ class L2Service:
         linear_speed_cm_per_sec: float = 0.0,
         angular_speed_deg_per_sec: float = 0.0,
     ) -> L2State:
-        """Сбросить оценку состояния нового контура."""
+        """Сбросить состояние L2."""
         self._pose_estimator.reset(
             x_cm=x_cm,
             y_cm=y_cm,
@@ -340,7 +366,7 @@ class L2Service:
         return self.get_state()
 
     def update_from_l1(self, snapshot: L1SensorSnapshot, dt_sec: float) -> L2State:
-        """Обновить состояние по данным нижнего уровня и последней команде бортов."""
+        """Обновить состояние по данным L1 и последней команде бортов."""
         inferred_velocity: ChassisVelocity = self._kinematics.to_chassis_velocity(
             left_percent=self._last_track_command.left_percent,
             right_percent=self._last_track_command.right_percent,
@@ -374,9 +400,58 @@ class L2Service:
             self._last_omega_gyro_deg_per_sec = snapshot.angular_speed_z_deg_per_sec
 
         if self._use_state_space and self._last_body_velocity_command is not None:
-            return self._apply_body_velocity_state_space(self._last_body_velocity_command)
+            turn_command: BodyVelocityCommand | None = self._state_space_turn_command(
+                self._last_body_velocity_command
+            )
+            if turn_command is None:
+                return self._apply_body_velocity_state_space(self._last_body_velocity_command)
+            return self._apply_body_velocity_without_state_space(turn_command)
 
         return self.get_state()
+
+    def _state_space_turn_command(self, command: BodyVelocityCommand) -> BodyVelocityCommand | None:
+        """Вернуть команду разворота на месте, если МПС ещё нельзя вести вперёд."""
+        if abs(command.angular_speed_deg_per_sec) > self.STATE_SPACE_TURN_EPSILON_DEG_PER_SEC:
+            return BodyVelocityCommand(
+                linear_speed_cm_per_sec=0.0,
+                angular_speed_deg_per_sec=command.angular_speed_deg_per_sec,
+                nominal_linear_speed_cm_per_sec=command.nominal_linear_speed_cm_per_sec,
+            )
+
+        heading_error_deg: float | None = self._state_space_target_heading_error_deg(command)
+        if heading_error_deg is None:
+            return None
+
+        if abs(heading_error_deg) <= self._state_space_turn_in_place_heading_error_deg:
+            return None
+
+        angular_speed_deg_per_sec: float = self._clamp(
+            heading_error_deg * self._state_space_turn_in_place_angular_gain,
+            -self._state_space_turn_in_place_max_angular_speed_deg_per_sec,
+            self._state_space_turn_in_place_max_angular_speed_deg_per_sec,
+        )
+        return BodyVelocityCommand(
+            linear_speed_cm_per_sec=0.0,
+            angular_speed_deg_per_sec=angular_speed_deg_per_sec,
+            nominal_linear_speed_cm_per_sec=command.nominal_linear_speed_cm_per_sec,
+        )
+
+    def _state_space_target_heading_error_deg(
+        self,
+        command: BodyVelocityCommand,
+    ) -> float | None:
+        """Посчитать ошибку курса до целевой точки команды МПС."""
+        if command.target_x_cm is None or command.target_y_cm is None:
+            return None
+
+        pose: PoseEstimate = self._pose_estimator.snapshot()
+        delta_x_cm: float = command.target_x_cm - pose.x_cm
+        delta_y_cm: float = command.target_y_cm - pose.y_cm
+        if math.hypot(delta_x_cm, delta_y_cm) <= self.STATE_SPACE_LINE_EPSILON_CM:
+            return None
+
+        target_heading_deg: float = math.degrees(math.atan2(delta_y_cm, delta_x_cm))
+        return self._normalize_angle_deg(target_heading_deg - pose.heading_deg)
 
     def _normalize_angle_deg(self, angle_deg: float) -> float:
         """Нормализовать угол в диапазон [-180, 180)."""
@@ -439,7 +514,7 @@ class L2Service:
         target_x_cm: float,
         target_y_cm: float,
     ) -> tuple[float, float, float, float, float]:
-        """Рассчитать X* для МПС по прямой из скриншота."""
+        """Рассчитать желаемое состояние МПС для прямой к цели."""
         b_cm = target_x_cm
         a_cm = target_y_cm
         theta_des_rad = math.atan2(a_cm, b_cm)
@@ -453,7 +528,7 @@ class L2Service:
         return desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm
 
     def _limit_track_delta(self, target: TrackCommand) -> TrackCommand:
-        """Ограничить скачок команд гусениц между соседними шагами МПС."""
+        """Ограничить скачок команд бортов между соседними шагами МПС."""
         max_delta = self._state_space_max_track_delta_percent
         if max_delta <= 0.0:
             return target
@@ -481,7 +556,7 @@ class L2Service:
         limited: TrackCommand,
         target: TrackCommand,
     ) -> TrackCommand:
-        """Поднять ненулевые команды выше deadzone моторов."""
+        """Поднять ненулевые команды выше минимального порога моторов."""
         min_percent = self._state_space_min_moving_track_percent
         if min_percent <= 0.0:
             return limited
@@ -500,7 +575,7 @@ class L2Service:
         )
 
     def _lift_track_percent(self, *, value: float, target: float, min_percent: float) -> float:
-        """Сохранить знак команды, но не давать ненулевому борту оставаться ниже deadzone."""
+        """Сохранить знак команды и учесть минимальный порог движения."""
         if abs(target) <= 0.0 or abs(value) >= min_percent:
             return value
         sign = 1.0 if target > 0.0 else -1.0
@@ -514,7 +589,7 @@ class L2Service:
         angular_speed_deg_per_sec: float,
         dt_sec: float,
     ) -> float:
-        """Оценить линейную скорость: кинематика + безопасная accel-поддержка."""
+        """Оценить линейную скорость по кинематике и акселерометру."""
         if (
             not self._accel_speed_fusion_enabled
             or snapshot.longitudinal_acceleration_m_s2 is None
@@ -531,7 +606,7 @@ class L2Service:
             accel_without_bias_m_s2=accel_without_bias_m_s2,
             angular_speed_deg_per_sec=angular_speed_deg_per_sec,
         ):
-            # В покое дообучаем bias и не даём интегралу разгоняться шумом.
+            # В покое обновляем смещение акселерометра и подавляем накопление шума.
             self._accel_longitudinal_bias_m_s2 = (
                 (1.0 - self._accel_bias_learning_rate) * self._accel_longitudinal_bias_m_s2
                 + self._accel_bias_learning_rate * measured_accel_m_s2
@@ -564,7 +639,7 @@ class L2Service:
         accel_without_bias_m_s2: float,
         angular_speed_deg_per_sec: float,
     ) -> bool:
-        """Эвристика покоя для bias-обучения и защиты интегратора скорости."""
+        """Проверить состояние покоя для смещения акселерометра."""
         return (
             abs(inferred_linear_speed_cm_per_sec) < 1.0
             and abs(accel_without_bias_m_s2) <= self._accel_stationary_threshold_m_s2
@@ -572,7 +647,7 @@ class L2Service:
         )
 
     def get_state(self) -> L2State:
-        """Вернуть текущее состояние нового контура."""
+        """Вернуть состояние L2."""
         pose: PoseEstimate = self._pose_estimator.snapshot()
 
         feedback_heading_ref_deg: float | None = None
