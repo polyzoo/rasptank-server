@@ -190,7 +190,8 @@ class L2Service:
             self._mps_heading_ref_deg = pose.heading_deg
 
         v_des = command.linear_speed_cm_per_sec
-        omega_des = command.angular_speed_deg_per_sec
+        target_is_set = command.target_x_cm is not None and command.target_y_cm is not None
+        omega_des = 0.0 if target_is_set else command.angular_speed_deg_per_sec
         v0 = self._state_space_nominal_speed(command)
         omega_real_deg_per_sec = self._last_omega_gyro_deg_per_sec
 
@@ -203,11 +204,11 @@ class L2Service:
         )
 
         target_ab: tuple[float, float] | None = None
-        if command.target_x_cm is not None and command.target_y_cm is not None:
+        if target_is_set:
             if self._state_space_target_reached(
                 pose=pose,
-                target_x_cm=command.target_x_cm,
-                target_y_cm=command.target_y_cm,
+                target_x_cm=command.target_x_cm,  # type: ignore[arg-type]
+                target_y_cm=command.target_y_cm,  # type: ignore[arg-type]
             ):
                 self._velocity_controller.stop()
                 self._last_track_command = TrackCommand(left_percent=0.0, right_percent=0.0)
@@ -218,8 +219,8 @@ class L2Service:
             desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm = (
                 self._state_space_desired_line_state(
                     pose=pose,
-                    target_x_cm=command.target_x_cm,
-                    target_y_cm=command.target_y_cm,
+                    target_x_cm=command.target_x_cm,  # type: ignore[arg-type]
+                    target_y_cm=command.target_y_cm,  # type: ignore[arg-type]
                 )
             )
             target_ab = (a_cm, b_cm)
@@ -411,7 +412,11 @@ class L2Service:
 
     def _state_space_turn_command(self, command: BodyVelocityCommand) -> BodyVelocityCommand | None:
         """Вернуть команду разворота на месте, если МПС ещё нельзя вести вперёд."""
-        if abs(command.angular_speed_deg_per_sec) > self.STATE_SPACE_TURN_EPSILON_DEG_PER_SEC:
+        target_is_set = command.target_x_cm is not None and command.target_y_cm is not None
+        if (
+            not target_is_set
+            and abs(command.angular_speed_deg_per_sec) > self.STATE_SPACE_TURN_EPSILON_DEG_PER_SEC
+        ):
             return BodyVelocityCommand(
                 linear_speed_cm_per_sec=0.0,
                 angular_speed_deg_per_sec=command.angular_speed_deg_per_sec,
@@ -420,6 +425,9 @@ class L2Service:
 
         heading_error_deg: float | None = self._state_space_target_heading_error_deg(command)
         if heading_error_deg is None:
+            return None
+
+        if self._state_space_command_target_reached(command):
             return None
 
         if abs(heading_error_deg) <= self._state_space_turn_in_place_heading_error_deg:
@@ -452,6 +460,18 @@ class L2Service:
 
         target_heading_deg: float = math.degrees(math.atan2(delta_y_cm, delta_x_cm))
         return self._normalize_angle_deg(target_heading_deg - pose.heading_deg)
+
+    def _state_space_command_target_reached(self, command: BodyVelocityCommand) -> bool:
+        """Проверить, что команда с целью уже дошла до конечной точки."""
+        if command.target_x_cm is None or command.target_y_cm is None:
+            return False
+
+        pose: PoseEstimate = self._pose_estimator.snapshot()
+        return self._state_space_target_reached(
+            pose=pose,
+            target_x_cm=command.target_x_cm,
+            target_y_cm=command.target_y_cm,
+        )
 
     def _normalize_angle_deg(self, angle_deg: float) -> float:
         """Нормализовать угол в диапазон [-180, 180)."""

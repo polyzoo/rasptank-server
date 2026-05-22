@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from src.application.services.kinematics import DifferentialDriveKinematics
@@ -459,6 +461,50 @@ def test_state_space_uses_mps_after_target_heading_is_aligned(monkeypatch) -> No
     assert state.left_percent == pytest.approx(state.right_percent)
 
 
+def test_state_space_uses_mps_for_aligned_target_even_when_l3_sends_small_turn(
+    monkeypatch,
+) -> None:
+    """После разворота к диагональной цели L2 должен перейти в МПС, а не крутиться дальше."""
+    service, _ = _service()
+    captured: dict[str, float] = {}
+
+    class MockL2StateSpaceController:
+        def __init__(self, t_v, t_w):
+            self.t_v = t_v
+            self.t_w = t_w
+            self._K = None
+            self.gain_matrix = None
+            self.last_error_state = None
+            self.last_control_u = None
+
+        def compute_control(self, **kwargs):
+            captured.update(kwargs)
+            return 0.0, 0.0
+
+        def reset_gains(self):
+            self._K = None
+
+    monkeypatch.setattr(
+        "src.application.services.l2_state_space_controller.L2StateSpaceController",
+        MockL2StateSpaceController,
+    )
+    service._state_space_max_track_delta_percent = 0.0
+
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    service.reset_state(heading_deg=44.0)
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(
+            linear_speed_cm_per_sec=20.0,
+            angular_speed_deg_per_sec=2.0,
+            target_x_cm=20.0,
+            target_y_cm=20.0,
+        )
+    )
+
+    assert captured["theta_err_rad"] == pytest.approx(math.radians(1.0))
+    assert state.left_percent == pytest.approx(state.right_percent)
+
+
 def test_state_space_target_heading_error_returns_none_at_current_pose() -> None:
     service, _ = _service()
     service.reset_state(x_cm=10.0, y_cm=20.0)
@@ -676,6 +722,54 @@ def test_state_space_stops_when_target_progress_is_reached(monkeypatch) -> None:
     assert service._last_body_velocity_command is None
 
 
+def test_state_space_stops_after_target_is_passed_instead_of_turning_back(monkeypatch) -> None:
+    """После пролёта цели L2 должен остановиться, а не разворачиваться к ней назад."""
+    service, motor = _service()
+
+    class MockL2StateSpaceController:
+        def __init__(self, t_v, t_w):
+            self.t_v = t_v
+            self.t_w = t_w
+            self._K = None
+            self.gain_matrix = None
+            self.last_error_state = None
+            self.last_control_u = None
+
+        def compute_control(self, **kwargs):
+            return 0.0, 0.0
+
+        def reset_gains(self):
+            self._K = None
+
+    monkeypatch.setattr(
+        "src.application.services.l2_state_space_controller.L2StateSpaceController",
+        MockL2StateSpaceController,
+    )
+    service._state_space_max_track_delta_percent = 0.0
+
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    service.apply_body_velocity(
+        BodyVelocityCommand(
+            linear_speed_cm_per_sec=20.0,
+            angular_speed_deg_per_sec=0.0,
+            target_x_cm=100.0,
+            target_y_cm=0.0,
+        )
+    )
+    service.reset_state(x_cm=103.0, y_cm=0.0, heading_deg=0.0)
+    service.apply_body_velocity(
+        BodyVelocityCommand(
+            linear_speed_cm_per_sec=20.0,
+            angular_speed_deg_per_sec=0.0,
+            target_x_cm=100.0,
+            target_y_cm=0.0,
+        )
+    )
+
+    assert motor.commands[-1] == (0, 0)
+    assert service._last_body_velocity_command is None
+
+
 def test_state_space_target_reached_for_zero_target() -> None:
     service, _ = _service()
     service.reset_state(x_cm=10.0, y_cm=20.0)
@@ -688,6 +782,17 @@ def test_state_space_target_reached_for_zero_target() -> None:
             target_y_cm=0.0,
         )
         is True
+    )
+
+
+def test_state_space_command_target_reached_returns_false_without_target() -> None:
+    service, _ = _service()
+
+    assert (
+        service._state_space_command_target_reached(
+            BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
+        )
+        is False
     )
 
 

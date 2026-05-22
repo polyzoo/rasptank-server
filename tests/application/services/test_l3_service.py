@@ -155,6 +155,21 @@ def test_step_marks_target_reached_and_clears_it() -> None:
     assert l2_service.stop_calls == 1
 
 
+def test_step_marks_target_reached_when_robot_passes_target_progress() -> None:
+    """Если робот проскочил цель вдоль отрезка, L3 не должен разворачиваться назад."""
+    l2_service = FakeL2Service(_state())
+    service = _service(l2_service)
+    service.set_target_point(TargetPoint(x_cm=100.0, y_cm=0.0))
+    l2_service.state = _state(x_cm=106.0, y_cm=0.0, heading_deg=0.0)
+
+    state: L3State = service.step()
+
+    assert state.status == "reached"
+    assert state.mode == "idle"
+    assert l2_service.stop_calls == 1
+    assert len(l2_service.applied_commands) == 0
+
+
 def test_step_marks_target_blocked_and_keeps_it() -> None:
     """Если впереди неизвестное препятствие, L3 перестраивает маршрут и сохраняет цель."""
     l2_service = FakeL2Service(_state(distance_cm=10.0))
@@ -245,6 +260,63 @@ def test_advance_route_returns_false_without_active_point() -> None:
     service = _service(FakeL2Service(_state()))
 
     assert service._advance_route() is False  # type: ignore[attr-defined]
+
+
+def test_current_segment_start_point_returns_none_without_active_point() -> None:
+    """Защитная ветка: без активной точки старт отрезка неизвестен."""
+    service = _service(FakeL2Service(_state()))
+
+    assert service._current_segment_start_point() is None  # type: ignore[attr-defined]
+
+
+def test_current_segment_start_point_returns_previous_route_point() -> None:
+    """Для не первой точки маршрута стартом считается предыдущая точка."""
+    service = _service(FakeL2Service(_state()))
+    first_point = TargetPoint(x_cm=10.0, y_cm=0.0)
+    second_point = TargetPoint(x_cm=20.0, y_cm=0.0)
+    service._route_points = (first_point, second_point)  # type: ignore[attr-defined]
+    service._active_point_index = 1  # type: ignore[attr-defined]
+
+    assert service._current_segment_start_point() == first_point  # type: ignore[attr-defined]
+
+
+def test_current_segment_start_point_returns_none_for_missing_previous_point() -> None:
+    """Защитная ветка: битый индекс не должен давать фиктивный старт отрезка."""
+    service = _service(FakeL2Service(_state()))
+    service._route_points = (TargetPoint(x_cm=10.0, y_cm=0.0),)  # type: ignore[attr-defined]
+    service._active_point_index = 2  # type: ignore[attr-defined]
+
+    assert service._current_segment_start_point() is None  # type: ignore[attr-defined]
+
+
+def test_current_target_reached_by_progress_returns_false_without_segment_start() -> None:
+    """Без старта отрезка защита от перелета не срабатывает."""
+    service = _service(FakeL2Service(_state()))
+
+    assert (  # type: ignore[attr-defined]
+        service._current_target_reached_by_progress(
+            current_state=_state(x_cm=10.0),
+            current_target=TargetPoint(x_cm=10.0, y_cm=0.0),
+        )
+        is False
+    )
+
+
+def test_current_target_reached_by_progress_returns_false_for_zero_segment() -> None:
+    """Нулевой отрезок нельзя считать достигнутым по прогрессу."""
+    service = _service(FakeL2Service(_state()))
+    point = TargetPoint(x_cm=10.0, y_cm=0.0)
+    service._route_start_point = point  # type: ignore[attr-defined]
+    service._route_points = (point,)  # type: ignore[attr-defined]
+    service._active_point_index = 0  # type: ignore[attr-defined]
+
+    assert (  # type: ignore[attr-defined]
+        service._current_target_reached_by_progress(
+            current_state=_state(x_cm=10.0),
+            current_target=point,
+        )
+        is False
+    )
 
 
 def test_mark_active_goal_reached_returns_without_current_target() -> None:

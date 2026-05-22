@@ -51,6 +51,7 @@ class L3Service:
         self._l2_service: L2Service = l2_service
         self._unknown_obstacle_radius_cm: float = unknown_obstacle_radius_cm
         self._route_points: tuple[TargetPoint, ...] = ()
+        self._route_start_point: TargetPoint | None = None
         self._remaining_goal_points: tuple[TargetPoint, ...] = ()
         self._active_point_index: int | None = None
         self._mode: str = L3_MODE_IDLE
@@ -128,6 +129,7 @@ class L3Service:
         idle_planner_status: str = L3_PLANNER_STATUS_IDLE
 
         self._route_points = empty_route_points
+        self._route_start_point = None
         self._remaining_goal_points = empty_goal_points
         self._active_point_index = no_active_point_index
         self._mode = idle_mode
@@ -186,6 +188,11 @@ class L3Service:
             target=current_target,
         )
         tracking_status: str = tracking_command.status
+        if tracking_status != L3_STATUS_REACHED and self._current_target_reached_by_progress(
+            current_state=current_state,
+            current_target=current_target,
+        ):
+            tracking_status = L3_STATUS_REACHED
 
         if tracking_status == L3_STATUS_BLOCKED:
             updated_state: L2State = self._l2_service.stop()
@@ -251,6 +258,7 @@ class L3Service:
                 **self._detected_obstacle_fields(),
             )
             self._route_points = empty_route_points
+            self._route_start_point = None
             self._active_point_index = no_active_point_index
             self._mode = idle_mode
             self._planner_status = idle_planner_status
@@ -285,6 +293,7 @@ class L3Service:
     def _plan_remaining_route(self, *, mode: str) -> L3State:
         """Спланировать маршрут до оставшихся целевых точек."""
         start_point: TargetPoint = self._current_position_as_point()
+        self._route_start_point = start_point
         planned_route: PlannedRoute = self._path_planner.build_route(
             start=start_point,
             target=TargetRoute(points=self._remaining_goal_points),
@@ -381,6 +390,45 @@ class L3Service:
         self._active_point_index = next_index
         return True
 
+    def _current_segment_start_point(self) -> TargetPoint | None:
+        """Вернуть старт текущего активного отрезка маршрута."""
+        if self._active_point_index is None:
+            return None
+
+        if self._active_point_index <= 0:
+            return self._route_start_point
+
+        previous_index: int = self._active_point_index - 1
+        if previous_index >= len(self._route_points):
+            return None
+
+        return self._route_points[previous_index]
+
+    def _current_target_reached_by_progress(
+        self,
+        *,
+        current_state: L2State,
+        current_target: TargetPoint,
+    ) -> bool:
+        """Считать точку достигнутой, если робот уже прошёл её вдоль активного отрезка."""
+        segment_start: TargetPoint | None = self._current_segment_start_point()
+        if segment_start is None:
+            return False
+
+        segment_x_cm: float = current_target.x_cm - segment_start.x_cm
+        segment_y_cm: float = current_target.y_cm - segment_start.y_cm
+        segment_length_squared_cm: float = segment_x_cm**2 + segment_y_cm**2
+        if segment_length_squared_cm <= self.POINT_MATCH_TOLERANCE_CM:
+            return False
+
+        segment_length_cm: float = math.sqrt(segment_length_squared_cm)
+        progress_cm: float = (
+            (current_state.x_cm - segment_start.x_cm) * segment_x_cm
+            + (current_state.y_cm - segment_start.y_cm) * segment_y_cm
+        ) / segment_length_cm
+
+        return progress_cm >= segment_length_cm - self._goal_point_controller.position_tolerance_cm
+
     def _current_position_as_point(self) -> TargetPoint:
         """Преобразовать текущее состояние L2 в точку старта для планировщика."""
         current_state: L2State = self._l2_service.get_state()
@@ -443,6 +491,7 @@ class L3Service:
             return self._build_unreachable_state()
 
         self._route_points = bypass_route
+        self._route_start_point = self._bypass_origin
         self._active_point_index = 0
         self._planner_status = L3_PLANNER_STATUS_REPLANNED_DYNAMIC
         return self._build_tracking_state(mode=mode)
@@ -552,6 +601,7 @@ class L3Service:
     def _build_unreachable_state(self) -> L3State:
         """Остановить L2 и отметить цель недостижимой."""
         self._route_points = ()
+        self._route_start_point = None
         self._active_point_index = None
         self._mode = L3_MODE_IDLE
         self._planner_status = L3_PLANNER_STATUS_IMPOSSIBLE
@@ -602,6 +652,7 @@ class L3Service:
             no_active_point_index: int | None = None
             idle_mode: str = L3_MODE_IDLE
             self._route_points = empty_route_points
+            self._route_start_point = None
             self._active_point_index = no_active_point_index
             self._planner_status = planner_status
             stopped_state: L2State = self._l2_service.stop()
