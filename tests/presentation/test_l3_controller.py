@@ -127,9 +127,7 @@ def test_l3_goal_route_step_and_cancel_forward_commands() -> None:
         isolated_motion: FakeIsolatedMotion = FakeIsolatedMotion()
 
         goal_response = await l3_goal(
-            body=L3GoalRequestSchema.model_validate(
-                {"target": {"x_cm": 10.0, "y_cm": 20.0}}
-            ),
+            body=L3GoalRequestSchema.model_validate({"target": {"x_cm": 10.0, "y_cm": 20.0}}),
             isolated_motion=isolated_motion,  # type: ignore[arg-type]
         )
         route_response = await l3_route(

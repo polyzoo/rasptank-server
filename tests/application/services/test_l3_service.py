@@ -3,8 +3,10 @@ from __future__ import annotations
 from src.application.services.goal_point_controller import GoalPointController
 from src.application.services.l2_models import BodyVelocityCommand, L2State
 from src.application.services.l3_models import (
+    L3_PLANNER_STATUS_IMPOSSIBLE,
     L3State,
     Obstacle,
+    PlannedRoute,
     TargetPoint,
     TargetRoute,
 )
@@ -276,6 +278,20 @@ def test_step_keeps_tracking_detour_when_same_unknown_obstacle_is_seen_again() -
     assert l2_service.applied_commands[0].angular_speed_deg_per_sec != 0.0
 
 
+def test_step_returns_blocked_when_obstacle_cannot_be_inferred() -> None:
+    """Если blocked пришёл без дальности, L3 остаётся в blocked без обхода."""
+    l2_service = FakeL2Service(_state(distance_cm=10.0))
+    service = _service(l2_service)
+    service.set_target_point(TargetPoint(x_cm=50.0, y_cm=0.0))
+    service._handle_unknown_obstacle = lambda **kwargs: None  # type: ignore[method-assign]
+
+    state: L3State = service.step()
+
+    assert state.status == "blocked"
+    assert state.desired_linear_speed_cm_per_sec == 0.0
+    assert state.desired_angular_speed_deg_per_sec == 0.0
+
+
 def test_step_tries_left_bypass_when_right_bypass_blocks() -> None:
     """Если правый квадратный обход блокируется, L3 пробует левую сторону."""
     l2_service = FakeL2Service(_state(distance_cm=10.0))
@@ -311,6 +327,22 @@ def test_step_marks_goal_unreachable_when_unknown_obstacle_cannot_be_bypassed() 
     assert state.detected_obstacle_kind == "dynamic"
 
 
+def test_handle_unknown_obstacle_marks_unreachable_when_bypass_points_missing() -> None:
+    """Если квадратный обход нельзя построить, L3 сообщает unreachable."""
+    service = _service(FakeL2Service(_state(distance_cm=10.0)))
+    service.set_target_point(TargetPoint(x_cm=50.0, y_cm=0.0))
+    service._build_reactive_bypass_points = lambda **kwargs: None  # type: ignore[method-assign]
+
+    state = service._handle_unknown_obstacle(  # type: ignore[attr-defined]
+        current_state=_state(distance_cm=10.0),
+        current_target=TargetPoint(x_cm=50.0, y_cm=0.0),
+        mode="point",
+    )
+
+    assert state is not None
+    assert state.status == "unreachable"
+
+
 def test_handle_unknown_obstacle_returns_none_without_distance() -> None:
     """Без измеренной дальности L3 не может оценить новое препятствие."""
     service = _service(FakeL2Service(_state(distance_cm=None)))
@@ -324,6 +356,31 @@ def test_handle_unknown_obstacle_returns_none_without_distance() -> None:
     assert replanned_state is None
 
 
+def test_build_reactive_bypass_points_returns_none_without_origin_or_for_zero_segment() -> None:
+    """Защитные ветки квадратного обхода не строят некорректный маршрут."""
+    service = _service(FakeL2Service(_state()))
+
+    assert (
+        service._build_reactive_bypass_points(  # type: ignore[attr-defined]
+            current_state=_state(distance_cm=10.0),
+            direction=service.BYPASS_DIRECTION_RIGHT,
+        )
+        is None
+    )
+
+    point = TargetPoint(x_cm=1.0, y_cm=2.0)
+    service._bypass_origin = point  # type: ignore[attr-defined]
+    service._bypass_goal = point  # type: ignore[attr-defined]
+
+    assert (
+        service._build_reactive_bypass_points(  # type: ignore[attr-defined]
+            current_state=_state(distance_cm=10.0),
+            direction=service.BYPASS_DIRECTION_RIGHT,
+        )
+        is None
+    )
+
+
 def test_is_new_obstacle_allows_distinct_dynamic_obstacles() -> None:
     """Динамическая карта не должна склеивать разные препятствия в одно."""
     service = _service(FakeL2Service(_state()))
@@ -334,3 +391,29 @@ def test_is_new_obstacle_allows_distinct_dynamic_obstacles() -> None:
     assert (  # type: ignore[attr-defined]
         service._is_new_obstacle(Obstacle(x_cm=40.0, y_cm=0.0, radius_cm=8.0)) is True
     )
+
+
+def test_is_new_obstacle_rejects_overlapping_dynamic_obstacle() -> None:
+    """Повторное близкое обнаружение не добавляется как новое препятствие."""
+    service = _service(FakeL2Service(_state()))
+    service._dynamic_obstacles = (  # type: ignore[attr-defined]
+        Obstacle(x_cm=10.0, y_cm=0.0, radius_cm=8.0),
+    )
+
+    assert (  # type: ignore[attr-defined]
+        service._is_new_obstacle(Obstacle(x_cm=12.0, y_cm=0.0, radius_cm=8.0)) is False
+    )
+
+
+def test_accept_planned_route_marks_unreachable_for_impossible_plan() -> None:
+    """Невозможный план переводит L3 в unreachable."""
+    service = _service(FakeL2Service(_state()))
+
+    state = service._accept_planned_route(  # type: ignore[attr-defined]
+        planned_route=PlannedRoute(points=(), status=L3_PLANNER_STATUS_IMPOSSIBLE),
+        mode="point",
+    )
+
+    assert state.status == "unreachable"
+    assert state.mode == "idle"
+    assert state.planner_status == "impossible"

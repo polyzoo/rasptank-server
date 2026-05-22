@@ -82,10 +82,7 @@ class GoalPointController:
         linear_speed_cm_per_sec *= heading_slowdown_ratio
         if obstacle_is_on_target_heading:
             linear_speed_cm_per_sec *= self._obstacle_speed_ratio(state.distance_cm)
-        elif (
-            state.distance_cm is not None
-            and state.distance_cm <= self.obstacle_stop_distance_cm
-        ):
+        elif state.distance_cm is not None and state.distance_cm <= self.obstacle_stop_distance_cm:
             linear_speed_cm_per_sec = 0.0
 
         angular_speed_deg_per_sec: float = self._clamp(

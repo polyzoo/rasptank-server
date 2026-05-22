@@ -30,6 +30,7 @@ class IsolatedMotionService:
     # Порог предупреждения о медленной синхронизации L1 -> L2.
     SLOW_SYNC_L2_TOTAL_MS: ClassVar[float] = 350.0
     MAX_SYNC_DT_SEC: ClassVar[float] = 0.25
+
     def __init__(
         self,
         l1_service: L1Service,
