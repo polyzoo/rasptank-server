@@ -420,6 +420,52 @@ def test_state_space_turns_in_place_before_diagonal_target(monkeypatch) -> None:
     assert service._last_body_velocity_command.linear_speed_cm_per_sec == 20.0
 
 
+def test_state_space_pre_alignment_turn_keeps_motor_above_deadband() -> None:
+    """На последних градусах разворота команда не должна падать ниже порога движения."""
+    service, motor = _service()
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    service.reset_state(heading_deg=170.0)
+
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(
+            linear_speed_cm_per_sec=20.0,
+            angular_speed_deg_per_sec=0.0,
+            target_x_cm=-30.0,
+            target_y_cm=0.0,
+        )
+    )
+
+    assert motor.commands[-1] == (-15, 15)
+    assert state.left_percent == pytest.approx(-15.0)
+    assert state.right_percent == pytest.approx(15.0)
+
+
+def test_state_space_pre_alignment_turn_keeps_small_diagonal_error_moving() -> None:
+    """Диагональная цель не должна зависать при остаточной ошибке около 8 градусов."""
+    service, motor = _service()
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    service.reset_state(heading_deg=55.0)
+
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(
+            linear_speed_cm_per_sec=20.0,
+            angular_speed_deg_per_sec=0.0,
+            target_x_cm=5.0,
+            target_y_cm=10.0,
+        )
+    )
+
+    assert motor.commands[-1] == (-15, 15)
+    assert state.left_percent == pytest.approx(-15.0)
+    assert state.right_percent == pytest.approx(15.0)
+
+
+def test_state_space_min_turn_speed_keeps_zero_command_stopped() -> None:
+    service, _ = _service()
+
+    assert service._apply_min_state_space_turn_speed(0.0) == pytest.approx(0.0)
+
+
 def test_state_space_uses_mps_after_target_heading_is_aligned(monkeypatch) -> None:
     service, _ = _service()
     captured: dict[str, float] = {}

@@ -438,6 +438,9 @@ class L2Service:
             -self._state_space_turn_in_place_max_angular_speed_deg_per_sec,
             self._state_space_turn_in_place_max_angular_speed_deg_per_sec,
         )
+        angular_speed_deg_per_sec = self._apply_min_state_space_turn_speed(
+            angular_speed_deg_per_sec
+        )
         return BodyVelocityCommand(
             linear_speed_cm_per_sec=0.0,
             angular_speed_deg_per_sec=angular_speed_deg_per_sec,
@@ -472,6 +475,29 @@ class L2Service:
             target_x_cm=command.target_x_cm,
             target_y_cm=command.target_y_cm,
         )
+
+    def _apply_min_state_space_turn_speed(self, angular_speed_deg_per_sec: float) -> float:
+        """Не давать предварительному развороту МПС попасть в мёртвую зону моторов."""
+        if abs(angular_speed_deg_per_sec) <= self.STATE_SPACE_TURN_EPSILON_DEG_PER_SEC:
+            return 0.0
+
+        min_track_speed_cm_per_sec: float = (
+            self._kinematics.left_track_max_speed_cm_per_sec
+            * self._state_space_min_moving_track_percent
+            / 100.0
+        )
+        min_angular_speed_deg_per_sec: float = math.degrees(
+            (2.0 * min_track_speed_cm_per_sec) / self._kinematics.track_width_cm
+        )
+        min_angular_speed_deg_per_sec = min(
+            min_angular_speed_deg_per_sec,
+            self._state_space_turn_in_place_max_angular_speed_deg_per_sec,
+        )
+        if abs(angular_speed_deg_per_sec) >= min_angular_speed_deg_per_sec:
+            return angular_speed_deg_per_sec
+
+        sign: float = 1.0 if angular_speed_deg_per_sec > 0.0 else -1.0
+        return sign * min_angular_speed_deg_per_sec
 
     def _normalize_angle_deg(self, angle_deg: float) -> float:
         """Нормализовать угол в диапазон [-180, 180)."""
