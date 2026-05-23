@@ -38,7 +38,7 @@ class L2StateSpaceController:
         self.t_w = max(0.01, t_w)
 
         # Штрафы состояния для Q = diag([x, y, theta, v, omega]).
-        self.Q = np.diag(q_diag or [10.0, 10.0, 5.0, 1.0, 1.0]) if SCIPY_AVAILABLE else None
+        self.Q = np.diag(q_diag or [10.0, 15.0, 8.0, 1.0, 1.0]) if SCIPY_AVAILABLE else None
 
         # Штрафы управления для R = diag([v_cmd, omega_cmd]).
         self.R = np.diag(r_diag or [1.0, 1.0]) if SCIPY_AVAILABLE else None

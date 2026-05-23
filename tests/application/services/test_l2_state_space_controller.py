@@ -30,6 +30,7 @@ def test_l2_state_space_controller_init():
     if SCIPY_AVAILABLE:
         assert controller.Q is not None
         assert controller.R is not None
+        assert controller.Q.diagonal().tolist() == [10.0, 15.0, 8.0, 1.0, 1.0]
 
 
 def test_compute_gains():

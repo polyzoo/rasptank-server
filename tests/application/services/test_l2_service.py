@@ -460,6 +460,25 @@ def test_state_space_pre_alignment_turn_keeps_small_diagonal_error_moving() -> N
     assert state.right_percent == pytest.approx(15.0)
 
 
+def test_state_space_keeps_turning_near_reverse_target_until_tightly_aligned() -> None:
+    """Для цели сзади МПС включается только после более точного разворота."""
+    service, motor = _service()
+    service.configure_state_space(enabled=True, t_v=1.0, t_w=1.0)
+    service.reset_state(heading_deg=177.0)
+
+    state = service.apply_body_velocity(
+        BodyVelocityCommand(
+            linear_speed_cm_per_sec=18.0,
+            angular_speed_deg_per_sec=0.0,
+            target_x_cm=-200.0,
+            target_y_cm=0.0,
+        )
+    )
+
+    assert motor.commands[-1] == (-15, 15)
+    assert state.state_space_target_ab is None
+
+
 def test_state_space_min_turn_speed_keeps_zero_command_stopped() -> None:
     service, _ = _service()
 
@@ -663,14 +682,16 @@ def test_state_space_builds_screenshot_state_vector_from_target(monkeypatch) -> 
         )
     )
 
-    assert captured["x_err"] == pytest.approx(0.0)
-    assert captured["y_err"] == pytest.approx(-10.17206231)
+    assert captured["x_err"] == pytest.approx(2.30769231)
+    assert captured["y_err"] == pytest.approx(-1.53846154)
     assert captured["theta_err_rad"] == pytest.approx(0.982793723, rel=1e-6)
     assert captured["v_err"] == pytest.approx(20.0)
     assert captured["omega_err_rad_per_sec"] == pytest.approx(0.0)
     assert captured["v0"] == pytest.approx(18.0)
     assert captured["real_state"] == pytest.approx((10.0, 20.0, 0.0, 0.0, 0.0))
-    assert captured["desired_state"] == pytest.approx((10.0, 9.82793723, 0.982793723, 20.0, 0.0))
+    assert captured["desired_state"] == pytest.approx(
+        (12.30769231, 18.46153846, 0.982793723, 20.0, 0.0)
+    )
     assert state.state_space_target_ab == pytest.approx((60.0, 40.0))
 
 
@@ -685,11 +706,48 @@ def test_state_space_desired_line_state_calculates_x_star_from_line() -> None:
         target_y_cm=60.0,
     )
 
-    assert desired_x_cm == pytest.approx(10.0)
-    assert desired_y_cm == pytest.approx(9.82793723)
+    assert desired_x_cm == pytest.approx(12.30769231)
+    assert desired_y_cm == pytest.approx(18.46153846)
     assert theta_des_deg == pytest.approx(56.30993247)
     assert a_cm == pytest.approx(60.0)
     assert b_cm == pytest.approx(40.0)
+
+
+def test_state_space_desired_line_state_projects_to_diagonal_target_line() -> None:
+    """Для цели 50/50 опорная линия МПС должна быть y=x, а не y=theta*x."""
+    service, _ = _service()
+    service.reset_state(x_cm=20.0, y_cm=10.0)
+    pose = service._pose_estimator.snapshot()
+
+    desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm = service._state_space_desired_line_state(
+        pose=pose,
+        target_x_cm=50.0,
+        target_y_cm=50.0,
+    )
+
+    assert desired_x_cm == pytest.approx(15.0)
+    assert desired_y_cm == pytest.approx(15.0)
+    assert theta_des_deg == pytest.approx(45.0)
+    assert a_cm == pytest.approx(50.0)
+    assert b_cm == pytest.approx(50.0)
+
+
+def test_state_space_desired_line_state_keeps_pose_for_zero_target() -> None:
+    service, _ = _service()
+    service.reset_state(x_cm=10.0, y_cm=20.0)
+    pose = service._pose_estimator.snapshot()
+
+    desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm = service._state_space_desired_line_state(
+        pose=pose,
+        target_x_cm=0.0,
+        target_y_cm=0.0,
+    )
+
+    assert desired_x_cm == pytest.approx(10.0)
+    assert desired_y_cm == pytest.approx(20.0)
+    assert theta_des_deg == pytest.approx(0.0)
+    assert a_cm == pytest.approx(0.0)
+    assert b_cm == pytest.approx(0.0)
 
 
 def test_state_space_desired_line_state_handles_vertical_line() -> None:
@@ -703,8 +761,8 @@ def test_state_space_desired_line_state_handles_vertical_line() -> None:
         target_y_cm=60.0,
     )
 
-    assert desired_x_cm == pytest.approx(10.0)
-    assert desired_y_cm == pytest.approx(15.70796327)
+    assert desired_x_cm == pytest.approx(0.0)
+    assert desired_y_cm == pytest.approx(20.0)
     assert theta_des_deg == pytest.approx(90.0)
     assert a_cm == pytest.approx(60.0)
     assert b_cm == pytest.approx(0.0)
@@ -840,6 +898,14 @@ def test_state_space_command_target_reached_returns_false_without_target() -> No
         )
         is False
     )
+
+
+def test_state_space_turn_tolerance_uses_default_without_target() -> None:
+    service, _ = _service()
+
+    assert service._state_space_turn_tolerance_deg(
+        BodyVelocityCommand(linear_speed_cm_per_sec=20.0, angular_speed_deg_per_sec=0.0)
+    ) == pytest.approx(5.0)
 
 
 def test_state_space_recomputes_after_l1_update(monkeypatch) -> None:

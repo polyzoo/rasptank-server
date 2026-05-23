@@ -32,6 +32,7 @@ class L2Service:
     DEFAULT_STATE_SPACE_MAX_TRACK_DELTA_PERCENT: ClassVar[float] = 5.0
     DEFAULT_STATE_SPACE_MIN_MOVING_TRACK_PERCENT: ClassVar[float] = 15.0
     DEFAULT_STATE_SPACE_TARGET_TOLERANCE_CM: ClassVar[float] = 2.0
+    DEFAULT_STATE_SPACE_REVERSE_TURN_TOLERANCE_DEG: ClassVar[float] = 1.0
     STATE_SPACE_TURN_EPSILON_DEG_PER_SEC: ClassVar[float] = 1e-6
     STATE_SPACE_LINE_EPSILON_CM: ClassVar[float] = 1e-6
 
@@ -430,7 +431,8 @@ class L2Service:
         if self._state_space_command_target_reached(command):
             return None
 
-        if abs(heading_error_deg) <= self._state_space_turn_in_place_heading_error_deg:
+        turn_tolerance_deg: float = self._state_space_turn_tolerance_deg(command)
+        if abs(heading_error_deg) <= turn_tolerance_deg:
             return None
 
         angular_speed_deg_per_sec: float = self._clamp(
@@ -475,6 +477,20 @@ class L2Service:
             target_x_cm=command.target_x_cm,
             target_y_cm=command.target_y_cm,
         )
+
+    def _state_space_turn_tolerance_deg(self, command: BodyVelocityCommand) -> float:
+        """Вернуть допуск входа в МПС для текущей цели."""
+        if command.target_x_cm is None or command.target_y_cm is None:
+            return self._state_space_turn_in_place_heading_error_deg
+
+        target_heading_deg = math.degrees(math.atan2(command.target_y_cm, command.target_x_cm))
+        if abs(self._normalize_angle_deg(target_heading_deg)) > 90.0:
+            return min(
+                self._state_space_turn_in_place_heading_error_deg,
+                self.DEFAULT_STATE_SPACE_REVERSE_TURN_TOLERANCE_DEG,
+            )
+
+        return self._state_space_turn_in_place_heading_error_deg
 
     def _apply_min_state_space_turn_speed(self, angular_speed_deg_per_sec: float) -> float:
         """Не давать предварительному развороту МПС попасть в мёртвую зону моторов."""
@@ -565,12 +581,15 @@ class L2Service:
         a_cm = target_y_cm
         theta_des_rad = math.atan2(a_cm, b_cm)
         theta_des_deg = math.degrees(theta_des_rad)
+        target_distance_cm = math.hypot(target_x_cm, target_y_cm)
+        if target_distance_cm <= self.STATE_SPACE_LINE_EPSILON_CM:
+            return pose.x_cm, pose.y_cm, theta_des_deg, a_cm, b_cm
 
-        desired_x_cm = pose.x_cm
-        if abs(theta_des_rad) <= self.STATE_SPACE_LINE_EPSILON_CM:
-            return desired_x_cm, 0.0, theta_des_deg, a_cm, b_cm
-
-        desired_y_cm = theta_des_rad * desired_x_cm
+        unit_x = target_x_cm / target_distance_cm
+        unit_y = target_y_cm / target_distance_cm
+        progress_cm = pose.x_cm * unit_x + pose.y_cm * unit_y
+        desired_x_cm = unit_x * progress_cm
+        desired_y_cm = unit_y * progress_cm
         return desired_x_cm, desired_y_cm, theta_des_deg, a_cm, b_cm
 
     def _limit_track_delta(self, target: TrackCommand) -> TrackCommand:
